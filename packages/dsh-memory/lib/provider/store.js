@@ -849,10 +849,16 @@ export class MemoryStore {
     return ids
   }
 
-  /** Remove every expired record across scopes; returns removed ids. */
-  purgeExpired(now = Date.now())           {
+  /**
+   * Remove every expired record across scopes; returns removed ids.
+   *
+   * `skip` 让调用方按作用域排除（0.30.0：已归档会话作用域在归档期间冻结，
+   * 过期清理不碰它们 —— 恢复会话后记忆仍在）。
+   */
+  purgeExpired(now = Date.now(), skip                                  )           {
     const removed           = []
     for (const s of this.scopes.values()) {
+      if (skip?.(s.scope)) continue
       for (const rec of [...s.records.values()]) {
         if (rec.expiredAt !== undefined && rec.expiredAt < now) {
           s.remove(rec.id)
@@ -866,10 +872,13 @@ export class MemoryStore {
   /**
    * Evict lowest-ranked records until each scope is within its cap. Ranking:
    * recency (30d half-life) × importance — keep what retrieval would favor.
+   *
+   * `skip` 与 purgeExpired 同口径：冻结的作用域不参与容量淘汰。
    */
-  enforceLimit(maxPerScope        , now = Date.now())           {
+  enforceLimit(maxPerScope        , now = Date.now(), skip                                  )           {
     const removed           = []
     for (const s of this.scopes.values()) {
+      if (skip?.(s.scope)) continue
       if (s.records.size <= maxPerScope) continue
       const ranked = [...s.records.values()]
         .map((r) => ({

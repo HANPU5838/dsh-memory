@@ -213,8 +213,13 @@ export function detectInstalled(root        , modelFile         = MODEL_FILE_NAM
  *   cuda    `-bin-win-cuda-12.4-x64.zip` / `-bin-ubuntu-cuda-12.8-x64.tar.gz` —— **还需要 cudart 伴随包**
  *   metal   macOS 构建自带 Metal，资产与 cpu 相同
  *
- * 正则一律用 `$` 锚定：同一批资产里还有 cuda/vulkan/sycl/openvino/rocm/adreno 变体，
- * 不锚定就会把 `-ubuntu-vulkan-x64.tar.gz` 之类当成 CPU 包下下来（几百 MB 白下）。
+ * 正则**首尾都要锚定**：同一批资产里还有 cuda/vulkan/sycl/openvino/rocm/adreno 变体，
+ * 首端不锚定就会误命中——`cudart-llama-bin-win-cuda-12.4-x64.zip` 和
+ * `llama-b12023-bin-win-cuda-12.4-x64.zip` 共享同一段后缀，而 release 的 assets
+ * 数组顺序**不保证**主包在前（b12023 实测 cudart 排在前面），只锚 `$` 会把 CUDA
+ * 运行库当成运行时下下来，解压后当然找不到 llama-server.exe（issue #4）。
+ * 主包一律以 `llama-` 开头（构建号写在中间，不硬编码），伴生包一律以 `cudart-`
+ * 开头，两个正则互不重叠。
  * CUDA 的次版本号写进正则是有意的：不同 CUDA 版本需要不同的 cudart 与之配对，
  * 让它们一起被选中才能保证两个包属于同一套工具链。
  */
@@ -226,12 +231,12 @@ export function runtimeAssetPattern(
   const key = `${platform}-${arch}`
   const cpu = ()         => {
     switch (key) {
-      case 'win32-x64': return /-bin-win-cpu-x64\.zip$/
-      case 'win32-arm64': return /-bin-win-cpu-arm64\.zip$/
-      case 'linux-x64': return /-bin-ubuntu-x64\.(?:zip|tar\.gz)$/
-      case 'linux-arm64': return /-bin-ubuntu-arm64\.(?:zip|tar\.gz)$/
-      case 'darwin-arm64': return /-bin-macos-arm64\.(?:zip|tar\.gz)$/
-      case 'darwin-x64': return /-bin-macos-x64\.(?:zip|tar\.gz)$/
+      case 'win32-x64': return /^llama-.*-bin-win-cpu-x64\.zip$/
+      case 'win32-arm64': return /^llama-.*-bin-win-cpu-arm64\.zip$/
+      case 'linux-x64': return /^llama-.*-bin-ubuntu-x64\.(?:zip|tar\.gz)$/
+      case 'linux-arm64': return /^llama-.*-bin-ubuntu-arm64\.(?:zip|tar\.gz)$/
+      case 'darwin-arm64': return /^llama-.*-bin-macos-arm64\.(?:zip|tar\.gz)$/
+      case 'darwin-x64': return /^llama-.*-bin-macos-x64\.(?:zip|tar\.gz)$/
       default:
         throw new Error(
           `资产匹配失败：${key}（暂不支持该平台；已支持 win32-x64 / win32-arm64 / linux-x64 / linux-arm64 / darwin-arm64 / darwin-x64）`,
@@ -241,20 +246,20 @@ export function runtimeAssetPattern(
   if (flavor === 'cpu' || flavor === 'metal') return cpu()
   if (flavor === 'vulkan') {
     switch (key) {
-      case 'win32-x64': return /-bin-win-vulkan-x64\.zip$/
-      case 'win32-arm64': return /-bin-win-vulkan-arm64\.zip$/
-      case 'linux-x64': return /-bin-ubuntu-vulkan-x64\.tar\.gz$/
-      case 'linux-arm64': return /-bin-ubuntu-vulkan-arm64\.tar\.gz$/
+      case 'win32-x64': return /^llama-.*-bin-win-vulkan-x64\.zip$/
+      case 'win32-arm64': return /^llama-.*-bin-win-vulkan-arm64\.zip$/
+      case 'linux-x64': return /^llama-.*-bin-ubuntu-vulkan-x64\.tar\.gz$/
+      case 'linux-arm64': return /^llama-.*-bin-ubuntu-vulkan-arm64\.tar\.gz$/
       // macOS 没有独立的 Vulkan 包(Metal 就是它的 GPU 路径),退回 CPU 构建。
       default: return cpu()
     }
   }
   // cuda
   switch (key) {
-    case 'win32-x64': return /-bin-win-cuda-12\.4-x64\.zip$/
-    case 'win32-arm64': return /-bin-win-cuda-13\.4-arm64\.zip$/
-    case 'linux-x64': return /-bin-ubuntu-cuda-12\.8-x64\.tar\.gz$/
-    case 'linux-arm64': return /-bin-ubuntu-cuda-13\.4-arm64\.tar\.gz$/
+    case 'win32-x64': return /^llama-.*-bin-win-cuda-12\.4-x64\.zip$/
+    case 'win32-arm64': return /^llama-.*-bin-win-cuda-13\.4-arm64\.zip$/
+    case 'linux-x64': return /^llama-.*-bin-ubuntu-cuda-12\.8-x64\.tar\.gz$/
+    case 'linux-arm64': return /^llama-.*-bin-ubuntu-cuda-13\.4-arm64\.tar\.gz$/
     default: return cpu()
   }
 }
@@ -262,9 +267,11 @@ export function runtimeAssetPattern(
 /**
  * CUDA 风味需要的伴随资产(cudart:运行时 + cuBLAS 等),没有它 llama-server 起不来。
  *
- * 注意它的命名和主包**不一致**:有的带构建号、有的不带
- * (`cudart-llama-bin-win-cuda-12.4-x64.zip` vs `cudart-llama-b11678-bin-win-cuda-13.4-x64.zip`),
- * 所以正则不能要求 `b<号>`,只能靠 cuda 次版本号把两者配对。
+ * 注意它的命名和主包**不一致**：Windows 的 cudart 包一律不带构建号
+ * （`cudart-llama-bin-win-cuda-12.4-x64.zip`），Linux 的带
+ * （`cudart-llama-b12023-bin-ubuntu-cuda-12.8-x64.tar.gz`），而且 Windows 的
+ * 13.4 也会沿用 `cudart-llama-bin-win-cuda-13.4-…` 这种无构建号形态。所以正则
+ * 不能要求 `b<号>`，只能靠 cuda 次版本号把主包与伴生包配对。
  */
 export function runtimeCompanionPattern(
   platform                 ,

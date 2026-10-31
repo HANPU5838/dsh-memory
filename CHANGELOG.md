@@ -2,6 +2,13 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.30.1 — 修复 CUDA 运行时安装把 cudart 伴生包当成主包（issue #4）
+
+- **问题（issue #4）**：面板选「CUDA（显卡）」点「下载并安装」，报「安装失败：解压完成但没找到 llama-server.exe：cudart-llama-bin-win-cuda-12.4-x64.zip 的目录结构可能变了」。根因是资产匹配正则**只锚了结尾、没锚开头**：CUDA 主包 `llama-b<构建号>-bin-win-cuda-12.4-x64.zip` 与伴生包 `cudart-llama-bin-win-cuda-12.4-x64.zip` 共享同一段 `-bin-win-cuda-12.4-x64.zip` 后缀，而 llama.cpp 的 release 资产顺序**不保证**主包在前（b12023 实测 cudart 一族排在 `llama-*` 之前）。安装器按数组顺序取第一个命中，于是把只有 cudart / cuBLAS 的伴生包当成运行时：约 267 MB 的 CUDA 主包没下，解压出来当然没有 `llama-server.exe`；随后 companion 正则又命中同一个文件，「复用」后错误信息里就出现了 cudart 包名。Linux 的 `cudart-…-bin-ubuntu-cuda-12.8-…tar.gz` 同理。
+- **修复**：`runtimeAssetPattern` 所有主包分支补开头锚定（win32 / linux / darwin × cpu / vulkan / cuda，如 `/^llama-.*-bin-win-cuda-12.4-x64\.zip$/`），伴生包保持 `/^cudart-.*…/`，两类正则从此互不重叠；构建号仍写在中间、不硬编码。只有 cudart、没有主包的发行版会走既有的「找不到风味包 → 退回 CPU 包并说明原因」分支，而不是装出一个缺 exe 的目录。
+- **已踩过坑的用户**：旧版误下的 `cudart-llama-bin-…zip` 正好就是新版要用的伴生包，重试时按「已存在，跳过下载」直接复用（不再白下约 373 MB），主包另下后两个包一起解压，`llama-server.exe` 落地即装完。
+- 测试：`test/model-install.test.ts` 用 b12023 的 38 个真实资产名做回归——cudart 排在主包前时 CUDA 主包仍选中 `llama-*`、companion 选中 `cudart-*`；4 个受支持平台组合（win32 / linux × x64 / arm64）全覆盖；名单倒序不影响结果；6 平台 × 4 风味遍历全名单验证主包 / 伴生包正则互斥。`test/embed-install.test.ts` 的正则逐字断言同步为首尾锚定，并新增**离线全流程**用例：把 cudart 放在资产列表最前，用注入 fetch 跑完「查发行版 → 下主包 + 伴生包 → 解压 → 下模型」，断言真正请求的是 `llama-*` 主包且最终 `phase=done`、`llama-server.exe` 落地（旧代码在这个用例上必红）。另用 b12023 线上 release JSON 实跑确认 win32-x64 CUDA → `llama-b12023-bin-win-cuda-12.4-x64.zip` + `cudart-llama-bin-win-cuda-12.4-x64.zip`。全套 541 tests / 540 pass / 1 skipped（`multiprocess.test.ts` 需真起子进程）。
+
 ## 0.30.0 — 会话作用域绑定会话生命周期（创建自动建 / 归档即冻结 / 恢复即复原）
 
 - **问题**：会话作用域此前只在第一次写记忆时才懒创建，且与宿主的会话生命周期完全脱节 —— 会话归档后，它的 `session:<id>` 作用域与记忆仍然"存在"，跨作用域检索、面板、`memory_get(id)` 都能碰到；恢复 / 归档也没有任何可见语义。用户想要的是：会话创建时作用域就已存在，归档时连同记忆一起冻结，恢复后原样回来。

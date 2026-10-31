@@ -29,6 +29,117 @@ const ASSETS = [
   'cudart-llama-b11678-bin-ubuntu-cuda-12.8-x64.tar.gz',
 ].map((name) => ({ name, browser_download_url: `https://example.test/${name}`, url: `https://api.test/${name}` }))
 
+/**
+ * 真实 b12023 资产名单（2026-10-31 查的 API，按 API 返回顺序逐字抄下来）。
+ * 关键事实：GitHub 对 llama.cpp 的 assets 按名字升序返回，`cudart-*` 恒排在
+ * `llama-*` 主包**之前**（扫过 700 个 release 都是如此）。主包正则若没有
+ * `^llama-` 锚定，会先命中 `cudart-llama-bin-win-cuda-12.4-x64.zip`，把 CUDA
+ * 运行库当运行时下下来，解压后找不到 llama-server.exe —— issue #4。
+ */
+const ASSETS_B12023_NAMES = [
+  'cudart-llama-b12023-bin-ubuntu-cuda-12.8-x64.tar.gz',
+  'cudart-llama-b12023-bin-ubuntu-cuda-13.4-arm64.tar.gz',
+  'cudart-llama-b12023-bin-ubuntu-cuda-13.4-x64.tar.gz',
+  'cudart-llama-bin-win-cuda-12.4-x64.zip',
+  'cudart-llama-bin-win-cuda-13.4-arm64.zip',
+  'cudart-llama-bin-win-cuda-13.4-x64.zip',
+  'llama-b12023-bin-android-arm64-snapdragon.tar.gz',
+  'llama-b12023-bin-android-arm64.tar.gz',
+  'llama-b12023-bin-linux-arm64-snapdragon.tar.gz',
+  'llama-b12023-bin-macos-arm64.tar.gz',
+  'llama-b12023-bin-macos-x64.tar.gz',
+  'llama-b12023-bin-ubuntu-26.04-s390x.tar.gz',
+  'llama-b12023-bin-ubuntu-arm64.tar.gz',
+  'llama-b12023-bin-ubuntu-cuda-12.8-x64.tar.gz',
+  'llama-b12023-bin-ubuntu-cuda-13.4-arm64.tar.gz',
+  'llama-b12023-bin-ubuntu-cuda-13.4-x64.tar.gz',
+  'llama-b12023-bin-ubuntu-openvino-2026.4.1-x64.tar.gz',
+  'llama-b12023-bin-ubuntu-rocm-10.0-x64.tar.gz',
+  'llama-b12023-bin-ubuntu-s390x.tar.gz',
+  'llama-b12023-bin-ubuntu-sycl-fp16-x64.tar.gz',
+  'llama-b12023-bin-ubuntu-sycl-fp32-x64.tar.gz',
+  'llama-b12023-bin-ubuntu-vulkan-arm64.tar.gz',
+  'llama-b12023-bin-ubuntu-vulkan-x64.tar.gz',
+  'llama-b12023-bin-ubuntu-x64.tar.gz',
+  'llama-b12023-bin-ubuntu-zdnn-s390x.tar.gz',
+  'llama-b12023-bin-win-cpu-arm64.zip',
+  'llama-b12023-bin-win-cpu-x64.zip',
+  'llama-b12023-bin-win-cuda-12.4-x64.zip',
+  'llama-b12023-bin-win-cuda-13.4-arm64.zip',
+  'llama-b12023-bin-win-cuda-13.4-x64.zip',
+  'llama-b12023-bin-win-opencl-adreno-arm64.zip',
+  'llama-b12023-bin-win-openvino-2026.4.1-x64.zip',
+  'llama-b12023-bin-win-rocm-10.0-x64.zip',
+  'llama-b12023-bin-win-sycl-x64.zip',
+  'llama-b12023-bin-win-vulkan-arm64.zip',
+  'llama-b12023-bin-win-vulkan-x64.zip',
+  'llama-b12023-ui.tar.gz',
+  'llama-b12023-xcframework.zip',
+]
+const ASSETS_B12023 = ASSETS_B12023_NAMES.map((name) => ({
+  name,
+  browser_download_url: `https://example.test/${name}`,
+  url: `https://api.test/${name}`,
+}))
+
+test('回归 issue #4：cudart 排在主包前面时，CUDA 仍必须选中 llama-*（伴生包不能当运行时）', () => {
+  assert.equal(
+    pickRuntimeAsset(ASSETS_B12023, 'win32', 'x64', 'cuda')?.name,
+    'llama-b12023-bin-win-cuda-12.4-x64.zip',
+    '主包只看 llama-*；命中 cudart-* 会解压出不满一个 llama-server.exe',
+  )
+  assert.equal(pickRuntimeCompanion(ASSETS_B12023, 'win32', 'x64', 'cuda')?.name, 'cudart-llama-bin-win-cuda-12.4-x64.zip')
+  assert.equal(pickRuntimeAsset(ASSETS_B12023, 'linux', 'x64', 'cuda')?.name, 'llama-b12023-bin-ubuntu-cuda-12.8-x64.tar.gz')
+
+  // 只有 cudart 资产时宁可不匹配（调用方会退回 CPU 包/明确报错），也不能把它当运行时。
+  const cudartOnly = ASSETS_B12023.filter((asset) => asset.name.startsWith('cudart-'))
+  assert.equal(pickRuntimeAsset(cudartOnly, 'win32', 'x64', 'cuda'), null)
+  assert.equal(pickRuntimeAsset(cudartOnly, 'linux', 'x64', 'cuda'), null)
+})
+
+test('CUDA 四种受支持平台组合都只挑 llama-* 主包（b12023 真实名单）', () => {
+  const cases: Array<[NodeJS.Platform, string, string, string]> = [
+    ['win32', 'x64', 'llama-b12023-bin-win-cuda-12.4-x64.zip', 'cudart-llama-bin-win-cuda-12.4-x64.zip'],
+    ['win32', 'arm64', 'llama-b12023-bin-win-cuda-13.4-arm64.zip', 'cudart-llama-bin-win-cuda-13.4-arm64.zip'],
+    ['linux', 'x64', 'llama-b12023-bin-ubuntu-cuda-12.8-x64.tar.gz', 'cudart-llama-b12023-bin-ubuntu-cuda-12.8-x64.tar.gz'],
+    ['linux', 'arm64', 'llama-b12023-bin-ubuntu-cuda-13.4-arm64.tar.gz', 'cudart-llama-b12023-bin-ubuntu-cuda-13.4-arm64.tar.gz'],
+  ]
+  for (const [platform, arch, main, companion] of cases) {
+    assert.equal(pickRuntimeAsset(ASSETS_B12023, platform, arch, 'cuda')?.name, main, `${platform}-${arch} 主包`)
+    assert.equal(pickRuntimeCompanion(ASSETS_B12023, platform, arch, 'cuda')?.name, companion, `${platform}-${arch} 伴生包`)
+    assert.notEqual(main, companion, '主包与伴生包必须是两个不同的资产')
+  }
+})
+
+test('资产顺序不影响选择：b12023 名单倒过来也一样', () => {
+  const reversed = [...ASSETS_B12023].reverse()
+  assert.equal(pickRuntimeAsset(reversed, 'win32', 'x64', 'cuda')?.name, 'llama-b12023-bin-win-cuda-12.4-x64.zip')
+  assert.equal(pickRuntimeCompanion(reversed, 'win32', 'x64', 'cuda')?.name, 'cudart-llama-bin-win-cuda-12.4-x64.zip')
+  assert.equal(pickRuntimeAsset(reversed, 'linux', 'arm64', 'cuda')?.name, 'llama-b12023-bin-ubuntu-cuda-13.4-arm64.tar.gz')
+})
+
+test('主包 / 伴生包正则互斥：b12023 全名单 × 6 平台 × 4 风味不互相误命中', () => {
+  const combos: Array<[NodeJS.Platform, string]> = [
+    ['win32', 'x64'], ['win32', 'arm64'],
+    ['linux', 'x64'], ['linux', 'arm64'],
+    ['darwin', 'arm64'], ['darwin', 'x64'],
+  ]
+  const flavors = ['cpu', 'vulkan', 'cuda', 'metal'] as const
+  for (const [platform, arch] of combos) {
+    for (const flavor of flavors) {
+      const main = pickRuntimeAsset(ASSETS_B12023, platform, arch, flavor)
+      const companion = pickRuntimeCompanion(ASSETS_B12023, platform, arch, flavor)
+      if (main !== null) {
+        assert.ok(main.name.startsWith('llama-'), `${platform}-${arch} ${flavor} 主包误选 ${main.name}`)
+      }
+      if (companion !== null) {
+        assert.ok(companion.name.startsWith('cudart-'), `${platform}-${arch} ${flavor} 伴生包误选 ${companion.name}`)
+        assert.notEqual(main?.name, companion.name, `${platform}-${arch} ${flavor} 主包与伴生包撞成同一个资产`)
+      }
+    }
+  }
+})
+
 test('CPU 风味挑通用包,绝不误选 vulkan/cuda/openvino', () => {
   assert.equal(pickRuntimeAsset(ASSETS, 'win32', 'x64', 'cpu')?.name, 'llama-b11678-bin-win-cpu-x64.zip')
   assert.equal(pickRuntimeAsset(ASSETS, 'linux', 'x64', 'cpu')?.name, 'llama-b11678-bin-ubuntu-x64.tar.gz')

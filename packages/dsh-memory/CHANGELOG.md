@@ -2,6 +2,23 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.30.1 — 修复 CUDA 运行时安装把 cudart 伴生包当成主包（issue #4）
+
+- **问题（issue #4）**：面板选「CUDA（显卡）」点「下载并安装」，报「安装失败：解压完成但没找到 llama-server.exe：cudart-llama-bin-win-cuda-12.4-x64.zip 的目录结构可能变了」。根因是资产匹配正则**只锚了结尾、没锚开头**：CUDA 主包 `llama-b<构建号>-bin-win-cuda-12.4-x64.zip` 与伴生包 `cudart-llama-bin-win-cuda-12.4-x64.zip` 共享同一段 `-bin-win-cuda-12.4-x64.zip` 后缀，而 llama.cpp 的 release 资产顺序**不保证**主包在前（b12023 实测 cudart 一族排在 `llama-*` 之前）。安装器按数组顺序取第一个命中，于是把只有 cudart / cuBLAS 的伴生包当成运行时：约 267 MB 的 CUDA 主包没下，解压出来当然没有 `llama-server.exe`；随后 companion 正则又命中同一个文件，「复用」后错误信息里就出现了 cudart 包名。Linux 的 `cudart-…-bin-ubuntu-cuda-12.8-…tar.gz` 同理。
+- **修复**：`runtimeAssetPattern` 所有主包分支补开头锚定（win32 / linux / darwin × cpu / vulkan / cuda，如 `/^llama-.*-bin-win-cuda-12.4-x64\.zip$/`），伴生包保持 `/^cudart-.*…/`，两类正则从此互不重叠；构建号仍写在中间、不硬编码。只有 cudart、没有主包的发行版会走既有的「找不到风味包 → 退回 CPU 包并说明原因」分支，而不是装出一个缺 exe 的目录。
+- **已踩过坑的用户**：旧版误下的 `cudart-llama-bin-…zip` 正好就是新版要用的伴生包，重试时按「已存在，跳过下载」直接复用（不再白下约 373 MB），主包另下后两个包一起解压，`llama-server.exe` 落地即装完。
+- 测试：`test/model-install.test.ts` 用 b12023 的 38 个真实资产名做回归——cudart 排在主包前时 CUDA 主包仍选中 `llama-*`、companion 选中 `cudart-*`；4 个受支持平台组合（win32 / linux × x64 / arm64）全覆盖；名单倒序不影响结果；6 平台 × 4 风味遍历全名单验证主包 / 伴生包正则互斥。`test/embed-install.test.ts` 的正则逐字断言同步为首尾锚定，并新增**离线全流程**用例：把 cudart 放在资产列表最前，用注入 fetch 跑完「查发行版 → 下主包 + 伴生包 → 解压 → 下模型」，断言真正请求的是 `llama-*` 主包且最终 `phase=done`、`llama-server.exe` 落地（旧代码在这个用例上必红）。另用 b12023 线上 release JSON 实跑确认 win32-x64 CUDA → `llama-b12023-bin-win-cuda-12.4-x64.zip` + `cudart-llama-bin-win-cuda-12.4-x64.zip`。全套 541 tests / 540 pass / 1 skipped（`multiprocess.test.ts` 需真起子进程）。
+
+## 0.30.0 — 会话作用域绑定会话生命周期（创建自动建 / 归档即冻结 / 恢复即复原）
+
+- **问题**：会话作用域此前只在第一次写记忆时才懒创建，且与宿主的会话生命周期完全脱节 —— 会话归档后，它的 `session:<id>` 作用域与记忆仍然"存在"，跨作用域检索、面板、`memory_get(id)` 都能碰到；恢复 / 归档也没有任何可见语义。用户想要的是：会话创建时作用域就已存在，归档时连同记忆一起冻结，恢复后原样回来。
+- **创建**：`provider/apply.ts` 订阅宿主 `session/created`（顶层会话；子 Agent 沿用父会话作用域），调用新增的 `ensureSessionScope(sessionId)` —— 只写 `scope-meta`（用途：「会话作用域：仅本会话可见的过程记忆；随会话归档与恢复（系统自动创建）」/ `createdBy: system` / `status: ready`），**不写任何记忆**，幂等、不覆盖用户改过的用途。监听器全程 try/catch：`session/created` 抛错会回滚会话创建，记忆侧失败绝不能影响宿主。启动时 `ctx.inject(['sessions'])` 给已存在的会话补建。
+- **归档 = 冻结（实时判定，不复制状态）**：`LocalMemoryService.setArchivedSessionLookup()` 注入对宿主 `workspaceRegistry.archivedSessionIds` 的**实时**读取（不缓存、不落盘）。`authorize()` 新增 `archivedScopes` 上下文：归档作用域 `discover` 仍允许（目录/面板要能看出「已归档」），`read` / `write` / `delete` 一律 `SCOPE_ARCHIVED`（`requestable=false`，没有审批放行路径）。`search` / `list` / `listSync` / `getByIds` 直接跳过归档作用域 —— 不是过滤结果，而是根本不加载它的 store，所以恢复时无需重建索引。
+- **归档期间不清理**：小时级 housekeeping（过期记录清理 + 容量淘汰）与 dispose 时的清理都跳过归档作用域（新增 `runHousekeeping()` 作为定时器与测试共用的入口）；数据文件 `.jsonl` / `.vec` 原样保留。
+- **目录与面板**：`scopeCatalog` 每项新增 `archived?: boolean`，`accessStatus` 新增 `'archived'`；归档作用域的 `records` 仍返回（归档不是权限边界，条数可见），`readable/writable/canRequest*` 恒 false。`memory_scopes` 渲染成「N 条 · 已归档 · 恢复会话后自动恢复读写」；面板「记录 → 作用域」每行显示「已归档」徽标（`/status` 透传 `archived`）。
+- **恢复**：宿主归档集合移除该 id 后，下一次判定就恢复正常 —— `search` / `list` / `getByIds` 立即可用，`memory_get` 按原 id 可取，`authorize` 回到普通策略。没有任何"恢复动作"需要执行。
+- 测试：新增 `source/memory-local/test/session-archive.test.ts`（3 个用例：自动创建与幂等 / 归档冻结与恢复复原 / 冻结期间不清理），覆盖 `search`、`listSync`、`getByIds`、`authorize`、`scopeCatalog`、`save` 拒绝与数据文件保留；全套本地 / 工具 / 注入 / 面板测试通过（`multiprocess.test.ts` 需真起子进程，在受限沙箱里 EPERM，与本改动无关）。
+
 ## 0.29.0 — 作用域用途 / 别名可编辑（用户 + Agent）
 
 - **问题**：0.28.0 之后「作用域用途」成了检索范围外清单里唯一的信息来源，但它**只能写不能改**——Agent 想补一句用途只能靠 `memory_save` 的 `scopeDescription`（还要顺带写一条记忆），面板则完全没有编辑入口；别名更只在 `memory_save({ path })` 那一瞬间能设，设错了只能改文件。于是第一次随手写的用途会一直错下去。

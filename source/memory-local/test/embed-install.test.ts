@@ -231,6 +231,64 @@ function buildRuntimeFixture(): RuntimeFixture {
   }
 }
 
+interface CudaFixture {
+  main: RuntimeFixture
+  companion: { name: string; bytes: Buffer }
+  /** 与真实 API 一致：assets 按名字升序返回，`cudart-*` 恒排在 `llama-*` 之前。 */
+  assets: Array<{ name: string; browser_download_url: string }>
+}
+
+/**
+ * 造一套 CUDA 风味夹具：主包（含 llama-server）+ cudart 伴生包（只有 dll，没有 exe）。
+ *
+ * 资产顺序**照抄真实 API**：`cudart-*` 按字典序排在 `llama-*` 主包之前（b11012–b12023
+ * 共 700 个 release 全是如此）。旧版主包正则只锚结尾时，会先命中伴生包，解压后
+ * 找不到 llama-server.exe —— issue #4。macOS 没有 CUDA 构建（风味退回 CPU），返回 null。
+ */
+function buildCudaFixture(): CudaFixture | null {
+  if (process.platform !== 'win32' && process.platform !== 'linux') return null
+  const arch = process.arch === 'arm64' ? 'arm64' : 'x64'
+  const cuda = arch === 'arm64' ? '13.4' : process.platform === 'linux' ? '12.8' : '12.4'
+  const suffix = process.platform === 'win32' ? 'win' : 'ubuntu'
+  const ext = process.platform === 'win32' ? 'zip' : 'tar.gz'
+  const exe = process.platform === 'win32' ? 'llama-server.exe' : 'llama-server'
+  const mainName = `llama-b19999-bin-${suffix}-cuda-${cuda}-${arch}.${ext}`
+  const companionName = process.platform === 'win32'
+    ? `cudart-llama-bin-win-cuda-${cuda}-${arch}.zip`
+    : `cudart-llama-b19999-bin-ubuntu-cuda-${cuda}-${arch}.tar.gz`
+  // 干扰项必须与要选的伴生包 cuda 次版本不同，否则它自己就会成为第一个命中。
+  const decoyCuda = cuda === '12.4' ? '13.4' : '12.4'
+
+  const mainBytes = process.platform === 'win32'
+    ? buildZip([
+        { name: exe, data: Buffer.from('llama-server-shim') },
+        { name: 'llama-server-impl.dll', data: Buffer.alloc(4096, 5), method: 8 },
+        { name: 'ggml-cuda.dll', data: Buffer.alloc(4096, 6), method: 8 },
+      ])
+    : gzipSync(buildTar([
+        { name: 'llama-b19999/', type: '5' },
+        { name: `llama-b19999/${exe}`, data: Buffer.from('llama-server-bin'), mode: 0o755 },
+        { name: 'llama-b19999/llama-server-impl.so', data: Buffer.alloc(4096, 5), mode: 0o755 },
+      ]))
+  // 真实 cudart 包里只有 cudart / cuBLAS 的 dll，没有任何 llama-server*。
+  const companionDlls = ['cudart64_12.dll', 'cublas64_12.dll', 'cublasLt64_12.dll']
+  const companionBytes = process.platform === 'win32'
+    ? buildZip(companionDlls.map((name) => ({ name, data: Buffer.alloc(512, 7) })))
+    : gzipSync(buildTar(companionDlls.map((name) => ({ name, data: Buffer.alloc(512, 7) }))))
+
+  return {
+    main: { name: mainName, bytes: mainBytes },
+    companion: { name: companionName, bytes: companionBytes },
+    assets: [
+      { name: `cudart-llama-bin-win-cuda-${decoyCuda}-${arch}.zip`, browser_download_url: 'https://example.invalid/decoy' },
+      { name: companionName, browser_download_url: 'https://example.invalid/companion' },
+      { name: `llama-b19999-bin-${suffix}-cpu-${arch}.${ext}`, browser_download_url: 'https://example.invalid/cpu' },
+      { name: `llama-b19999-bin-${suffix}-vulkan-${arch}.${ext}`, browser_download_url: 'https://example.invalid/vulkan' },
+      { name: mainName, browser_download_url: 'https://example.invalid/main' },
+    ],
+  }
+}
+
 /** 不依赖被测代码的第二实现：只读 zip 中央目录，供交叉核对。 */
 function declaredZipEntries(buf: Buffer): Map<string, { usize: number; csize: number; offset: number; method: number }> {
   let eocd = -1
@@ -474,14 +532,14 @@ test('tar.gz：`../` 穿越条目同样被拒绝', () => {
 
 // ────────────────────────── 平台资产匹配 ──────────────────────────
 
-test('平台 → 资产正则：只认 CPU 包，不误选 cuda/vulkan', () => {
+test('平台 → 资产正则：只认 CPU 包，不误选 cuda/vulkan/cudart', () => {
   const cases: Array<[NodeJS.Platform, string, RegExp]> = [
-    ['win32', 'x64', /-bin-win-cpu-x64\.zip$/],
-    ['win32', 'arm64', /-bin-win-cpu-arm64\.zip$/],
-    ['linux', 'x64', /-bin-ubuntu-x64\.(?:zip|tar\.gz)$/],
-    ['linux', 'arm64', /-bin-ubuntu-arm64\.(?:zip|tar\.gz)$/],
-    ['darwin', 'arm64', /-bin-macos-arm64\.(?:zip|tar\.gz)$/],
-    ['darwin', 'x64', /-bin-macos-x64\.(?:zip|tar\.gz)$/],
+    ['win32', 'x64', /^llama-.*-bin-win-cpu-x64\.zip$/],
+    ['win32', 'arm64', /^llama-.*-bin-win-cpu-arm64\.zip$/],
+    ['linux', 'x64', /^llama-.*-bin-ubuntu-x64\.(?:zip|tar\.gz)$/],
+    ['linux', 'arm64', /^llama-.*-bin-ubuntu-arm64\.(?:zip|tar\.gz)$/],
+    ['darwin', 'arm64', /^llama-.*-bin-macos-arm64\.(?:zip|tar\.gz)$/],
+    ['darwin', 'x64', /^llama-.*-bin-macos-x64\.(?:zip|tar\.gz)$/],
   ]
   for (const [platform, arch, expected] of cases) {
     assert.equal(String(runtimeAssetPattern(platform, arch)), String(expected), `${platform}-${arch}`)
@@ -494,6 +552,8 @@ test('平台 → 资产正则：只认 CPU 包，不误选 cuda/vulkan', () => {
     'llama-b11541-bin-win-cuda-12.4-x64.zip',
     'llama-b11541-bin-win-vulkan-x64.zip',
     'llama-b11541-bin-win-cpu-x64.zip',
+    // 伴生包与 CUDA 主包共享后缀，绝不能当成运行时（issue #4）
+    'cudart-llama-bin-win-cuda-12.4-x64.zip',
   ]
   const win = pickRuntimeAsset(realNames.map((name) => ({ name, browser_download_url: `https://x/${name}` })), 'win32', 'x64')
   assert.equal(win?.name, 'llama-b11541-bin-win-cpu-x64.zip')
@@ -616,6 +676,46 @@ test('完整流程：查发行版 → 下运行时 → 解压 → 下模型 → 
     assert.ok(lastModel !== undefined)
     assert.equal(lastModel.receivedBytes, modelBytes.length, '模型字节数累加正确')
     assert.equal(lastModel.totalBytes, modelBytes.length)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('回归 issue #4：cudart 资产排在主包前面时，CUDA 安装仍下 llama-* 主包并装完', async (t) => {
+  if (!hostSupported()) {
+    t.skip(`宿主平台 ${process.platform}-${process.arch} 不在支持列表，跳过`)
+    return
+  }
+  const fixture = buildCudaFixture()
+  if (fixture === null) {
+    t.skip('该平台没有 CUDA 构建（macOS 的 GPU 路径是 Metal），不涉及 cudart 伴生包')
+    return
+  }
+  const root = tempDir('dsh-install-cuda-')
+  try {
+    const paths = installPaths(root)
+    const modelBytes = Buffer.alloc(128 * 1024, 9)
+    const calls: string[] = []
+    const fetchImpl = fakeFetch((url) => {
+      calls.push(url)
+      if (url.includes('api.github.com')) return jsonResponse([{ assets: fixture.assets }])
+      if (url === 'https://example.invalid/main') return streamResponse([fixture.main.bytes], fixture.main.bytes.length)
+      if (url === 'https://example.invalid/companion') return streamResponse([fixture.companion.bytes], fixture.companion.bytes.length)
+      if (url.includes(MODEL_FILE_NAME)) return streamResponse([modelBytes], modelBytes.length)
+      return new Response('unexpected', { status: 404 })
+    })
+    const installer = new VectorInstaller({ root, fetchImpl, flavor: 'cuda' })
+
+    installer.start()
+    await waitFor(() => installer.progress.phase === 'done' || installer.progress.phase === 'error', 'CUDA 安装结束')
+
+    assert.equal(installer.progress.phase, 'done', installer.progress.error ?? installer.progress.message)
+    assert.ok(calls.includes('https://example.invalid/main'), '必须下载 llama-* 主包（旧版在这里误下 cudart，解压后没有 exe）')
+    assert.ok(calls.includes('https://example.invalid/companion'), 'cudart 伴生包也要下')
+    assert.ok(existsSync(paths.exe), 'llama-server 落地')
+    assert.ok(existsSync(join(paths.dir, fixture.main.name)), '主包压缩包留在运行时目录（重试可复用）')
+    assert.ok(existsSync(join(paths.dir, fixture.companion.name)), '伴生包压缩包留在运行时目录（重试可复用）')
+    assert.ok(detectInstalled(root) !== null, '装完 detectInstalled 认可')
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

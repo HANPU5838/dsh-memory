@@ -622,6 +622,7 @@ npm run verify  # 构建到 .verify/，不落 packages/
 
 ## 更新日志
 
+- **0.30.1** —— 修复 CUDA 运行时安装误选伴生包（issue #4）：`runtimeAssetPattern` 的主包正则补上开头锚定 `^llama-`（此前只锚结尾，release 资产顺序一变就会把共享后缀的 `cudart-llama-…` 当成运行时，解压后找不到 `llama-server.exe`）；伴生包仍只认 `^cudart-`，只有 cudart 的发行版会退回 CPU 包而不是装出缺 exe 的目录；已误下 cudart 的用户重试时该文件会直接复用为伴生包。
 - **0.30.0** —— 会话作用域绑定会话生命周期：会话创建时系统自动建立会话作用域（`ensureSessionScope`，只写 `scope-meta`，`createdBy: system`，幂等且不写记忆）；会话归档后该作用域与记忆**冻结**——`search` / `list` / `listSync` / `getByIds` 全部跳过，授权统一返回 `SCOPE_ARCHIVED`（不可申请、无审批路径），目录与面板标「已归档」，归档期间小时级过期清理与容量淘汰也跳过它；取消归档后自动复原（实时读宿主 `workspaceRegistry.archivedSessionIds`，不复制、不缓存，数据文件一个字节不动）。`memory_scopes` 目录项新增 `archived` 与 `accessStatus='archived'`；面板作用域行显示「已归档」徽标；`session/created` 监听失败绝不回滚会话创建，启动时给已存在的会话补建。
 - **0.29.0** —— 作用域用途 / 别名可编辑：`memory_scopes` 新增 `action="edit"`（`scope` + `scopeDescription?` / `scopeName?`，空串分别表示清空用途 / 移除别名，至少给一个，需要该作用域可写，范围外先走 `request` 申请写权限）；面板「记录 → 作用域」每行新增「编辑」，用途编辑框只预填手写的那句，默认描述不预填；`describeScope` 的空描述从报错改为**清空**（保留元数据与 generation，目录回退按类型默认描述），新增 `renameScope`（项目 / 自定义作用域可设别名，global / session 拒绝，重名 `SCOPE_NAME_TAKEN`）；`/memory/api/status` 新增 `descriptionSource`（custom / default）与别名 `name`，新增 `POST /memory/api/scope-meta`。
 - **0.28.0** —— 范围外命中只列作用域：`memory_search` 的 `outOfScope` 去掉条目索引（id / score / 标签 / 短摘要），改为只给命中的作用域、各几条、`description`（作用域用途，`scope-meta` 手写优先、没写过按类型补默认描述）与 `requestable`（该域能否走审批）；渲染成「名称（条数 · 可申请性）：用途」的独立清单，不再重复 `withheld` 说明。面板「记录」页新增「记忆 / 作用域」两个子标签页，作用域页展示名称、用途、条数、待嵌入与最近更新，可一键跳到该域的记忆列表；`/memory/api/status` 每项新增 `description`（无记录但写过用途的作用域也列出）。

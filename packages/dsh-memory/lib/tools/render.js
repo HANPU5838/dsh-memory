@@ -206,7 +206,10 @@ export function renderScopesResult(value                  , label            )  
       : '（未填写用途）'
     const meta           = []
     if (item.records !== undefined) meta.push(`${item.records} 条`)
-    if (item.inScope) {
+    if (item.archived === true) {
+      // 0.30.0：归档不是权限拒绝，而是会话生命周期 —— 数据仍在，恢复会话即复原。
+      meta.push('已归档 · 恢复会话后自动恢复读写')
+    } else if (item.inScope) {
       meta.push(item.accessStatus === 'default'
         ? '范围内'
         : item.accessStatus === 'read-only'

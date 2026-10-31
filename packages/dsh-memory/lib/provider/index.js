@@ -575,8 +575,13 @@ export function resolveConfig(config                    = {})                 {
                    
                          
                           
-                                                                                     
+                                                                                                  
                    
+     
+                                            
+                        
+     
+                    
      
                                                              
                                            
@@ -736,6 +741,11 @@ export class LocalMemoryService                             {
    * 宿主侧 apply.ts 注入;旧宿主 / 测试里没有时退化为只看当前会话。
    */
           sessionLookup                                       
+  /**
+   * 宿主归档会话查询（0.30.0）：`workspaceRegistry.archivedSessionIds` 的惰性读取。
+   * 宿主侧 apply.ts 注入；没有时按「没有归档」处理（纯本地 / 测试环境）。
+   */
+          archivedLookup                                                   
   /** 注入半边的审计收集器(可选;没有注入半边时保持 null)。 */
           injectAuditSink   
                                       
@@ -918,9 +928,12 @@ export class LocalMemoryService                             {
     const visibleFilter = input.agent !== undefined ? this.visibilityFilterFor(input.agent) : undefined
     const seen = new Set             ()
     const stores               = []
+    const archivedScopes = this.archivedSessionScopes()
     for (const scope of wanted) {
       if (seen.has(scope)) continue
       seen.add(scope)
+      // 0.30.0：归档会话作用域在归档期间不参与枚举 / 注入。
+      if (archivedScopes.has(scope)) continue
       const s = this.store.peek(scope)
       if (s) stores.push(s)
     }
@@ -1341,6 +1354,19 @@ export class LocalMemoryService                             {
   }
 
   /**
+   * 过期清理 + 容量淘汰（小时定时器与测试共用）。
+   *
+   * 0.30.0：归档会话作用域在归档期间**冻结** —— 过期与容量都不碰它们，
+   * 恢复会话后记忆原样回来；恢复后下一次 housekeeping 再按原规则清理。
+   */
+  runHousekeeping()                                          {
+    const frozen = (scope        )          => this.isArchivedSessionScope(scope)
+    const purged = this.store.purgeExpired(Date.now(), frozen)
+    const evicted = this.store.enforceLimit(this.cfg.maxRecordsPerScope, Date.now(), frozen)
+    return { purged, evicted }
+  }
+
+  /**
    * Hourly expired-record purge + capacity eviction. M4 housekeeping; the
    * timer is unref'd so it never holds the process open, and cleared by
    * flushSync()/dispose.
@@ -1349,8 +1375,7 @@ export class LocalMemoryService                             {
 
           startMaintenance()       {
     this.maintenanceTimer = setInterval(() => {
-      this.store.purgeExpired()
-      this.store.enforceLimit(this.cfg.maxRecordsPerScope)
+      this.runHousekeeping()
       this.store.scheduleFlush(0)
     }, 3_600_000)
     this.maintenanceTimer.unref?.()
@@ -1533,11 +1558,77 @@ export class LocalMemoryService                             {
     this.sessionLookup = lookup
   }
 
+  /**
+   * 宿主注入归档会话查询（0.30.0）。每次判定都实时读取，不缓存：
+   * 归档/恢复是宿主 `workspaceRegistry` 的持久状态，读它才能保证
+   * 「归档后检索不到、恢复后立刻能检索」与宿主的会话生命周期一致。
+   * 服务未就绪 / 老宿主拿不到时按「没有归档」处理。
+   */
+  setArchivedSessionLookup(lookup                                                   )       {
+    this.archivedLookup = lookup
+  }
+
+  /** 宿主当前归档的会话 id 集合（实时读取；容错为空集合）。 */
+  archivedSessionIds()              {
+    const out = new Set        ()
+    if (this.archivedLookup === undefined) return out
+    try {
+      const ids = this.archivedLookup()
+      if (Array.isArray(ids)) {
+        for (const id of ids) {
+          if (typeof id === 'string' && id !== '') out.add(id)
+        }
+      }
+    } catch {
+      // 宿主服务未就绪：当作没有归档，绝不能因为生命周期查询失败而让检索挂掉。
+    }
+    return out
+  }
+
+  /** 已归档的**会话作用域键**集合（`session:<id>`）。 */
+          archivedSessionScopes()              {
+    const out = new Set        ()
+    for (const id of this.archivedSessionIds()) out.add(`session:${id}`)
+    return out
+  }
+
+  /** 这个作用域是否是已归档会话的作用域（只有 session: 键会命中）。 */
+  isArchivedSessionScope(scope        )          {
+    if (typeof scope !== 'string' || !scope.startsWith('session:')) return false
+    return this.archivedSessionIds().has(scope.slice('session:'.length))
+  }
+
+  /**
+   * 会话创建时**系统自动建立**会话作用域（0.30.0）。
+   *
+   * 只写 scope-meta（用途 + 创建者 system），不写任何记忆记录；用户 / Agent
+   * 之后的第一条 `memory_save` 仍走原来的懒创建路径。已有元数据（用户改过用途、
+   * 或之前保存过）时不覆盖。会话作用域类型被关闭时不动。
+   *
+   * @returns 是否新建了元数据。
+   */
+  ensureSessionScope(sessionId        )          {
+    const id = typeof sessionId === 'string' ? sessionId.trim() : ''
+    if (id === '' || !this.cfg.sessionEnabled) return false
+    const scope = `session:${id}`               
+    if (this.meta.get(scope) !== undefined) return false
+    this.meta.put(scope, {
+      description: '会话作用域：仅本会话可见的过程记忆；随会话归档与恢复（系统自动创建）。',
+      createdBy: 'system',
+      status: 'ready',
+    })
+    return true
+  }
+
   /** 只保留当前配置允许的 scope(覆盖集合里若含被禁用的 scope,静默剔除)。 */
           filterEnabledRules(rules                           )                   {
     const out                   = []
+    // 已归档会话的作用域不在「可见域」里：用户归档前勾选过也一并剔除，
+    // 恢复会话后规则会自动重新生效（规则本身没被改写）。
+    const archived = this.archivedSessionScopes()
     for (const raw of rules) {
       const scope = this.canonicalScope(raw.scope)
+      if (archived.has(scope)) continue
       if (out.some((rule) => rule.scope === scope)) continue
       switch (scopeKind(scope)) {
         case 'global': if (!this.cfg.globalEnabled) continue; break
@@ -1669,7 +1760,9 @@ export class LocalMemoryService                             {
   /** 没有显式覆盖时的默认可见域范围(基础三路 + 工作区绑定的额外作用域)。 */
           defaultReadScopes(agent         )                {
     const out = this.baseDefaultScopes(agent)
+    const archived = this.archivedSessionScopes()
     const push = (scope             )       => {
+      if (archived.has(scope)) return
       if (out.includes(scope)) return
       out.push(scope)
     }
@@ -1756,6 +1849,7 @@ export class LocalMemoryService                             {
       },
       originOf: (scope) => scopeKind(scope),
       grants: this.validGrants(agent),
+      archivedScopes: this.archivedSessionScopes(),
     }
   }
 
@@ -2361,6 +2455,8 @@ export class LocalMemoryService                             {
     const decision = this.authorize(agent, { scope, action: 'write' })
     if (decision.allowed) return
     switch (decision.reason) {
+      case 'SCOPE_ARCHIVED':
+        throw memoryError('SCOPE_ARCHIVED', `作用域 ${scope} 所属的会话已归档：作用域与记忆被冻结，恢复会话后即可继续读写。`)
       case 'WRITE_DISABLED':
         throw memoryError('SCOPE_READ_ONLY', `作用域 ${scope} 在本会话记忆范围里被标记为「不可写」（可读/可写按钮），本次写入/删除没有执行。如需写入，请让用户打开该作用域的「可写」状态。`)
       case 'SCOPE_DISABLED':
@@ -2636,9 +2732,13 @@ export class LocalMemoryService                             {
         : [this.defaultProjectScope, 'global']).map((scope) => this.canonicalScope(scope))
     const stores                                                                 = []
     const seen = new Set             ()
+    const archivedScopes = this.archivedSessionScopes()
     for (const scope of wanted) {
       if (seen.has(scope)) continue // 按 scope key 去重(也顺手消掉 defaultScope==='global' 时的重复 push)
       seen.add(scope)
+      // 0.30.0：归档会话作用域在归档期间**完全不参与检索** —— 连词法/向量候选都不进，
+      // 这样恢复会话后不需要重建任何索引，记忆原样回来。
+      if (archivedScopes.has(scope)) continue
       const store = this.store.peek(scope)
       if (!store) continue
       stores.push({ store, scope, isGlobal: scope === 'global' })
@@ -2908,9 +3008,11 @@ export class LocalMemoryService                             {
         : [this.defaultProjectScope]).map((scope) => this.canonicalScope(scope))
     const seen = new Set             ()
     const stores               = []
+    const archivedScopes = this.archivedSessionScopes()
     for (const scope of wanted) {
       if (seen.has(scope)) continue
       seen.add(scope)
+      if (archivedScopes.has(scope)) continue
       const store = this.store.peek(scope)
       if (store) stores.push(store)
     }
@@ -2937,11 +3039,13 @@ export class LocalMemoryService                             {
   getByIds(ids          )                 {
     this.discoverScopes()
     const scopes = this.store.allScopes()
+    const archivedScopes = this.archivedSessionScopes()
     const out                 = []
     const seen = new Set        ()
     for (const token of ids) {
       if (typeof token !== 'string' || token.length === 0) continue
       for (const s of scopes) {
+        if (archivedScopes.has(s.scope)) continue
         for (const rec of s.records.values()) {
           if (seen.has(rec.id)) continue
           if (rec.id === token || rec.id.startsWith(token)) {
@@ -3266,8 +3370,9 @@ export class LocalMemoryService                             {
    * 漏掉别的进程(上一次会话、另一个 agent)写下的作用域。
    * 排序键是"最近活跃"(`updatedAt`):面板据此只给最近活跃的前 N 个会话 scope 查标题。
    */
-  scopeStats()                                                                                                          {
+  scopeStats()                                                                                                                              {
     this.discoverScopes()
+    const archived = this.archivedSessionScopes()
     return this.store.allScopes()
       .map((s) => ({
         scope: s.scope,
@@ -3275,6 +3380,7 @@ export class LocalMemoryService                             {
         records: s.records.size,
         pendingEmbeds: s.embedPending.size,
         updatedAt: [...s.records.values()].reduce((max, r) => Math.max(max, r.updatedAt), 0),
+        ...(archived.has(s.scope) ? { archived: true } : {}),
       }))
       .sort((a, b) => b.updatedAt - a.updatedAt || b.records - a.records || a.scope.localeCompare(b.scope))
   }
@@ -3323,6 +3429,7 @@ export class LocalMemoryService                             {
 
     const out                      = []
     const evaluate = this.accessEvaluator(agent)
+    const archivedScopes = this.archivedSessionScopes()
     for (const scope of keys) {
       // 目录发现本身也是一条授权判定：作用域类型被关闭时连名字/用途都不出现。
       if (!evaluate({ scope, action: 'discover' }).allowed) continue
@@ -3333,28 +3440,33 @@ export class LocalMemoryService                             {
       // 别的会话的 session scope 默认不进目录：它们没有用途、也不该被 Agent 主动申请，
       // 全列出来只会把目录变成历史会话列表。有元数据（被人描述过）则保留。
       if (!inScope && meta === undefined && scopeKind(scope) === 'session') continue
+      // 0.30.0：归档会话的作用域保留在目录里，但读写/申请全部冻结 —— 这不是权限
+      // 边界，而是会话生命周期：恢复会话后自动复原，不需要任何额外操作。
+      const archived = archivedScopes.has(scope)
       const readDecision = evaluate({ scope, action: 'read' })
       const writeDecision = evaluate({ scope, action: 'write' })
-      const readable = readDecision.allowed
-      const writable = writeDecision.allowed
+      const readable = !archived && readDecision.allowed
+      const writable = !archived && writeDecision.allowed
       // 只有“整个作用域不在范围内”（SCOPE_NOT_IN_RANGE）才可申请；absolute 与
-      // 用户显式关掉的 read/write 都不会 requestable。
-      const canRequestRead = !readable && readDecision.requestable
-      const canRequestWrite = !writable && writeDecision.requestable
-      const accessStatus                                    = !inScope
-        // 范围外但已有会话授权：如实显示“可读 / 可写”，而不是继续标 restricted。
-        ? readable && writable
-          ? 'read-write'
-          : readable
-            ? 'read-only'
-            : 'restricted'
-        : policy.source === 'default'
-          ? 'default'
-          : readable && writable
+      // 用户显式关掉的 read/write 都不会 requestable；归档也不可申请。
+      const canRequestRead = !archived && !readable && readDecision.requestable
+      const canRequestWrite = !archived && !writable && writeDecision.requestable
+      const accessStatus                                    = archived
+        ? 'archived'
+        : !inScope
+          // 范围外但已有会话授权：如实显示“可读 / 可写”，而不是继续标 restricted。
+          ? readable && writable
             ? 'read-write'
             : readable
               ? 'read-only'
               : 'restricted'
+          : policy.source === 'default'
+            ? 'default'
+            : readable && writable
+              ? 'read-write'
+              : readable
+                ? 'read-only'
+                : 'restricted'
       const name = meta?.name ?? this.names.nameOf(scope)
       const initialRecords = policy.level === 'absolute' ? undefined : this.initialRecordsOf(scope)
       // 0.27.0：scope-meta 没写用途时按作用域类型给默认描述，
@@ -3367,7 +3479,7 @@ export class LocalMemoryService                             {
         ...(name !== undefined ? { name } : {}),
         ...(description !== '' ? { description } : {}),
         origin: meta?.origin ?? scopeKind(scope),
-        ...(inScope ? { records: stat?.records ?? 0 } : {}),
+        ...(inScope || archived ? { records: stat?.records ?? 0 } : {}),
         inScope,
         readable,
         writable,
@@ -3375,6 +3487,7 @@ export class LocalMemoryService                             {
         canRequestWrite,
         accessStatus,
         updatedAt: stat?.updatedAt ?? meta?.updatedAt ?? 0,
+        ...(archived ? { archived: true } : {}),
         ...(initialRecords !== undefined ? { initialRecords } : {}),
       })
     }
@@ -3531,8 +3644,10 @@ export class LocalMemoryService                             {
       process.removeListener('exit', this.exitHook)
       this.exitHook = null
     }
-    this.store.purgeExpired()
-    this.store.enforceLimit(this.cfg.maxRecordsPerScope)
+    // 归档会话作用域在归档期间冻结：dispose 时也不做过期清理 / 容量淘汰。
+    const frozen = (scope        )          => this.isArchivedSessionScope(scope)
+    this.store.purgeExpired(undefined, frozen)
+    this.store.enforceLimit(this.cfg.maxRecordsPerScope, undefined, frozen)
     this.store.close()
   }
 

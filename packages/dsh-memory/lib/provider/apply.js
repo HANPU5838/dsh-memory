@@ -36,6 +36,19 @@ export class CordisMemoryService extends Service {
         return undefined
       }
     })
+    // 0.30.0：会话作用域跟随宿主会话生命周期。归档状态**实时**读取
+    // `workspaceRegistry.archivedSessionIds`，不缓存、不复制 —— 归档即刻不可检索，
+    // 恢复即刻复原，不需要任何同步动作。
+    this.impl.setArchivedSessionLookup(() => {
+      try {
+        const registry = ctx.get('workspaceRegistry')                                                
+        const ids = registry?.archivedSessionIds
+        return Array.isArray(ids) ? ids.filter((id)               => typeof id === 'string') : []
+      } catch {
+        return []
+      }
+    })
+    this.attachSessionLifecycle(ctx)
     // 0.11.1:同一个目录因为 `D:/x` 与 `D:\x` 写法不同而分叉成两个 scope 的历史数据,
     // 在装配期合并一次(每进程一次;失败只影响合并,不影响读写)。
     try {
@@ -45,6 +58,52 @@ export class CordisMemoryService extends Service {
     }
     ctx.effect(() => () => this.impl.flushSync())
     this.attachRerank(ctx, config)
+  }
+
+  /**
+   * 0.30.0：把「会话作用域」接到宿主的会话生命周期上。
+   *
+   * - **创建**：`session/created` 时系统自动建立会话作用域（只写用途元数据，不写记忆）；
+   * - **归档 / 恢复**：不写任何东西 —— 检索与授权实时读
+   *   `workspaceRegistry.archivedSessionIds`，归档即不可检索，恢复即复原；
+   * - 启动补建：`sessions` 服务就绪后，给已存在的会话补上作用域。
+   *
+   * 监听器绝不能抛：`session/created` 的异常会回滚会话创建（宿主契约）。
+   */
+          attachSessionLifecycle(ctx         )       {
+    try {
+      ctx.on('session/created', (session         ) => {
+        try {
+          const id = liveSessionIdOf(session)
+          if (id !== undefined) this.impl.ensureSessionScope(id)
+        } catch {
+          // 记忆侧失败不能回滚会话创建。
+        }
+      })
+    } catch {
+      // 老宿主没有该事件：退化为懒创建（第一次写记忆时才建作用域）。
+    }
+    try {
+      ctx.inject(['sessions'], (child) => {
+        try {
+          const sessions = child.get('sessions')                                    
+          const list = sessions?.list?.()
+          if (!Array.isArray(list)) return
+          for (const session of list) {
+            try {
+              const id = liveSessionIdOf(session)
+              if (id !== undefined) this.impl.ensureSessionScope(id)
+            } catch {
+              // 单个会话失败不影响其它会话。
+            }
+          }
+        } catch {
+          // 服务形状不符：跳过补建，后续 session/created 仍会建。
+        }
+      })
+    } catch {
+      // 老宿主 / 测试环境没有 inject：只靠 session/created。
+    }
   }
 
   /**
@@ -443,6 +502,22 @@ export function apply(ctx         , config                    = {}) {
     }
   }
   ctx.plugin(ScopedMemoryService)
+}
+
+/**
+ * 从宿主的 session 对象取出「需要建立作用域」的会话 id（0.30.0）。
+ *
+ * 只给顶层会话建：子 Agent 沿用父会话的记忆作用域（见 `resolveCurrentScopes`），
+ * 单独建只会制造一批空的作用域。形状兼容 `session.id` 与 `session.header.id`。
+ */
+function liveSessionIdOf(session         )                     {
+  const value = session                                                                             
+  const raw = typeof value?.id === 'string' && value.id !== ''
+    ? value.id
+    : value?.header?.id
+  if (typeof raw !== 'string' || raw === '') return undefined
+  if (value?.header?.origin === 'subagent') return undefined
+  return raw
 }
 
 

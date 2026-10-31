@@ -37,6 +37,8 @@
                     
                       
                         
+                                                 
+                    
 
                                  
                   
@@ -64,6 +66,11 @@
                                     
                                             
                                
+     
+                                                   
+                                       
+     
+                                      
  
 
 function outsideDecision(level                 )                 {
@@ -75,6 +82,12 @@ function outsideDecision(level                 )                 {
 export function authorize(request               , context               )                 {
   if (!context.enabled[context.originOf(request.scope)]) {
     return { allowed: false, reason: 'SCOPE_DISABLED', requestable: false }
+  }
+  // 归档是宿主生命周期事实，不是可见域策略：没有审批放行路径，也**不允许**申请。
+  // discover 仍然允许（目录/面板要能看出「这个作用域已归档」），正文一律不可读。
+  if (context.archivedScopes?.has(request.scope) === true) {
+    if (request.action === 'discover') return { allowed: true, source: 'directory' }
+    return { allowed: false, reason: 'SCOPE_ARCHIVED', requestable: false }
   }
   if (request.action === 'discover') {
     return { allowed: true, source: 'directory' }

@@ -947,6 +947,7 @@ async function handle(ctx, routePath, req, res) {
           description: entry.description.trim(),
           descriptionSource: customDescriptionOf(key) !== '' ? 'custom' : 'default',
           ...(typeof entry.origin === 'string' ? { origin: entry.origin } : {}),
+          ...(entry.archived === true ? { archived: true } : {}),
         })
       }
       let embedServer = null

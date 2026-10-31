@@ -135,8 +135,10 @@ import { canonicalWorkspacePath, defaultScopeDescription, normalizeScopeInput, r
                    
                          
                           
-                                                                                     
+                                                                                                  
                    
+                                            
+                    
                                            
                                                                                             
  
@@ -187,7 +189,7 @@ import { canonicalWorkspacePath, defaultScopeDescription, normalizeScopeInput, r
                                      
                                   
                                                       
-                                                                                 
+                                                                                                     
                                                                
                                                         
      
@@ -1378,7 +1380,7 @@ export function memoryForgetTool(opts                    )                      
                              
                                                                                                                     
                                                     
-                                                                               
+                                                                                                   
      
                                   
                                  

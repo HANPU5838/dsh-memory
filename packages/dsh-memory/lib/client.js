@@ -4097,6 +4097,8 @@ window.__ModuleLoader__.load({
             records: Number(s.records) || 0,
             pendingEmbeds: Number(s.pendingEmbeds) || 0,
             updatedAt: Number(s.updatedAt) || 0,
+            // 0.30.0：会话归档后作用域保留但读写冻结；恢复会话自动复原。
+            archived: s.archived === true,
           }))
           .filter((row) => needle === ''
             || row.label.toLowerCase().includes(needle)
@@ -4136,6 +4138,12 @@ window.__ModuleLoader__.load({
                 h('div', { className: 'scope-row-head' },
                   h('span', { className: 'scope-row-name', title: scopeTitle(row.scope, row.label) }, row.label),
                   h('span', { className: 'badge' }, `${row.records} 条记忆`),
+                  row.archived
+                    ? h('span', {
+                        className: 'badge',
+                        title: '所属会话已归档：作用域与记忆被冻结，取消归档后自动恢复读写',
+                      }, '已归档')
+                    : null,
                   row.pendingEmbeds > 0
                     ? h('span', { className: 'pending', title: '待嵌入向量：向量服务就绪后会自动补上' }, `待嵌入 ${row.pendingEmbeds}`)
                     : null,
