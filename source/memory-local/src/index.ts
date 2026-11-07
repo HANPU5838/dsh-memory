@@ -788,6 +788,7 @@ export class LocalMemoryService implements MemoryServiceApi {
       model: this.cfg.vector.model,
       dims: this.cfg.vector.dims,
       timeoutMs: this.cfg.vector.timeoutMs,
+      log: (message) => console.warn(`[dsh-memory-local] ${message}`),
     })
     this.startMaintenance()
     this.startEmbedServer()

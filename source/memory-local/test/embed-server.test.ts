@@ -85,6 +85,10 @@ test('spawns the server with the embedding flags, writes a PID file, and stops i
     assert.equal(args[args.indexOf('-t') + 1], '4')
     assert.equal(args[args.indexOf('--port') + 1], '8078')
 
+    // P0：默认必须带 -b/-ub（512 会拒绝 >512 token 的记录，嵌入静默失败）
+    assert.equal(args[args.indexOf('-b') + 1], '2048')
+    assert.equal(args[args.indexOf('-ub') + 1], '2048')
+
     // PID file lets a later run recognise the leftover instance as ours
     const pidFile = `${logFile}.pid`
     assert.ok(existsSync(pidFile), 'pid file written')
@@ -187,6 +191,41 @@ test('a manual stop can be followed by a manual start (panel buttons)', async ()
     assert.equal(calls.spawn.length, 2, 'restart spawns a new child')
     assert.equal(mgr.stop(), true)
     assert.deepEqual(calls.killed, [777, 777])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('用户 extraArgs 里自己给了 --batch-size 时不重复传 -b/-ub', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-embed-batch-'))
+  try {
+    const { deps, calls } = makeDeps({ healthy: false })
+    const mgr = new EmbedServerManager({
+      enabled: true, exe: EXE, model: MODEL, cwd: dir, logFile: join(dir, 'log'),
+      extraArgs: ['--batch-size', '4096'],
+    }, deps)
+    await mgr.ensureRunning()
+    const args = calls.spawn[0]!.args
+    assert.equal(args.filter((a) => a === '--batch-size' || a === '-b').length, 1, 'batch 参数只出现一次')
+    assert.equal(args.includes('-ub'), true, 'ubatch 仍取默认')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('spawn error（ENOENT/EACCES）：ready 轮询立刻失败并报出真实原因，不空转超时', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-embed-error-'))
+  try {
+    const { deps, calls, children } = makeDeps({ healthy: false })
+    // 关掉快速路径：确保是 lastError 让它提前返回，而不是 sleep 恰好结束
+    const mgr = new EmbedServerManager({ enabled: true, exe: EXE, model: MODEL, cwd: dir, logFile: join(dir, 'log') }, deps)
+    assert.equal(await mgr.ensureRunning(), 'spawned')
+    children[0]!.emit('error', new Error('spawn llama-server EACCES'))
+    const started = Date.now()
+    const ok = await mgr.waitUntilReady(60_000)
+    assert.equal(ok, false)
+    assert.ok(Date.now() - started < 5_000, '不应等到 60s 超时')
+    assert.match(calls.logs.join('\n'), /启动失败：spawn llama-server EACCES/)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

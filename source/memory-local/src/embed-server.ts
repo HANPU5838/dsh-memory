@@ -36,6 +36,14 @@ export interface EmbedServerConfig {
   pidFile?: string
   /** CPU threads handed to the server. */
   threads?: number
+  /**
+   * llama.cpp 的物理批次大小（`-b`）。默认 512 时，任何超过 512 token 的输入
+   * 都会被服务端以 400 拒绝（实测 4000 汉字 ≈ 2001 token），嵌入静默失败、
+   * 检索退化成词法。默认给 2048，覆盖单条记忆上限；可用本字段覆盖。
+   */
+  batchSize?: number
+  /** llama.cpp 的微批次大小（`-ub`）；与 batchSize 同理，默认 2048。 */
+  ubatchSize?: number
   /** Bind host; defaults to 127.0.0.1. */
   host?: string
   /** Bind port; defaults to the port of the embeddings endpoint. */
@@ -71,6 +79,14 @@ const DEFAULTS = {
   host: '127.0.0.1',
   port: 8078,
   threads: 6,
+  /**
+   * 默认 512 是 llama.cpp 的物理批次，单条 4000 字的记忆实测 2001 token，
+   * 会被服务端 400 拒绝（input too large to process），而失败又被静默熔断，
+   * 表现为「检索突然只剩词法」。给到 2048 正好覆盖单条上限；再大只是多占
+   * 计算缓冲，对 embedding 没有收益。
+   */
+  batchSize: 2048,
+  ubatchSize: 2048,
   startupTimeoutMs: 60_000,
 }
 
@@ -109,6 +125,8 @@ export class EmbedServerManager {
   private stopping = false
   /** PID recorded by a previous run that we adopted. */
   private adoptedPid: number | null = null
+  /** spawn 失败的原因（ENOENT/EACCES/端口占用…），用于让 ready 轮询立刻失败。 */
+  private lastError: string | null = null
 
   constructor(cfg: EmbedServerConfig = {}, deps: Partial<EmbedServerDeps> = {}) {
     this.cfg = cfg
@@ -183,11 +201,25 @@ export class EmbedServerManager {
 
   /** Poll until the health endpoint answers or the budget runs out. */
   async waitUntilReady(timeoutMs?: number): Promise<boolean> {
+    // spawn 已经失败（hasError 先于「没有子进程=外部实例」的快速路径判断）
+    if (this.lastError !== null) {
+      this.deps.log(`embed server: 启动失败：${this.lastError}`)
+      return false
+    }
     if (!this.owned && !this.child) return true
     const deadline = Date.now() + (timeoutMs ?? this.cfg.startupTimeoutMs ?? DEFAULTS.startupTimeoutMs)
     while (Date.now() < deadline) {
       if (await this.deps.probe(`${this.baseUrl}/health`, 1500)) return true
-      if (this.child && this.child.exitCode !== null) return false
+      // 子进程没了就别等到超时：spawn error（lastError）或已退出都立刻失败，
+      // 让调用方马上把真实原因报出来。
+      if (this.lastError !== null) {
+        this.deps.log(`embed server: 启动失败：${this.lastError}`)
+        return false
+      }
+      if (this.child === null || (this.child && this.child.exitCode !== null)) {
+        if (this.lastError !== null) this.deps.log(`embed server: 启动失败：${this.lastError}`)
+        return false
+      }
       await this.deps.sleep(500)
     }
     return false
@@ -216,10 +248,15 @@ export class EmbedServerManager {
   }
 
   private spawnServer(): EmbedServerState {
+    this.lastError = null
     const host = this.cfg.host ?? DEFAULTS.host
     const port = this.cfg.port ?? DEFAULTS.port
     const pooling: PoolingKind = this.cfg.pooling ?? 'cls'
     const gpuLayers = this.cfg.gpuLayers ?? 0
+    const extraArgs = this.cfg.extraArgs ?? []
+    // 用户自己写了 -b/-ub 就以用户为准，避免同一参数出现两次。
+    const hasBatch = extraArgs.some((a) => a === '-b' || a === '--batch-size')
+    const hasUbatch = extraArgs.some((a) => a === '-ub' || a === '--ubatch-size')
     const args = [
       '-m', this.cfg.model as string,
       '--embeddings',
@@ -230,7 +267,9 @@ export class EmbedServerManager {
       '-t', String(this.cfg.threads ?? DEFAULTS.threads),
       // 有显卡时把层卸载到显存;CPU 风味不传(等价于 0)。
       ...(gpuLayers > 0 ? ['-ngl', String(gpuLayers)] : []),
-      ...(this.cfg.extraArgs ?? []),
+      ...(hasBatch ? [] : ['-b', String(this.cfg.batchSize ?? DEFAULTS.batchSize)]),
+      ...(hasUbatch ? [] : ['-ub', String(this.cfg.ubatchSize ?? DEFAULTS.ubatchSize)]),
+      ...extraArgs,
     ]
     const logFile = this.cfg.logFile
     if (logFile) {
@@ -272,9 +311,13 @@ export class EmbedServerManager {
       this.removePidFile()
     })
     child.once('error', (error) => {
+      // spawn 失败（exe 不存在、无执行权限、glibc 解释器缺失）不会触发 exit，
+      // 必须记下来，否则 ready 轮询会空转到 60s 超时，真实原因只留在 console。
+      this.lastError = error.message
       this.deps.log(`embed server: 进程错误(已忽略): ${error.message}`)
       this.child = null
       this.owned = false
+      this.removePidFile()
     })
     this.deps.log(`embed server: 已后台启动 pid=${child.pid ?? '?'}(${this.baseUrl})`)
     return 'spawned'

@@ -8,11 +8,19 @@
                
               
                    
+     
+                                               
+                                        
+                                                                         
+     
+                                 
  
 
 export class EmbedClient {
           healthy = true
           lastProbe = 0
+  /** 告警节流：失败可能每轮都发生，最多 60s 打一次。 */
+          lastWarnAt = 0
           backoffMs = 1000
           opts                    
 
@@ -30,6 +38,13 @@ export class EmbedClient {
       return true
     }
     return false
+  }
+
+          warn(message        )       {
+    const now = Date.now()
+    if (now - this.lastWarnAt < 60_000) return
+    this.lastWarnAt = now
+    ;(this.opts.log ?? ((text        ) => console.warn(`[dsh-memory-local] ${text}`)))(message)
   }
 
   markDown()       {
@@ -68,12 +83,15 @@ export class EmbedClient {
         signal: combined,
       })
       if (!res.ok) {
+        const body = await res.text().catch(() => '')
+        this.warn(`嵌入失败 HTTP ${res.status}（${this.opts.endpoint}）：${body.slice(0, 200)}`)
         this.markDown()
         return null
       }
       const json = (await res.json())                                              
       const data = json.data
       if (!Array.isArray(data) || data.length !== texts.length) {
+        this.warn(`嵌入响应不符合预期：data=${Array.isArray(data) ? data.length : typeof data}，期望 ${texts.length} 条`)
         this.markDown()
         return null
       }
@@ -81,6 +99,7 @@ export class EmbedClient {
       for (const item of data) {
         const arr = item.embedding
         if (!Array.isArray(arr) || arr.length !== this.opts.dims) {
+          this.warn(`嵌入维度不符：收到 ${Array.isArray(arr) ? arr.length : typeof arr}，期望 ${this.opts.dims}（模型/后端不匹配？）`)
           this.markDown()
           return null
         }
@@ -94,7 +113,11 @@ export class EmbedClient {
       }
       this.markUp()
       return out
-    } catch {
+    } catch (error) {
+      const message = (error         )?.name === 'TimeoutError' || (error         )?.name === 'AbortError'
+        ? `嵌入请求超时（预算 ${opts?.timeoutMs ?? this.opts.timeoutMs}ms）`
+        : `嵌入请求失败：${(error         )?.message ?? String(error)}`
+      this.warn(message)
       this.markDown()
       return null
     }
