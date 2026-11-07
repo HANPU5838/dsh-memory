@@ -153,15 +153,22 @@ function withScopeLock<T>(lockPath: string, fn: () => T, onWarn?: (m: string) =>
       fd = openSync(lockPath, 'wx')
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code
-      if (code !== 'EEXIST' && code !== 'EPERM' && code !== 'EACCES') throw err
-      const broke = breakStaleLock(lockPath)
-      if (!broke && Date.now() >= deadline) {
-        onWarn?.(`store: lock ${lockPath} timed out after ${LOCK_TIMEOUT_MS}ms; writing without it`)
-        return fn()
-      }
-      if (!broke) {
-        sleepSync(delay)
-        delay = Math.min(delay * 2, 50)
+      // EPERM/EACCES 只在「锁文件确实存在」时才可以当成竞争处理；否则是目录
+      // 不可写、只读挂载之类的硬错误——继续重试就是死循环（原实现会 100% CPU
+      // 空转到天亮）。硬错误直接抛，交给上层（flush 已逐 scope 兜住）。
+      if (code === 'EEXIST' || ((code === 'EPERM' || code === 'EACCES') && existsSync(lockPath))) {
+        const broke = breakStaleLock(lockPath)
+        if (broke && !existsSync(lockPath)) continue // 陈旧锁已删，立即重试
+        if (Date.now() >= deadline) {
+          onWarn?.(`store: lock ${lockPath} timed out after ${LOCK_TIMEOUT_MS}ms; writing without it`)
+          return fn()
+        }
+        if (!broke) {
+          sleepSync(delay)
+          delay = Math.min(delay * 2, 50)
+        }
+      } else {
+        throw err
       }
     }
   }
@@ -703,7 +710,12 @@ export class MemoryStore {
     if (this.flushTimer) return
     this.flushTimer = setTimeout(() => {
       this.flushTimer = null
-      this.flush()
+      try {
+        this.flush()
+      } catch (error) {
+        // 兜底：flush 内部已逐 scope 兜住，这里再防一层，保证定时器回调永不抛。
+        this.events.onWarn?.(`自动 flush 失败：${(error as Error)?.message ?? String(error)}`)
+      }
     }, delayMs)
     // a debounced flush must not hold the event loop open
     this.flushTimer.unref?.()
@@ -721,10 +733,23 @@ export class MemoryStore {
   flush(): void {
     for (const s of this.scopes.values()) {
       if (!s.dirty) continue
-      this.flushScope(s)
+      // 单个 scope 写盘失败（ENOSPC / EACCES / 只读目录）绝不能冒泡：
+      // flush 常常从 unref 的定时器里跑，抛出去就是 uncaught exception，
+      // 宿主会当成致命错误直接退出整个 DSH。保留 dirty 与增量，下次再试。
+      try {
+        this.flushScope(s)
+      } catch (error) {
+        this.events.onWarn?.(`flush 失败（增量保留，稍后重试）：${(error as Error)?.message ?? String(error)}`)
+      }
     }
     // vectors flush too: they are the expensive-to-recompute half
-    for (const s of this.scopes.values()) s.flushVectors()
+    for (const s of this.scopes.values()) {
+      try {
+        s.flushVectors()
+      } catch (error) {
+        this.events.onWarn?.(`vec flush 失败（稍后重试）：${(error as Error)?.message ?? String(error)}`)
+      }
+    }
   }
 
   /** 锁内合并一个 scope 的增量(同步;调用方不持有这把锁)。 */

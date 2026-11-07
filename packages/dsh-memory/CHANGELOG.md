@@ -2,6 +2,23 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.30.1-mirror.1 — 镜像补丁：Termux / Android(glibc) 适配
+
+> **这是镜像仓库（HANPU5838/dsh-memory）在上游 v0.30.1 之上叠加的补丁，上游 npm 包 `@restregular/dsh-memory@0.30.1` 不含这些修复。**
+> 直接安装上游 npm 包会覆盖它们（涉及 `lib/provider/embed-install.js`、`lib/provider/embed-server.js`、`lib/provider/embed.js`、`lib/provider/scope.js`、`lib/tools/index.js`）。
+> 补丁清单与从上游同步的方法见 [MIRROR-PATCHES.md](MIRROR-PATCHES.md)。
+
+- **fix(termux): tar.gz 解压支持符号链接 / 硬链接**（Android / Linux 关键）。llama.cpp 的 Linux 发行包用两级 SONAME 软链（`libllama-common.so` → `libllama-common.so.0` → `libllama-common.so.0.9.0`）让动态加载器找到库；此前解压器只写普通文件、静默跳过链接，`llama-server` 一启动就报 `error while loading shared libraries: libllama-common.so.0` 并秒退。现在分两遍写盘（先文件、再链接，避免链接排在目标前变成悬空链接），软链目标做安装目录边界校验，硬链接 `link()` 失败退化为复制。
+- **fix(termux): 子进程秒退时带出真实死因**。启动 15 秒内退出时，把 `llama-server.log` 末尾 12 行带进主日志——此前只剩一句「进程已退出」，缺 `.so` / 端口占用 / 模型损坏的原因全埋在日志文件里。
+- **fix(termux): 工作区路径同时认 POSIX 与 Windows 绝对路径**。Linux 上 `node:path.isAbsolute` 不认 `D:/x`，`memory_save({ path })` 会把它拼到 cwd 下，同一工作区分叉出第二个 project scope。
+- **fix(embed): 默认 `-b 2048 -ub 2048`**。llama.cpp 物理批次默认 512，而单条记忆上限 4000 字实测约 2001 token，超过 512 的输入会被服务端以 400 拒绝；失败又被静默熔断，表现为「语义检索突然退化成词法」。用户 `spawn.extraArgs` 里显式给了 `--batch-size` / `-b` 时不再重复传。
+- **fix(embed): 嵌入失败可见**。HTTP 非 2xx、响应格式 / 维度不符、超时、网络错误都按 60 秒节流打一条 `warn`，带状态码与响应体前 200 字；此前这些失败完全静默。
+- **fix(embed-server): spawn 错误不再被 60 秒超时掩盖**。`ENOENT` / `EACCES`（exe 不存在、无执行权限、glibc 解释器缺失）不会触发 `exit`，此前 `waitUntilReady()` 空转到超时只报「启动超时」；现在记入 `lastError`，就绪轮询立刻失败并打印真实原因。
+- **fix(store): flush 写盘错误不再冒泡**。flush 常从 `scheduleFlush()` 的 unref 定时器里跑，ENOSPC / EACCES（存储写满、目录只读）抛出去就是 uncaught exception，宿主 `installFailLoud` 会直接 `exit(1)` —— 一次写盘失败就能把整个 DSH 会话带走。现在逐 scope `try/catch` 并 warn，增量保留、下一次 flush 重试。
+- **fix(store): 只读目录下锁获取不再死循环**。`openSync(lock, 'wx')` 在不可写目录上返回 EACCES，原实现把它当成「锁已存在」→ 删不掉 → 立即重试，形成 100% CPU 空转（不再休眠、也不检查 deadline）。现在只有锁文件确实存在才按竞争处理，否则抛错交给上层兜底。
+- **docs**: 修正 7 处「五个模型工具」为「六个」（README ×2、两个 package.json 的 description、locale zh/en）；README 顶部补镜像说明与本文件链接。
+- 测试：544 pass / 1 skipped（`multiprocess.test.ts` 需真起子进程）。
+
 ## 0.30.1 — 修复 CUDA 运行时安装把 cudart 伴生包当成主包（issue #4）
 
 - **问题（issue #4）**：面板选「CUDA（显卡）」点「下载并安装」，报「安装失败：解压完成但没找到 llama-server.exe：cudart-llama-bin-win-cuda-12.4-x64.zip 的目录结构可能变了」。根因是资产匹配正则**只锚了结尾、没锚开头**：CUDA 主包 `llama-b<构建号>-bin-win-cuda-12.4-x64.zip` 与伴生包 `cudart-llama-bin-win-cuda-12.4-x64.zip` 共享同一段 `-bin-win-cuda-12.4-x64.zip` 后缀，而 llama.cpp 的 release 资产顺序**不保证**主包在前（b12023 实测 cudart 一族排在 `llama-*` 之前）。安装器按数组顺序取第一个命中，于是把只有 cudart / cuBLAS 的伴生包当成运行时：约 267 MB 的 CUDA 主包没下，解压出来当然没有 `llama-server.exe`；随后 companion 正则又命中同一个文件，「复用」后错误信息里就出现了 cudart 包名。Linux 的 `cudart-…-bin-ubuntu-cuda-12.8-…tar.gz` 同理。

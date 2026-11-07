@@ -10,7 +10,7 @@
 > | 项目 | 说明 |
 > | --- | --- |
 > | 上游原仓库 | **[RestRegular/dsh-memory](https://github.com/RestRegular/dsh-memory)**（作者 **RestRegular**）|
-> | 本镜像 | 在上游 `main` 的基础上，只把文档里的图片 / 链接等自引用地址改指向本仓库，**代码与功能未做任何修改** |
+> | 本镜像 | 上游 v0.30.1 + **Termux / Android(glibc) 适配补丁**（符号链接解压、默认 batch、嵌入错误可见性、存储健壮性等，清单见 [MIRROR-PATCHES.md](MIRROR-PATCHES.md)）；文档里的图片 / 链接指向本仓库 |
 > | 许可 | **MIT**，版权归原作者所有，见 [LICENSE](LICENSE)；转载、分发请保留原始版权声明 |
 > | 更新与反馈 | 更新、Issue、PR 请到**上游原仓库**；本镜像不接收 Issue，同步靠手动从上游拉取 |
 >
@@ -22,7 +22,7 @@
 
 **本地优先的长期记忆，让每次对话都接得上。**
 
-JSONL 落盘 · 本机向量检索 · 五个模型工具 · 自动召回 · 硬性规则 · 可视化管理面板
+JSONL 落盘 · 本机向量检索 · 六个模型工具 · 自动召回 · 硬性规则 · 可视化管理面板
 
 [![npm version](https://img.shields.io/npm/v/@restregular/dsh-memory.svg)](https://www.npmjs.com/package/@restregular/dsh-memory)
 [![npm downloads](https://img.shields.io/npm/dm/@restregular/dsh-memory.svg)](https://www.npmjs.com/package/@restregular/dsh-memory)
@@ -180,7 +180,7 @@ try/catch——任何一半失败都只记一行日志，绝不让 DSH 启动失
 | 半边 | 作用 |
 | --- | --- |
 | `lib/provider` | 提供 `memory` 服务：JSONL 存储、双通道检索、向量回填、向量后端生命周期与一键安装 |
-| `lib/tools` | 注册五个模型工具 |
+| `lib/tools` | 注册六个模型工具 |
 | `lib/inject` | `agent/pre-step` 召回、摘要、策略、规则与行为触发 |
 | `lib/panel` | `/memory/api` 管理接口（含同源 / 登录围栏） |
 | `lib/client.js` | 设置页「记忆系统」区块与左侧栏入口（注册 id == 包名） |
