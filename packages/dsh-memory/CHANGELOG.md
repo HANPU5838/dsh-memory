@@ -2,22 +2,37 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
-## 0.30.1-mirror.1 — 镜像补丁：Termux / Android(glibc) 适配
+## 2026-11-08 — 平台适配与健壮性改进（本仓库维护，上游尚未收录）
 
-> **这是镜像仓库（HANPU5838/dsh-memory）在上游 v0.30.1 之上叠加的补丁，上游 npm 包 `@restregular/dsh-memory@0.30.1` 不含这些修复。**
-> 直接安装上游 npm 包会覆盖它们（涉及 `lib/provider/embed-install.js`、`lib/provider/embed-server.js`、`lib/provider/embed.js`、`lib/provider/scope.js`、`lib/tools/index.js`）。
-> 补丁清单与从上游同步的方法见 [MIRROR-PATCHES.md](MIRROR-PATCHES.md)。
+> 这一批是本仓库对项目的**实质性完善**，不是临时补丁：安装器、服务生命周期、存储层、检索超时都有对应源码改动与回归测试。
+> 上游 npm 包 `@restregular/dsh-memory@0.30.1` 不含这些改动；清单与上游同步方法见 [IMPROVEMENTS.md](IMPROVEMENTS.md)。
 
-- **fix(termux): tar.gz 解压支持符号链接 / 硬链接**（Android / Linux 关键）。llama.cpp 的 Linux 发行包用两级 SONAME 软链（`libllama-common.so` → `libllama-common.so.0` → `libllama-common.so.0.9.0`）让动态加载器找到库；此前解压器只写普通文件、静默跳过链接，`llama-server` 一启动就报 `error while loading shared libraries: libllama-common.so.0` 并秒退。现在分两遍写盘（先文件、再链接，避免链接排在目标前变成悬空链接），软链目标做安装目录边界校验，硬链接 `link()` 失败退化为复制。
-- **fix(termux): 子进程秒退时带出真实死因**。启动 15 秒内退出时，把 `llama-server.log` 末尾 12 行带进主日志——此前只剩一句「进程已退出」，缺 `.so` / 端口占用 / 模型损坏的原因全埋在日志文件里。
-- **fix(termux): 工作区路径同时认 POSIX 与 Windows 绝对路径**。Linux 上 `node:path.isAbsolute` 不认 `D:/x`，`memory_save({ path })` 会把它拼到 cwd 下，同一工作区分叉出第二个 project scope。
-- **fix(embed): 默认 `-b 2048 -ub 2048`**。llama.cpp 物理批次默认 512，而单条记忆上限 4000 字实测约 2001 token，超过 512 的输入会被服务端以 400 拒绝；失败又被静默熔断，表现为「语义检索突然退化成词法」。用户 `spawn.extraArgs` 里显式给了 `--batch-size` / `-b` 时不再重复传。
-- **fix(embed): 嵌入失败可见**。HTTP 非 2xx、响应格式 / 维度不符、超时、网络错误都按 60 秒节流打一条 `warn`，带状态码与响应体前 200 字；此前这些失败完全静默。
-- **fix(embed-server): spawn 错误不再被 60 秒超时掩盖**。`ENOENT` / `EACCES`（exe 不存在、无执行权限、glibc 解释器缺失）不会触发 `exit`，此前 `waitUntilReady()` 空转到超时只报「启动超时」；现在记入 `lastError`，就绪轮询立刻失败并打印真实原因。
-- **fix(store): flush 写盘错误不再冒泡**。flush 常从 `scheduleFlush()` 的 unref 定时器里跑，ENOSPC / EACCES（存储写满、目录只读）抛出去就是 uncaught exception，宿主 `installFailLoud` 会直接 `exit(1)` —— 一次写盘失败就能把整个 DSH 会话带走。现在逐 scope `try/catch` 并 warn，增量保留、下一次 flush 重试。
-- **fix(store): 只读目录下锁获取不再死循环**。`openSync(lock, 'wx')` 在不可写目录上返回 EACCES，原实现把它当成「锁已存在」→ 删不掉 → 立即重试，形成 100% CPU 空转（不再休眠、也不检查 deadline）。现在只有锁文件确实存在才按竞争处理，否则抛错交给上层兜底。
-- **docs**: 修正 7 处「五个模型工具」为「六个」（README ×2、两个 package.json 的 description、locale zh/en）；README 顶部补镜像说明与本文件链接。
-- 测试：544 pass / 1 skipped（`multiprocess.test.ts` 需真起子进程）。
+**安装器（embed-install）**
+- tar.gz 符号链接/硬链接：两遍写盘 + 多轮重试（链接可能互相依赖），软链建不出来（FAT/exFAT、共享存储）自动退化为复制真实文件；越界链接目标直接拒绝。llama.cpp 的 Linux 包靠两级 SONAME 软链，缺了就 `cannot open shared object file`。
+- 解压后校验：跟随 `stat` 检查运行时目录里的 `*.so*` / `*.dylib` 链接是否都能解析，失败即 `phase:'error'` 并写明缺哪个库、原因。
+- 磁盘预检：下载 400MB+ 之前检查可用空间（模型×1.25 + 运行时预留 + 200MB），不足直接报错并给出需释放的容量。
+
+**后端生命周期（embed-server）**
+- Termux/Android glibc 自动包装：Linux 上读 ELF `PT_INTERP`，若解释器（如 `/lib/ld-linux-aarch64.so.1`）不存在而 `$PREFIX/glibc/lib/` 下有对应 loader，则自动用 `loader --library-path ... <exe>` 启动。仓库内自给，不再依赖仓库外的猴补丁。
+- 端口预检：spawn 前探测 host:port，被占则明确报「端口被占用」而不是 60 秒超时。
+- 自愈：异常退出按 1s/5s/30s 退避重拉最多 3 次；`stop()` 后绝不重拉；耗尽后暴露 `unavailable` + 原因。
+- 身份校验：Linux 上 adopt/kill 前读 `/proc/<pid>/cmdline`，PID 被复用则既不接管也不误杀。
+- 默认参数：`-b 2048 -ub 2048`（默认 512 会拒绝 >512 token 的记录并静默熔断）；spawn 失败（`ENOENT/EACCES`）不再被 60 秒超时掩盖，`waitUntilReady` 立刻失败并打印真实原因。
+
+**存储（store）**
+- `flush()` 写盘异常不再冒泡：ENOSPC/EACCES 只 warn，增量保留下次重试（原来从 unref 定时器抛出成 uncaught，宿主会 `exit(1)` 带走整个 DSH）。
+- 只读目录下的锁死循环：`openSync(lock,'wx')` 的 EACCES/EPERM 只有锁文件确实存在才按竞争处理，否则直接抛错（原实现 100% CPU 空转）。
+- `.vec` 载入按身份头维度逐条校验，丢弃被截断的错维向量；边车写入时清理已删除记录的条目（不再只增不减）。
+- 访问统计落盘：`accessCount` / `lastAccessedAt` 进入增量（它们是 recency / accessBoost 的排序输入）。
+
+**检索与配置**
+- 查询嵌入预算自适应：首查超时用更大预算重试一次，成功后把预算固定在「实测×3」（上限 4s），慢设备（ARM 手机）不再每次交互检索都降级成词法。
+- `writeTimeoutMs` 10s→20s、`backfillTimeoutMs` 30s→60s、`backfillBatchSize` 32→8（CPU 上长内容/大批量更不容易整批超时）。
+- `storeDir` 默认改为绝对路径 `~/.dsh-memory`：相对路径会跟着 cwd 走，换个目录启动就是一套空库，cwd 只读时 provider 还会静默消失。
+
+**文档**：修正 7 处「五个模型工具」为「六个」；镜像横幅如实说明相对上游的改进。
+
+测试：**575 例 / 574 pass / 1 skipped**（跳过的是需要真实 Windows 发行包的 fixture）。
 
 ## 0.30.1 — 修复 CUDA 运行时安装把 cudart 伴生包当成主包（issue #4）
 

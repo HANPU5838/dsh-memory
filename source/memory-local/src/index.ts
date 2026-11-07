@@ -406,7 +406,13 @@ export function resolveConfig(config: MemoryLocalConfig = {}): ResolvedConfig {
   // `endpoint` (any OpenAI-compatible service), configuring `spawn`, or having
   // the panel's installer put a backend on disk implies intent; an explicit
   // `enabled` always wins.
-  const storeDir = config.storeDir ?? '.dsh-memory'
+  // 默认必须是**绝对路径**：相对路径会跟着进程 cwd 走，换个目录启动 `dsh web`
+  // 就会得到一套全新的空库（旧记忆"凭空消失"），cwd 只读时甚至让整个 provider
+  // 静默消失。默认落到 ~/.dsh-memory；显式配了相对路径也按 homedir 解析，保证
+  // 同一个配置在任何启动目录下都是同一个库。
+  const storeDir = config.storeDir === undefined
+    ? join(homedir(), '.dsh-memory')
+    : (isAbsolute(config.storeDir) ? config.storeDir : join(homedir(), config.storeDir))
   // Installer target: explicit config → that directory; explicit storeDir →
   // its parent (so a hand-made `<root>/llamacpp` + `<root>/models` layout is
   // recognised as-is); otherwise a stable per-user directory under ~/.dsh.
@@ -473,12 +479,15 @@ export function resolveConfig(config: MemoryLocalConfig = {}): ResolvedConfig {
       // Full contents are orders of magnitude slower than a short query on CPU
       // (measured 3143ms for three ~600-char records), so write/backfill paths
       // get their own generous budgets instead of the interactive 300ms.
-      writeTimeoutMs: v.writeTimeoutMs ?? 10_000,
-      backfillTimeoutMs: v.backfillTimeoutMs ?? 30_000,
+      // 慢设备实测：4000 字记录单条嵌入约 9.7s，10s 预算贴边。
+      writeTimeoutMs: v.writeTimeoutMs ?? 20_000,
+      backfillTimeoutMs: v.backfillTimeoutMs ?? 60_000,
       backfillMaxChars: v.backfillMaxChars ?? 8_000,
       // BGE CLS baseline noise floor measured ~0.42 on unrelated pairs
       minScore: v.minScore ?? 0.5,
-      backfillBatchSize: v.backfillBatchSize ?? 32,
+      // 回填是批量等长内容里最慢的路径：32 条 × 数千 token 在 CPU 上会超时，
+      // 整批失败后记录永久留在 pending；小批更容易在预算内完成。
+      backfillBatchSize: v.backfillBatchSize ?? 8,
       // Port defaults to the one in the embeddings endpoint so the two can never
       // drift apart; opt-in (enabled:false) keeps dev/test runs from spawning.
       // A backend the panel installed (or a hand-made one at installRoot) is
@@ -765,6 +774,7 @@ export class LocalMemoryService implements MemoryServiceApi {
     this.grants = new SessionGrantsStore({ root: this.cfg.storeDir })
     this.approvalAudit = new ApprovalAuditStore({ root: this.cfg.storeDir })
     this.rerankBudget = new DailyBudget(this.cfg.llm.dailyBudgetTokens)
+    this.queryTimeoutMs = this.cfg.vector.timeoutMs
     this.store = new MemoryStore(this.cfg.storeDir, { onWarn: (m) => console.warn(`[dsh-memory-local] ${m}`) })
     // Identity BEFORE the eager load (issue #1): ScopeStore skips its sidecar
     // validation entirely while the identity is unset (`if (this.vecIdentity && …)`),
@@ -1033,6 +1043,14 @@ export class LocalMemoryService implements MemoryServiceApi {
     pid: number | null
     baseUrl: string
     reachable: boolean
+    /** 最近一次启动/自愈失败的原因（null = 没有失败记录）。 */
+    lastError: string | null
+    /** 本次手动 start 以来自愈重拉的次数（0..3）。 */
+    restarts: number
+    /** 后端当前不可用（lastError 非空），检索会走词法降级。 */
+    unavailable: boolean
+    /** 最近一次实际启动是否经过 glibc loader 包装（Termux/Android）。 */
+    wrapped: boolean
     pendingEmbeds: number
     install: InstallProgress & { installed: boolean; root: string }
     /** What an uninstall would free, and how much data a wipe would remove. */
@@ -1068,9 +1086,23 @@ export class LocalMemoryService implements MemoryServiceApi {
         records: this.store.allScopes().reduce((n, s) => n + s.records.size, 0),
       },
     } as const
-    if (!mgr) return { ...base, owned: false, pid: null, baseUrl: '', reachable: false }
+    if (!mgr) {
+      return {
+        ...base, owned: false, pid: null, baseUrl: '', reachable: false,
+        lastError: null, restarts: 0, unavailable: false, wrapped: false,
+      }
+    }
     const reachable = await mgr.healthCheck()
-    return { ...base, ...mgr.info(), reachable, pendingEmbeds }
+    return {
+      ...base,
+      ...mgr.info(),
+      reachable,
+      lastError: mgr.lastError,
+      restarts: mgr.restarts,
+      unavailable: mgr.unavailable,
+      wrapped: mgr.launch?.wrapped ?? false,
+      pendingEmbeds,
+    }
   }
 
   /** Installer state for the panel (idle when nothing was ever requested). */
@@ -1401,6 +1433,15 @@ export class LocalMemoryService implements MemoryServiceApi {
   private initialDrainTimer: ReturnType<typeof setTimeout> | null = null
   /** Owns the llama-server child process when vector.spawn.enabled. */
   private embedServer: EmbedServerManager | null = null
+  /**
+   * 交互检索（查询嵌入）的可变预算。
+   *
+   * 默认 300ms 是为桌面 CPU 调的；在 ARM 手机 / 低功耗设备上单次查询嵌入实测
+   * 0.3–1.8s，300ms 预算会让**每一次**交互检索都超时、静默退化成纯词法。
+   * 这里按实测自适应：超时一次就用 4 倍预算重试，成功后再按耗时把预算钉在
+   * 「实测 × 3」（上限 4s），之后不再反复超时。
+   */
+  private queryTimeoutMs: number
   /** Lazily created by the panel's "download and configure" action. */
   private installer: VectorInstaller | null = null
   /** 硬件探测缓存(面板问了才探测,10 分钟内复用)。 */
@@ -2786,9 +2827,25 @@ export class LocalMemoryService implements MemoryServiceApi {
     // --- channel 2: vector recall over embedded records ---
     // Skipped entirely when no backend is configured (lexical recall above
     // already produced the candidates; a request here would just fail).
-    const qvec = allowVector
-      ? await this.embed.embed([`${this.cfg.vector.queryPrefix ?? ''}${query.text}`], query.signal).catch(() => null)
+    let qvec = allowVector
+      ? await this.embed.embed([`${this.cfg.vector.queryPrefix ?? ''}${query.text}`], query.signal, { timeoutMs: this.queryTimeoutMs }).catch(() => null)
       : null
+    // 慢设备自适应：首查超时就用更大预算重试一次，成功后把预算钉到实测的 3 倍。
+    // 不做这一步的话，ARM 手机上 300ms 预算意味着语义召回永远不生效。
+    if (allowVector && qvec === null) {
+      const bumped = Math.min(4_000, Math.max(1_000, this.queryTimeoutMs * 4))
+      if (bumped > this.queryTimeoutMs) {
+        const startedAt = Date.now()
+        this.queryTimeoutMs = bumped
+        // 熔断器在超时后会把后端标记为不健康并退避，这里是我们主动的重试，
+        // 直接放开一次，否则 embed() 会跳过网络直接返回 null。
+        this.embed.markUp()
+        qvec = await this.embed.embed([`${this.cfg.vector.queryPrefix ?? ''}${query.text}`], query.signal, { timeoutMs: bumped }).catch(() => null)
+        if (qvec !== null) {
+          this.queryTimeoutMs = Math.min(4_000, Math.max(bumped, (Date.now() - startedAt) * 3))
+        }
+      }
+    }
     if (qvec?.[0]) {
       const vectorScores = new Map<string, number>()
       for (const { store } of stores) {
@@ -2867,6 +2924,8 @@ export class LocalMemoryService implements MemoryServiceApi {
       record: internal.touch === false ? c.record : touch(c.record),
       score: round4(finalScores.get(c.record.id)!),
     }))
+    // 访问统计要落盘：recency / accessBoost 是排序输入，只在内存里加一等于没算。
+    if (internal.touch !== false) for (const hit of hits) this.store.touch(hit.record)
 
     this.store.scheduleFlush()
     return hits.slice(0, topK)

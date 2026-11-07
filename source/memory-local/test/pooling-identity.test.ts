@@ -38,6 +38,14 @@ function vecPath(dir: string, scope: string): string {
   return join(dir, scopeFileName(scope).replace(/\.jsonl$/, '.vec'))
 }
 
+
+/** 长度与身份维度一致的向量：维度不符的边车条目现在会被丢弃（截断行防护）。 */
+function vec(dims: number, first = 1): Float32Array {
+  const out = new Float32Array(dims)
+  out[0] = first
+  return out
+}
+
 function firstLine(file: string): string {
   return readFileSync(file, 'utf8').split('\n')[0]!
 }
@@ -46,7 +54,7 @@ test('identity records the pooling when it is known', () => {
   const { dir, store } = freshStore()
   store.setVecIdentity('qwen3-embedding-0.6b', 1024, 'last')
   const rec = saveOne(store, 'project:p', '带 pooling 的身份')
-  store.scope('project:p').appendVector(rec.id, new Float32Array([1, 0, 0]))
+  store.scope('project:p').appendVector(rec.id, vec(1024))
   store.close()
 
   assert.equal(firstLine(vecPath(dir, 'project:p')), '#qwen3-embedding-0.6b\t1024\tlast')
@@ -70,7 +78,7 @@ test('a legacy two-field header is accepted, then upgraded on the next vector wr
   // 0.10.0 之前:身份只有 model + dims
   store.setVecIdentity('bge-m3', 4)
   const rec = saveOne(store, 'project:legacy', '旧身份头')
-  store.scope('project:legacy').appendVector(rec.id, new Float32Array([1, 1, 0, 0]))
+  store.scope('project:legacy').appendVector(rec.id, vec(4))
   store.close()
   assert.equal(firstLine(vecPath(dir, 'project:legacy')), '#bge-m3\t4', 'precondition: 两段旧头')
 
@@ -82,7 +90,7 @@ test('a legacy two-field header is accepted, then upgraded on the next vector wr
   assert.ok(s.vectors.has(rec.id), '旧头按兼容接受,不做全量重嵌')
 
   // 下一次写向量时把头部升级成三段,之后的校验才真正带上 pooling
-  s.appendVector(rec.id, new Float32Array([0, 1, 0, 0]))
+  s.appendVector(rec.id, vec(4, 0))
   upgraded.close()
   assert.equal(firstLine(vecPath(dir, 'project:legacy')), '#bge-m3\t4\tcls')
 
@@ -96,7 +104,7 @@ test('a legacy two-field header still discards on a model change', () => {
   const { dir, store } = freshStore()
   store.setVecIdentity('bge-m3', 4)
   const rec = saveOne(store, 'project:m', '旧头 + 换模型')
-  store.scope('project:m').appendVector(rec.id, new Float32Array([1, 0, 0, 0]))
+  store.scope('project:m').appendVector(rec.id, vec(4))
   store.close()
 
   const other = new MemoryStore(dir)
@@ -113,7 +121,7 @@ test('a sidecar without any header is still discarded', () => {
   const rec = saveOne(store, 'project:h', '无头边车')
   store.close()
   const file = vecPath(dir, 'project:h')
-  writeFileSync(file, `${rec.id}\t${Buffer.from(new Float32Array([1, 0, 0, 0]).buffer).toString('base64')}\n`, 'utf8')
+  writeFileSync(file, `${rec.id}\t${Buffer.from(vec(4).buffer).toString('base64')}\n`, 'utf8')
 
   const reopened = new MemoryStore(dir)
   reopened.setVecIdentity('bge-m3', 4, 'cls')

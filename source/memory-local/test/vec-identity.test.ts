@@ -16,6 +16,14 @@ function freshStore() {
   return { dir, store: new MemoryStore(dir) }
 }
 
+
+/** 长度与身份维度一致的向量：维度不符的边车条目现在会被丢弃（截断行防护）。 */
+function vec(dims: number, first = 1): Float32Array {
+  const out = new Float32Array(dims)
+  out[0] = first
+  return out
+}
+
 function saveOne(store: MemoryStore, scope: string, content: string) {
   const { record } = store.save(
     { scope, kind: 'note', content } as Parameters<MemoryStore['save']>[0],
@@ -28,13 +36,13 @@ test('sidecar carries identity header and matching identity loads', () => {
   const { dir, store } = freshStore()
   store.setVecIdentity('bge-m3', 1024)
   const rec = saveOne(store, 'project:t', '向量身份验证')
-  store.scope('project:t').appendVector(rec.id, new Float32Array([1, 0, 0]))
+  store.scope('project:t').appendVector(rec.id, vec(1024))
   store.flush()
 
   const projDir = join(dir, 'projects')
-  const vec = readdirSync(projDir).find((f) => f.endsWith('.vec'))
-  assert.ok(vec, 'sidecar exists')
-  const firstLine = readFileSync(join(projDir, vec!), 'utf8').split('\n')[0]
+  const sidecar = readdirSync(projDir).find((f) => f.endsWith('.vec'))
+  assert.ok(sidecar, 'sidecar exists')
+  const firstLine = readFileSync(join(projDir, sidecar!), 'utf8').split('\n')[0]
   assert.equal(firstLine, '#bge-m3\t1024')
 
   // reopen with the SAME identity → vectors restored
@@ -50,7 +58,7 @@ test('model change discards sidecar and queues re-embed', () => {
   const { dir, store } = freshStore()
   store.setVecIdentity('bge-m3', 1024)
   const rec = saveOne(store, 'project:t', '模型切换测试')
-  store.scope('project:t').appendVector(rec.id, new Float32Array([1, 0, 0]))
+  store.scope('project:t').appendVector(rec.id, vec(1024))
   store.close()
 
   const store2 = new MemoryStore(dir)
@@ -60,7 +68,7 @@ test('model change discards sidecar and queues re-embed', () => {
   assert.equal(s2.vectors.size, 0, 'old-model vectors discarded')
   assert.ok(s2.embedPending.has(rec.id), 'record queued for re-embed')
   // and the stale sidecar gets rewritten with the new header on flush
-  store2.scope('project:t').appendVector(rec.id, new Float32Array([0.5, 0.5, 0]))
+  store2.scope('project:t').appendVector(rec.id, vec(768, 0.5))
   store2.close()
   const store3 = new MemoryStore(dir)
   store3.setVecIdentity('other-model', 768)
@@ -75,7 +83,7 @@ test('legacy headerless sidecar is discarded when identity configured', () => {
   store.close() // jsonl must exist for the reopen to see the record
   // simulate a pre-header sidecar: data lines only
   const vecPath = join(dir, scopeFileName('project:t').replace(/\.jsonl$/, '.vec'))
-  writeFileSync(vecPath, `${rec.id}\t${Buffer.from(new Float32Array([1, 1, 0]).buffer).toString('base64')}\n`, 'utf8')
+  writeFileSync(vecPath, `${rec.id}\t${Buffer.from(vec(1024).buffer).toString('base64')}\n`, 'utf8')
 
   const store2 = new MemoryStore(dir)
   store2.setVecIdentity('bge-m3', 1024)

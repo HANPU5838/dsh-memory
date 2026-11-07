@@ -14,19 +14,24 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { deflateRawSync, gzipSync, inflateRawSync } from 'node:zlib'
 import {
   MODEL_FILE_NAME,
+  MODEL_SIZE_BYTES,
   VectorInstaller,
   detectInstalled,
+  diskNeedBytes,
   extractArchive,
+  extractArchiveReport,
+  freeDiskBytes,
   installPaths,
   pickRuntimeAsset,
   runtimeAssetPattern,
   runtimeDownloadSources,
+  verifyRuntimeLinks,
   type InstallProgress,
 } from '../src/embed-install.ts'
 
@@ -227,6 +232,11 @@ function buildRuntimeFixture(): RuntimeFixture {
       { name: 'llama-b19999/', type: '5' },
       { name: 'llama-b19999/llama-server', data: Buffer.from('llama-server-bin'), mode: 0o755 },
       { name: 'llama-b19999/llama-server-impl.so', data: Buffer.alloc(8192, 4), mode: 0o755 },
+      // 真实发行包的形状：两级 SONAME 软链（.so → .so.0 → .so.0.9.0），
+      // 且链接条目排在真实文件**之前**。安装流程的解压后校验必须认这个。
+      { name: 'llama-b19999/libllama-common.so', type: '2', link: 'libllama-common.so.0' },
+      { name: 'llama-b19999/libllama-common.so.0', type: '2', link: 'libllama-common.so.0.9.0' },
+      { name: 'llama-b19999/libllama-common.so.0.9.0', data: Buffer.alloc(4096, 5), mode: 0o755 },
     ])),
   }
 }
@@ -555,6 +565,137 @@ test('tar.gz：`../` 穿越条目同样被拒绝', () => {
     assert.throws(() => extractArchive(tar, dest), /跳出安装目录/)
   } finally {
     rmSync(dest, { recursive: true, force: true })
+  }
+})
+
+// ──────────────────── 链接兜底与解压后校验 ────────────────────
+
+test('tar.gz：软链建不出来（FAT/exFAT）时退化为复制，链式依赖分多轮完成', () => {
+  const dest = tempDir('dsh-install-copylink-')
+  try {
+    // 两级 SONAME 链，且链接排在真实文件之前——软链不可用时，第二轮才可能
+    // 复制到真实内容（第一轮 libfoo.so 的源 libfoo.so.0 还是个待建的链接）。
+    const tar = gzipSync(buildTar([
+      { name: 'llama-b1/libfoo.so', type: '2', link: 'libfoo.so.0' },
+      { name: 'llama-b1/libfoo.so.0', type: '2', link: 'libfoo.so.0.9.0' },
+      { name: 'llama-b1/libfoo.so.0.9.0', data: Buffer.from('ELF'), mode: 0o755 },
+    ]))
+    const report = extractArchiveReport(tar, dest, {
+      symlink: () => { throw Object.assign(new Error('EPERM: operation not permitted, symlink'), { code: 'EPERM' }) },
+    })
+    assert.equal(report.written, 3, '1 个普通文件 + 2 条退化复制出来的链接')
+    assert.equal(report.links.symlinked, 0)
+    assert.equal(report.links.copied, 2, '两条软链都退化为复制')
+    assert.equal(report.links.failed, 0, '退化成功不算失败')
+    assert.ok(report.links.rounds >= 2, `链式依赖需要多轮重试（实际 ${report.links.rounds} 轮）`)
+    // 退化后必须是**真实文件**（内容 = 最终目标），否则动态加载器仍然找不到库
+    assert.equal(lstatSync(join(dest, 'libfoo.so')).isSymbolicLink(), false)
+    assert.equal(lstatSync(join(dest, 'libfoo.so.0')).isSymbolicLink(), false)
+    assert.equal(readFileSync(join(dest, 'libfoo.so'), 'utf8'), 'ELF')
+    assert.equal(readFileSync(join(dest, 'libfoo.so.0'), 'utf8'), 'ELF')
+    // 兼容：extractArchive 仍然只返回数字（既有调用方/测试的语义不变）
+    const dest2 = tempDir('dsh-install-copylink2-')
+    try {
+      assert.equal(typeof extractArchive(tar, dest2, { symlink: () => { throw new Error('EPERM') } }), 'number')
+    } finally {
+      rmSync(dest2, { recursive: true, force: true })
+    }
+  } finally {
+    rmSync(dest, { recursive: true, force: true })
+  }
+})
+
+test('tar.gz：链接多轮都建不出来时，失败数与明细进返回值，不再静默吞掉', () => {
+  const dest = tempDir('dsh-install-linkfail-')
+  try {
+    const tar = gzipSync(buildTar([
+      { name: 'llama-b1/libfoo.so', type: '2', link: 'libfoo.so.0' }, // 目标本体根本不存在
+      { name: 'llama-b1/ok.txt', data: Buffer.from('ok') },
+    ]))
+    const report = extractArchiveReport(tar, dest, { symlink: () => { throw new Error('ENOSYS: symlink not supported') } })
+    assert.equal(report.written, 1, '只有普通文件算进 written')
+    assert.equal(report.links.failed, 1, '建不出来的链接必须报数')
+    assert.match(report.links.failures[0] ?? '', /libfoo\.so/, '失败明细带库名，上层才能写进 message')
+    assert.match(report.links.failures[0] ?? '', /ENOENT|no such file/i)
+  } finally {
+    rmSync(dest, { recursive: true, force: true })
+  }
+})
+
+test('verifyRuntimeLinks：能解析的 SONAME 链 → ok；悬空链接 → 报出库名、目标与原因', (t) => {
+  const dir = tempDir('dsh-install-verify-')
+  try {
+    writeFileSync(join(dir, 'libllama-common.so.0.9.0'), 'ELF')
+    try {
+      symlinkSync('libllama-common.so.0.9.0', join(dir, 'libllama-common.so.0'))
+      symlinkSync('libllama-common.so.0', join(dir, 'libllama-common.so'))
+    } catch {
+      t.skip('当前文件系统不支持符号链接，跳过')
+      return
+    }
+    const healthy = verifyRuntimeLinks(dir)
+    assert.equal(healthy.ok, true)
+    assert.equal(healthy.checked, 2, '两条链接都检查到')
+    assert.deepEqual(healthy.issues, [])
+
+    // 悬空链接（目标文件没解出来）：安装后启动就会 cannot open shared object file
+    symlinkSync('libmissing.so.0', join(dir, 'libmissing.so'))
+    const broken = verifyRuntimeLinks(dir)
+    assert.equal(broken.ok, false)
+    assert.equal(broken.checked, 3)
+    assert.deepEqual(broken.issues.map((issue) => issue.name), ['libmissing.so'])
+    assert.equal(broken.issues[0]?.target, 'libmissing.so.0')
+    assert.match(broken.issues[0]?.reason ?? '', /ENOENT/)
+
+    // 不叫 *.so / *.dylib 的杂项软链（指向文档/目录）不参与判定：
+    // 它解析不了也不影响动态加载，不该把安装判成失败。
+    symlinkSync('nowhere/README', join(dir, 'docs-link'))
+    const noisy = verifyRuntimeLinks(dir)
+    assert.equal(noisy.checked, 3, '只检查 SONAME 链接')
+    assert.equal(noisy.ok, false, '悬空的 SONAME 链接仍然要报')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+// ─────────────────────── 磁盘预检 ───────────────────────
+
+test('diskNeedBytes：模型 ×1.25 + 运行时预留 + 200MB 余量，已就位的不重复计', () => {
+  const root = tempDir('dsh-install-need-')
+  try {
+    const paths = installPaths(root)
+    const model = { file: 'm.gguf', bytes: 1_000_000 }
+    const need = diskNeedBytes(paths, model, 'cpu')
+    // 1.25MB 模型 + 256MB 运行时 + 200MB 余量
+    assert.ok(need >= 1_250_000 + 456 * 1024 * 1024, `CPU 预检偏小：${need}`)
+    assert.ok(need < 458 * 1024 * 1024, `CPU 预检偏大：${need}`)
+    assert.ok(diskNeedBytes(paths, model, 'cuda') > need, 'CUDA 伴生包要预留更多空间')
+
+    // 已装好的部分不重复算：只剩 200MB 余量（断点续装不会被误拦）
+    mkdirSync(join(root, 'models'), { recursive: true })
+    writeFileSync(paths.model, 'x')
+    mkdirSync(paths.dir, { recursive: true })
+    writeFileSync(paths.exe, 'x')
+    assert.equal(diskNeedBytes(paths, model, 'cpu'), 200 * 1024 * 1024)
+
+    // 模型没给 bytes 时按内置 bge-m3 体积算
+    const noBytes = diskNeedBytes(installPaths(join(root, 'other')), { file: 'x.gguf' }, 'cpu')
+    assert.ok(noBytes >= Math.ceil(MODEL_SIZE_BYTES * 1.25) + 200 * 1024 * 1024)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('freeDiskBytes：statfsSync 能读到真实可用空间，读不到时返回 null 不抛', () => {
+  const dir = tempDir('dsh-install-statfs-')
+  try {
+    const free = freeDiskBytes(dir)
+    assert.notEqual(free, null, '目标目录存在时 statfs 应该能读到空间')
+    assert.ok((free ?? -1) >= 0)
+    // 不存在的路径 → 读不到也不许抛（预检失败只能跳过，不能拦死安装）
+    assert.equal(freeDiskBytes(join(dir, 'nope', 'deeper')), null)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
   }
 })
 
@@ -1045,6 +1186,100 @@ test('已安装时 start() 什么都不做：不查 GitHub、不覆盖既有文�
     assert.deepEqual(installer.progress.paths, paths)
     assert.equal(readFileSync(paths.exe, 'utf8'), 'hand-made-shim', '既有文件不被覆盖')
     assert.equal(readFileSync(paths.model, 'utf8'), 'hand-made-gguf')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('安装流程：解压后 SONAME 链接解析不了 → phase=error 且写明缺哪个库，不报 done', async (t) => {
+  if (!hostSupported()) {
+    t.skip(`宿主平台 ${process.platform}-${process.arch} 不在支持列表，跳过`)
+    return
+  }
+  if (process.platform === 'win32') {
+    t.skip('Windows 运行时是 zip（没有符号链接），这条只覆盖 tar.gz 路径')
+    return
+  }
+  const root = tempDir('dsh-install-badso-')
+  try {
+    const dirName = process.platform === 'darwin' ? 'macos' : 'ubuntu'
+    const arch = process.arch === 'arm64' ? 'arm64' : 'x64'
+    const runtimeName = `llama-b19999-bin-${dirName}-${arch}.tar.gz`
+    // 只有 SONAME 软链，缺 .so.0.9.0 本体：解压本身「成功」，但链接是悬空的
+    const runtimeBytes = gzipSync(buildTar([
+      { name: 'llama-b19999/', type: '5' },
+      { name: 'llama-b19999/llama-server', data: Buffer.from('llama-server-bin'), mode: 0o755 },
+      { name: 'llama-b19999/libllama-common.so', type: '2', link: 'libllama-common.so.0' },
+      { name: 'llama-b19999/libllama-common.so.0', type: '2', link: 'libllama-common.so.0.9.0' },
+    ]))
+    const paths = installPaths(root)
+    let modelRequested = false
+    const fetchImpl = fakeFetch((url) => {
+      if (url.includes('api.github.com')) {
+        return jsonResponse([{ assets: [{ name: runtimeName, browser_download_url: 'https://example.invalid/rt' }] }])
+      }
+      if (url === 'https://example.invalid/rt') return streamResponse([runtimeBytes], runtimeBytes.length)
+      modelRequested = true
+      return new Response('should not download model', { status: 500 })
+    })
+    const installer = new VectorInstaller({ root, fetchImpl })
+    installer.start()
+    await waitFor(() => installer.progress.phase === 'error' || installer.progress.phase === 'done', '安装结束')
+
+    assert.equal(installer.progress.phase, 'error', '悬空 SONAME 链接必须在解压后拦下，不能报 done')
+    assert.match(installer.progress.message, /运行时校验失败/)
+    assert.match(installer.progress.message, /libllama-common\.so/, 'message 必须写明缺哪个库')
+    assert.match(installer.progress.message, /cannot open shared object file|不支持符号链接/, 'message 必须写清原因/后果')
+    assert.equal(installer.progress.error, installer.progress.message)
+    assert.equal(modelRequested, false, '链接校验失败就不该继续下模型')
+    assert.equal(existsSync(paths.model), false, '模型没被下载')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('磁盘预检：空间不够 → phase=error 并给出要释放多少 GB，且一次网络请求都不发', async () => {
+  const root = tempDir('dsh-install-nodisk-')
+  try {
+    let calls = 0
+    const fetchImpl = fakeFetch(() => {
+      calls++
+      return new Response('nope', { status: 500 })
+    })
+    const reports: InstallProgress[] = []
+    const installer = new VectorInstaller({
+      root,
+      fetchImpl,
+      freeBytes: () => 100 * 1024 * 1024, // 只剩 100MB
+      onProgress: (p) => reports.push(p),
+    })
+    installer.start()
+    await waitFor(() => installer.progress.phase === 'error', '进入 error')
+
+    assert.match(installer.progress.message, /磁盘空间不足/)
+    assert.match(installer.progress.message, /请至少再释放约 [\d.]+GB/, '要给出需要释放的 GB 数')
+    assert.equal(calls, 0, '预检必须在任何下载之前完成')
+    assert.ok(reports.some((p) => /磁盘预检/.test(p.message)), '给出预检阶段提示')
+    assert.equal(existsSync(installPaths(root).dir), true, '目录已建好（statfs 需要真实路径）')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('磁盘预检：读不到可用空间时跳过预检，不拦死安装', async () => {
+  const root = tempDir('dsh-install-nodisk-unknown-')
+  try {
+    let calls = 0
+    const fetchImpl = fakeFetch(() => {
+      calls++
+      return new Response('rate limited', { status: 403 })
+    })
+    const installer = new VectorInstaller({ root, fetchImpl, freeBytes: () => null })
+    installer.start()
+    await waitFor(() => installer.progress.phase === 'error', '进入 error')
+
+    assert.ok(calls > 0, 'statfs 读不到空间时必须放行，而不是把安装拦死')
+    assert.match(installer.progress.message, /GitHub API 限流/)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

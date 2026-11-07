@@ -267,6 +267,8 @@ export class ScopeStore {
     return this.upserts.size > 0 || this.deletes.size > 0
   }
 
+  /** 当前向量模型的维度；用于丢弃截断/错维度的边车条目。 */
+          expectedDims                = null
   /** 这个 scope 的跨进程写锁(JSONL 与 .vec 共用一把,避免两边交叉覆盖)。 */
   get lockPath()         {
     return `${this.file}.lock`
@@ -289,6 +291,7 @@ export class ScopeStore {
     this.vecIdentity = pooling !== undefined && pooling !== '' && pooling !== 'auto'
       ? `${model}\t${dims}\t${pooling}`
       : `${model}\t${dims}`
+    this.expectedDims = Number.isFinite(dims) && dims > 0 ? dims : null
   }
 
   /**
@@ -413,6 +416,11 @@ export class ScopeStore {
     if (this.vecIdentity) lines.push(`#${this.vecIdentity}`)
     const merged = this.readSidecarEntries()
     for (const [id, v] of this.vectors) merged.set(id, `${id}\t${encodeVec(v)}`)
+    // 边车以前"只增不减"：磁盘上遗留的、属于已删除记录的条目会被原样写回，
+    // 文件随着删除/重建无限增长。以当前记录集为准清理一次。
+    for (const id of merged.keys()) {
+      if (!this.records.has(id)) merged.delete(id)
+    }
     for (const line of merged.values()) lines.push(line)
     const tmp = tmpPathFor(this.vecFile)
     writeFileSync(tmp, lines.length ? `${lines.join('\n')}\n` : '', 'utf8')
@@ -504,7 +512,15 @@ export class ScopeStore {
         const id = trimmed.slice(0, tab)
         if (!this.records.has(id)) continue // stale vector for a deleted record
         const vec = decodeVec(trimmed.slice(tab + 1))
-        if (vec) this.vectors.set(id, vec)
+        if (!vec) continue
+        // 进程被杀时可能留下被截断的行：base64 长度仍是 4 的倍数，decode 会"成功"，
+        // 于是维度不对的向量混进余弦计算（长度不等时按较短者算，结果静默错）。
+        // 身份头里就写着维度，这里必须逐条校验，不符就丢弃（下次检索会重新嵌入）。
+        if (this.expectedDims !== null && vec.length !== this.expectedDims) {
+          this.events.onWarn?.(`vec: 丢弃维度不符的向量 ${id}（${vec.length} != ${this.expectedDims}）`)
+          continue
+        }
+        this.vectors.set(id, vec)
       }
     } catch (err) {
       this.events.onWarn?.(`vec: load failed: ${(err         ).message}`)
@@ -704,6 +720,19 @@ export class MemoryStore {
   anyDirty()          {
     for (const s of this.scopes.values()) if (s.dirty) return true
     return false
+  }
+
+  /**
+   * 记录一次「访问」：把更新过 accessCount / lastAccessedAt 的记录排进落盘增量。
+   *
+   * 不落盘的话这两个字段永远是 0 —— 而 recency（最近访问）与 accessBoost
+   * （访问频率）正是检索排序的输入，召回质量会随使用慢慢偏掉。
+   * 只有确实在内存里、且没被别的进程删掉的记录才会入增量。
+   */
+  touch(record              )       {
+    const s = this.scopes.get(record.scope)
+    if (!s || !s.records.has(record.id)) return
+    s.insert(record)
   }
 
   scheduleFlush(delayMs = 500)       {

@@ -25,6 +25,12 @@
  *    报一句莫名其妙的加载失败；
  *  - 可取消：cancel() 中止在途请求、删掉 .part、phase 回到 idle；
  *  - 解压必须防路径穿越：压缩包是远端内容，`../` 或绝对路径条目一律拒绝；
+ *  - 链接必须有兜底：tar 里的 SONAME 软链在 FAT/exFAT/部分 Android 共享存储上建
+ *    不出来（symlink(2) EPERM/ENOSYS），这时退化为复制真实文件；多轮重试解决
+ *    链式依赖（A→B→file），失败数与明细要交给上层，不能静默跳过；
+ *  - 解压后必须校验：运行时目录里的符号链接都得能解析（verifyRuntimeLinks），
+ *    否则装完看着成功、启动才报 "cannot open shared object file"，最难排查；
+ *  - 下载前磁盘预检：空间不够就先报错并说清要释放多少，别下到一半 ENOSPC；
  *  - 每条下载都留了备用通道：运行时是「下载直链 → GitHub API 资产端点」，模型
  *    是多个源，全部按序回退（详见 runtimeDownloadSources / MODEL_SOURCES）。
  *    这不是锦上添花——直链会 302 到 release-assets.githubusercontent.com，该主机
@@ -35,8 +41,8 @@
  *   <root>/models/bge-m3-Q4_K_M.gguf     ← 模型
  *   <root>/llama-server.log              ← 托管启动时追加的日志
  */
-import { chmodSync, copyFileSync, createWriteStream, existsSync, linkSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
-import type { WriteStream } from 'node:fs'
+import { chmodSync, copyFileSync, createWriteStream, existsSync, linkSync, mkdirSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, statSync, statfsSync, symlinkSync, writeFileSync } from 'node:fs'
+import type { Dirent, WriteStream } from 'node:fs'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import { gunzipSync, inflateRawSync } from 'node:zlib'
 import type { RuntimeFlavor } from './hardware.ts'
@@ -78,6 +84,22 @@ export const MODEL_SOURCES: readonly string[] = [
  * 真实进度一律以响应的 content-length 为准。
  */
 export const MODEL_SIZE_BYTES = 437_778_496
+
+/**
+ * 磁盘预检常量。download 先写 `<目标>.part` 再 rename，所以 .part 与最终文件
+ * 在同一块盘上各占一份峰值空间；模型按 1.25 倍预留就是给这份开销与文件系统
+ * 元数据的。运行时按风味给保守占位（CPU 包解压后约 100MB 级，CUDA 伴生包大得
+ * 多，宁可多报也不能让用户在解压到一半时撞 ENOSPC）。
+ */
+const MODEL_DISK_FACTOR = 1.25
+const RUNTIME_RESERVE_BYTES: Record<RuntimeFlavor, number> = {
+  cpu: 256 * 1024 * 1024,
+  metal: 256 * 1024 * 1024,
+  vulkan: 384 * 1024 * 1024,
+  cuda: 1536 * 1024 * 1024,
+}
+/** 额外余量：日志、文件系统元数据、系统随时回收的那部分，别把盘写满到 0。 */
+const EXTRA_DISK_RESERVE_BYTES = 200 * 1024 * 1024
 
 /** 安装布局。与手工装好的既有布局一致（embed-server 直接吃这几个字段）。 */
 export interface InstallPaths {
@@ -150,6 +172,11 @@ export interface InstallerOptions {
   platform?: NodeJS.Platform
   /** 测试注入：同 platform。 */
   arch?: string
+  /**
+   * 测试注入：读安装根目录所在磁盘的可用字节数。默认 freeDiskBytes（statfsSync）；
+   * 返回 null = 读不到（预检跳过，不阻塞安装）。
+   */
+  freeBytes?: (dir: string) => number | null
 }
 
 /** zip 中央目录里一条记录（只保留解压需要的字段）。 */
@@ -373,12 +400,59 @@ export function runtimeDownloadSources(asset: RuntimeAsset): DownloadSource[] {
 }
 
 /**
- * 按魔数解压 zip / tar.gz 到 destDir，返回写入的文件数。
+ * 按魔数解压 zip / tar.gz 到 destDir，返回写入的条目数。
  * 看魔数而不是扩展名：远端文件名不可靠，内容头是可靠的。
+ *
+ * 返回值与合并前逐字一致（只数成功落盘的条目）；需要知道**链接**建没建起来时
+ * 用同价的 extractArchiveReport()，它额外带 links 统计。
  */
-export function extractArchive(archive: Buffer, destDir: string): number {
-  if (archive.length >= 4 && archive[0] === 0x50 && archive[1] === 0x4b) return extractZip(archive, destDir)
-  if (archive.length >= 2 && archive[0] === 0x1f && archive[1] === 0x8b) return extractTarGz(archive, destDir)
+export function extractArchive(archive: Buffer, destDir: string, options: ExtractOptions = {}): number {
+  return extractArchiveReport(archive, destDir, options).written
+}
+
+/**
+ * 解压的可注入依赖（只给测试用：模拟不支持符号链接/硬链接的文件系统）。
+ * 生产路径一律走 fs 原语，不引入任何依赖。
+ */
+export interface ExtractOptions {
+  /** 替代 fs.symlinkSync(链接内容, 落盘路径)；抛错即视为该文件系统不支持软链。 */
+  symlink?: (from: string, to: string) => void
+  /** 替代 fs.linkSync(现有文件, 新路径)；抛错即退化为复制。 */
+  hardlink?: (from: string, to: string) => void
+}
+
+/** tar 第二遍（建链接）的统计：上层据此判断「链接到底建没建起来」。 */
+export interface ExtractLinkStats {
+  /** 符号链接建成功的数量（目标暂时不存在的悬空链接也算建成功，能不能解析由 verifyRuntimeLinks 判）。 */
+  symlinked: number
+  /** 硬链接建成功的数量。 */
+  hardlinked: number
+  /** 退化为复制的数量（软链不被支持 / 硬链接不可用）。 */
+  copied: number
+  /** 多轮重试后仍然失败的数量（>0 时上层必须报错，不能当成功）。 */
+  failed: number
+  /** 建链接用了几轮（1 = 一轮就全部完成；A→B→file 的链需要多轮）。 */
+  rounds: number
+  /** 失败明细（`名字 -> 目标：原因`），上层拼错误消息用。 */
+  failures: string[]
+}
+
+/** 解压结果。written = 普通文件 + 建成功的链接，与 extractArchive() 的返回值一致。 */
+export interface ExtractReport {
+  written: number
+  links: ExtractLinkStats
+}
+
+function emptyLinkStats(): ExtractLinkStats {
+  return { symlinked: 0, hardlinked: 0, copied: 0, failed: 0, rounds: 0, failures: [] }
+}
+
+/** 解压并带回链接统计（zip 没有链接，links 全零）。 */
+export function extractArchiveReport(archive: Buffer, destDir: string, options: ExtractOptions = {}): ExtractReport {
+  if (archive.length >= 4 && archive[0] === 0x50 && archive[1] === 0x4b) {
+    return { written: extractZip(archive, destDir), links: emptyLinkStats() }
+  }
+  if (archive.length >= 2 && archive[0] === 0x1f && archive[1] === 0x8b) return extractTarGz(archive, destDir, options)
   throw new Error('不支持的压缩格式：既不是 zip（PK）也不是 gzip（1f 8b）')
 }
 
@@ -474,11 +548,32 @@ function extractZip(buf: Buffer, destDir: string): number {
 
 // ─────────────────────────── tar.gz ───────────────────────────
 
+/** tar 里待创建的链接（第一遍只登记，不建）。 */
+interface PendingTarLink {
+  /** 归档内的相对路径（已剥公共顶层目录）。 */
+  name: string
+  /** 落盘绝对路径。 */
+  target: string
+  /** '2' 符号链接 / '1' 硬链接。 */
+  type: string
+  /** 归档里的链接目标：软链相对链接所在目录，硬链相对归档根。 */
+  linkName: string
+}
+
+/**
+ * 校验通过、进入重试队列的一条链接。
+ * 软链记 relative（写进链接的内容）+ source（解析后的真实源，退化复制用）；
+ * 硬链记 source（归档内的目标绝对路径）。
+ */
+type PreparedLink =
+  | { kind: 'symlink'; link: PendingTarLink; relative: string; source: string; lastError?: unknown }
+  | { kind: 'hardlink'; link: PendingTarLink; source: string; lastError?: unknown }
+
 /**
  * tar.gz 解压：gunzip 之后就是 512 字节头 + 数据的顺序流，没有压缩，顺序读即可。
  * （Linux/macOS 的 llama.cpp 发行包是 .tar.gz，Windows 才是 zip。）
  */
-function extractTarGz(buf: Buffer, destDir: string): number {
+function extractTarGz(buf: Buffer, destDir: string, options: ExtractOptions = {}): ExtractReport {
   let tar: Buffer
   try {
     tar = gunzipSync(buf)
@@ -492,14 +587,14 @@ function extractTarGz(buf: Buffer, destDir: string): number {
 
   // 第一遍：普通文件。链接条目先记下来留到第二遍——tar 里链接可能排在目标
   // 文件**之前**，边解压边建链接会建出悬空链接。
-  const links: { target: string; type: string; linkName: string }[] = []
+  const links: PendingTarLink[] = []
   for (const entry of entries) {
     const rel = stripPrefix(entry.name, prefix)
     if (rel === '') continue
     const target = safeTarget(destDir, rel)
     if (entry.type === '5' || rel.endsWith('/')) continue
     if (entry.type === '2' || entry.type === '1') {
-      links.push({ target, type: entry.type, linkName: entry.linkName })
+      links.push({ name: rel, target, type: entry.type, linkName: entry.linkName })
       continue
     }
     if (entry.type !== '0' && entry.type !== '\0') continue
@@ -510,40 +605,189 @@ function extractTarGz(buf: Buffer, destDir: string): number {
   // 第二遍：真正的链接。llama.cpp 的 Linux 发行包靠两级 SONAME 软链
   // （libllama-common.so → libllama-common.so.0 → libllama-common.so.0.9.0）
   // 让动态加载器找到库；只写普通文件的话 llama-server 会报
-  // "cannot open shared object file" 并立即退出。硬链接（'1'）退化为复制。
-  for (const link of links) {
-    const rel = stripPrefix(link.linkName, prefix)
-    try {
-      if (link.type === '2') {
-        // 安全：链接目标是归档内的相对路径，解析后必须仍在 destDir 内，
-        // 否则一个恶意压缩包就能用 ../ 或绝对路径把软链指到任意位置。
-        if (rel === '' || rel.startsWith('/') || /^[A-Za-z]:/.test(rel)) continue
-        const root = resolve(destDir)
-        const resolved = resolve(dirname(link.target), rel.replace(/\\/g, '/'))
-        if (resolved !== root && !resolved.startsWith(root + sep)) continue
-        mkdirSync(dirname(link.target), { recursive: true })
-        rmSync(link.target, { force: true })
-        symlinkSync(rel, link.target)
-        written++
-      } else {
-        // 硬链接：tar 的 linkName 是相对归档根的路径；link(2) 不可用就复制。
-        const source = safeTarget(destDir, rel)
-        mkdirSync(dirname(link.target), { recursive: true })
-        rmSync(link.target, { force: true })
-        try {
-          linkSync(source, link.target)
-        } catch {
-          copyFileSync(source, link.target)
-        }
-        written++
-      }
-    } catch {
-      // 链接建不出来（Windows 无权限、目标缺失等）就跳过，不影响普通文件。
-    }
+  // "cannot open shared object file" 并立即退出。
+  const linkStats = createTarLinks(links, destDir, prefix, options)
+  written += linkStats.symlinked + linkStats.hardlinked + linkStats.copied
+  if (written === 0) throw new Error('压缩包里没有任何文件')
+  return { written, links: linkStats }
+}
+
+/**
+ * tar 第二遍：创建符号链接/硬链接，返回统计（不再静默跳过）。
+ *
+ * 为什么多轮：软链可以指向**另一条软链**（SONAME 就是 A→B→file 的两级链），
+ * 而真实文件可能排在链接之后（见上面第一遍的注释）。每轮只重试还没建出来的
+ * 那些，直到全部成功或一轮毫无进展——用轮数换顺序无关。
+ *
+ * 为什么退化复制：Android 共享存储（FAT/exFAT、/sdcard）不允许 symlink(2)，
+ * 建链会 EPERM/ENOSYS。此时把**解析后的真实源**复制到链接位置，动态加载器
+ * 照样能按 SONAME 找到库；宁可多占几 MB，也不要装完启动不了。硬链接则是
+ * link(2) 不可用（跨设备/受限文件系统）时复制。
+ *
+ * 建不出来的不吞掉：失败数与明细进 ExtractLinkStats，由安装流程报 error。
+ */
+function createTarLinks(
+  links: readonly PendingTarLink[],
+  destDir: string,
+  prefix: string,
+  options: ExtractOptions,
+): ExtractLinkStats {
+  const stats = emptyLinkStats()
+  const root = resolve(destDir)
+  const symlink = options.symlink ?? symlinkSync
+  const hardlink = options.hardlink ?? linkSync
+  // 安全检查不通过的条目直接记失败（不重试）：恶意压缩包不该被当成「暂时失败」。
+  const reject = (reason: string): void => {
+    stats.failed++
+    stats.failures.push(reason)
   }
 
-  if (written === 0) throw new Error('压缩包里没有任何文件')
-  return written
+  let pending: PreparedLink[] = []
+  for (const link of links) {
+    const rel = stripPrefix(link.linkName, prefix)
+    if (link.type === '2') {
+      // 安全：链接目标是归档内的相对路径，解析后必须仍在 destDir 内，
+      // 否则一个恶意压缩包就能用 ../ 或绝对路径把软链指到任意位置。
+      if (rel === '' || rel.startsWith('/') || /^[A-Za-z]:/.test(rel)) {
+        reject(`${link.name} -> ${link.linkName}：链接目标为空或为绝对路径`)
+        continue
+      }
+      const source = resolve(dirname(link.target), rel.replace(/\\/g, '/'))
+      if (source !== root && !source.startsWith(root + sep)) {
+        reject(`${link.name} -> ${link.linkName}：链接目标是安装目录之外的路径`)
+        continue
+      }
+      pending.push({ kind: 'symlink', link, relative: rel, source })
+      continue
+    }
+    // 硬链接：tar 的 linkName 是相对归档根的路径；link(2) 不可用就复制。
+    let source: string | null = null
+    let sourceError: unknown = null
+    try {
+      source = safeTarget(destDir, rel)
+    } catch (error) {
+      sourceError = error
+    }
+    if (source === null) {
+      reject(`${link.name} -> ${link.linkName}：硬链接目标非法（${describeError(sourceError)}）`)
+      continue
+    }
+    pending.push({ kind: 'hardlink', link, source })
+  }
+
+  while (pending.length > 0) {
+    stats.rounds++
+    const keep: PreparedLink[] = []
+    for (const item of pending) {
+      try {
+        mkdirSync(dirname(item.link.target), { recursive: true })
+        rmSync(item.link.target, { force: true })
+        if (item.kind === 'symlink') {
+          try {
+            symlink(item.relative, item.link.target)
+            stats.symlinked++
+            continue
+          } catch {
+            // 软链建不出来（FAT/exFAT、Android 共享存储）→ 退化为复制真实源。
+            // 源本身可能还是后一轮才建出来的链，这时复制会 ENOENT，留到下一轮。
+            copyFileSync(item.source, item.link.target)
+            stats.copied++
+            continue
+          }
+        }
+        try {
+          hardlink(item.source, item.link.target)
+          stats.hardlinked++
+        } catch {
+          copyFileSync(item.source, item.link.target)
+          stats.copied++
+        }
+      } catch (error) {
+        item.lastError = error
+        keep.push(item)
+      }
+    }
+    // 一整轮没有任何进展 → 剩下的永远不会成功，别死循环。
+    if (keep.length === pending.length) {
+      for (const item of keep) {
+        reject(`${item.link.name} -> ${item.link.linkName}：${describeError(item.lastError)}`)
+      }
+      break
+    }
+    pending = keep
+  }
+  return stats
+}
+
+// ─────────────────────── 解压后校验：运行时链接 ───────────────────────
+
+/** 一条解析不了的符号链接。 */
+export interface RuntimeLinkIssue {
+  /** 符号链接名（如 libllama-common.so.0），报错时直接告诉用户缺哪个库。 */
+  name: string
+  /** 链接里写的目标（原样，便于判断是链断了还是根本没解出来）。 */
+  target: string
+  /** 解析失败原因（ENOENT = 目标缺失；ELOOP = 链成环）。 */
+  reason: string
+}
+
+/** verifyRuntimeLinks 的结果。 */
+export interface RuntimeLinkCheck {
+  /** 全部 SONAME 链接都能解析才为 true。 */
+  ok: boolean
+  /** 检查了多少条 SONAME 链接（0 表示这个包装本来就没有链接）。 */
+  checked: number
+  issues: RuntimeLinkIssue[]
+}
+
+/**
+ * 只把「动态加载器会按名字去找的」链接算作必须能解析：`.so` / `.so.0` /
+ * `.so.0.9.0` / macOS 的 `.dylib`。发行包里偶尔会有指向文档/目录的杂项软链，
+ * 它们解析不了不影响 llama-server 启动，不该把安装判成失败。
+ */
+const SONAME_LINK = /\.(?:so(?:\.\d+)*|dylib)$/i
+
+/**
+ * 解压后校验：运行时目录里每条 SONAME 符号链接都必须能解析到真实文件。
+ *
+ * 为什么必须做：llama-server 是动态链接的，llama.cpp 的发行包用 SONAME 软链
+ * 把 `libllama-common.so` → `.so.0` → `.so.0.9.0` 串起来。链接一旦缺失/悬空，
+ * 安装流程本身「成功」了，用户点启动才看到
+ * `cannot open shared object file` —— 那时根本不知道是哪个库、也不知道是
+ * 文件系统不支持软链。所以解压完立刻跟随链接 stat 一遍，把库名与原因报出来。
+ *
+ * 只扫 destDir 之内、不跟随软链目录（避免环）；链接本身用 statSync 跟随解析。
+ */
+export function verifyRuntimeLinks(dir: string): RuntimeLinkCheck {
+  const issues: RuntimeLinkIssue[] = []
+  const links: string[] = []
+  const walk = (current: string, depth: number): void => {
+    if (depth > 3) return
+    for (const entry of listEntries(current)) {
+      const full = join(current, entry.name)
+      // 注意：软链指向目录时 Dirent.isDirectory() 也是 false，所以这里不会跟进去。
+      if (entry.isSymbolicLink()) {
+        if (SONAME_LINK.test(entry.name)) links.push(full)
+        continue
+      }
+      if (entry.isDirectory()) walk(full, depth + 1)
+    }
+  }
+  walk(dir, 0)
+  for (const link of links) {
+    try {
+      statSync(link) // 跟随软链：悬空 / 成环都会抛
+    } catch (error) {
+      let target = ''
+      try {
+        target = readlinkSync(link)
+      } catch {
+        // 读不到链接内容也不影响报错（名字已经能定位）
+      }
+      issues.push({ name: basename(link), target, reason: describeError(error) })
+    }
+  }
+  return { ok: issues.length === 0, checked: links.length, issues }
 }
 
 function readTarEntries(tar: Buffer): TarEntry[] {
@@ -701,6 +945,15 @@ function isFile(path: string): boolean {
   }
 }
 
+/** readdir 的安全版：目录读不了（权限/刚被删）就当空目录，绝不抛。 */
+function listEntries(dir: string): Dirent[] {
+  try {
+    return readdirSync(dir, { withFileTypes: true })
+  } catch {
+    return []
+  }
+}
+
 function fileSize(path: string): number {
   try {
     return statSync(path).size
@@ -740,6 +993,46 @@ function formatBytes(bytes: number): string {
   const mb = bytes / (1024 * 1024)
   if (mb < 1024) return `${mb.toFixed(1)} MB`
   return `${(mb / 1024).toFixed(2)} GB`
+}
+
+/** 「需要释放多少」固定用 GB 说：MB 级差额对用户没有意义，GB 才是决策单位。 */
+function formatGb(bytes: number): string {
+  return `${(Math.max(0, bytes) / (1024 * 1024 * 1024)).toFixed(2)}GB`
+}
+
+/** 模型下载要预留的字节数：已存在则 0，否则按已知体积 ×1.25（.part + 元数据）。 */
+function modelDiskNeedBytes(paths: InstallPaths, model: InstallModel): number {
+  if (isFile(paths.model)) return 0
+  const bytes = model.bytes !== undefined && model.bytes > 0 ? model.bytes : MODEL_SIZE_BYTES
+  return Math.ceil(bytes * MODEL_DISK_FACTOR)
+}
+
+/** 运行时解压要预留的字节数：exe 已在（上次已解开）就不重复算。 */
+function runtimeDiskNeedBytes(paths: InstallPaths, flavor: RuntimeFlavor): number {
+  return isFile(paths.exe) ? 0 : (RUNTIME_RESERVE_BYTES[flavor] ?? RUNTIME_RESERVE_BYTES.cpu)
+}
+
+/**
+ * 下载前磁盘预检：模型 ×1.25 + 运行时解压余量 + 200MB 额外余量。
+ * 已经就位的部分不重复计——断点续装（运行时已解开、只差模型）不会被误拦。
+ */
+export function diskNeedBytes(paths: InstallPaths, model: InstallModel, flavor: RuntimeFlavor): number {
+  return modelDiskNeedBytes(paths, model) + runtimeDiskNeedBytes(paths, flavor) + EXTRA_DISK_RESERVE_BYTES
+}
+
+/**
+ * statfsSync 读 dir 所在文件系统的可用字节数；读不到（老内核 / 权限 / 非常规
+ * 文件系统）返回 null —— 预检失败就跳过预检，绝不能因为「读不到」把安装拦死。
+ * 与 hardware.ts 的 freeDiskMb 同一思路，但这里不依赖 hardware（零耦合）。
+ */
+export function freeDiskBytes(dir: string): number | null {
+  try {
+    const stat = statfsSync(dir)
+    const bytes = Number(stat.bavail) * Number(stat.bsize)
+    return Number.isFinite(bytes) && bytes >= 0 ? bytes : null
+  } catch {
+    return null
+  }
 }
 
 function urlHost(url: string): string {
@@ -879,6 +1172,19 @@ export class VectorInstaller {
       ensureDir(paths.dir, '创建运行时目录')
       ensureDir(dirname(paths.model), '创建模型目录')
 
+      // 下载前磁盘预检：statfs 只有目标路径存在才量得准，所以放在建目录之后、
+      // **任何下载之前**。空间不够就先报错——下到一半 ENOSPC 会留下半个文件，
+      // 用户还得自己找地方清理。
+      const need = diskNeedBytes(paths, model, flavor)
+      const free = (this.opts.freeBytes ?? freeDiskBytes)(root)
+      this.setPhase(gen, 'preparing', `磁盘预检：需要约 ${formatBytes(need)}，可用 ${free === null ? '未知（跳过预检）' : formatBytes(free)}`)
+      if (free !== null && free < need) {
+        throw new Error(
+          `磁盘空间不足：安装需要约 ${formatBytes(need)}（模型按体积 ×1.25 预留 + 运行时解压 + 200MB 余量），` +
+          `安装目录 ${root} 所在磁盘只剩 ${formatBytes(free)}，请至少再释放约 ${formatGb(need - free)} 后重试`,
+        )
+      }
+
       const asset = await this.resolveRuntimeAsset(gen, platform, arch, flavor)
       const archivePath = join(paths.dir, asset.name)
       if (fileSize(archivePath) > 0) {
@@ -898,9 +1204,16 @@ export class VectorInstaller {
       } catch (error) {
         throw diskError(`读取 ${archivePath}`, error)
       }
-      let written: number
+      let written = 0
+      // 链接失败要跨「主包 + CUDA 伴生包」累计：任何一个包里的 SONAME 链接建不
+      // 起来，装完都会启动失败，不能因为失败发生在不同压缩包里就漏报。
+      let failedLinks = 0
+      const linkFailures: string[] = []
       try {
-        written = extractArchive(archive, paths.dir)
+        const report = extractArchiveReport(archive, paths.dir)
+        written += report.written
+        failedLinks += report.links.failed
+        linkFailures.push(...report.links.failures)
       } catch (error) {
         // 解压失败说明压缩包本身坏了：删掉它，下次点击会重新下载，
         // 而不是每次都撞同一个坏文件（.part 早就没了，这个包是「完整但损坏」）。
@@ -918,7 +1231,10 @@ export class VectorInstaller {
           this.report(gen, { message: `CUDA 运行库下载完成（${formatBytes(got.bytes)}，通道：${got.source.label}）` })
         }
         try {
-          written += extractArchive(readFileSync(companionPath), paths.dir)
+          const report = extractArchiveReport(readFileSync(companionPath), paths.dir)
+          written += report.written
+          failedLinks += report.links.failed
+          linkFailures.push(...report.links.failures)
         } catch (error) {
           try { rmSync(companionPath, { force: true }) } catch { /* 尽力而为 */ }
           throw error
@@ -931,7 +1247,26 @@ export class VectorInstaller {
         // tar 的权限位在大多数归档里是齐的，这里再兜一次底。
         try { chmodSync(paths.exe, 0o755) } catch { /* 尽力而为 */ }
       }
-      this.setPhase(gen, 'extracting', `已解压 ${written} 个文件`)
+      // 解压后校验：SONAME 软链必须都能解析。链接缺失/悬空的包在「装完」这一刻
+      // 是看不出来的，用户点启动才报 cannot open shared object file——所以在这里
+      // 拦住，并把缺哪个库、为什么（软链不支持/目标缺失）写进 message。
+      const linkCheck = verifyRuntimeLinks(paths.dir)
+      if (failedLinks > 0 || !linkCheck.ok) {
+        const problems: string[] = []
+        if (failedLinks > 0) {
+          const shown = linkFailures.slice(0, 3).join('；')
+          problems.push(`${failedLinks} 个链接既没建成软链也复制失败（${shown}${linkFailures.length > 3 ? '；…' : ''}）`)
+        }
+        for (const issue of linkCheck.issues.slice(0, 5)) {
+          problems.push(`链接 ${issue.name} -> ${issue.target === '' ? '?' : issue.target} 无法解析（${issue.reason}）`)
+        }
+        if (linkCheck.issues.length > 5) problems.push(`还有 ${linkCheck.issues.length - 5} 条链接无法解析`)
+        throw new Error(
+          `运行时校验失败：${problems.join('；')}。llama-server 启动会报 cannot open shared object file。` +
+          `若安装目录在不支持符号链接的文件系统（FAT/exFAT、部分 Android 共享存储）上，请把安装目录换到 ext4/f2fs 分区后重试`,
+        )
+      }
+      this.setPhase(gen, 'extracting', `已解压 ${written} 个文件（检查 ${linkCheck.checked} 条链接）`)
 
       if (fileSize(paths.model) > 0) {
         // 模型几百 MB 起步，重下一次代价太大：已经在就直接用。

@@ -10,7 +10,7 @@
 > | 项目 | 说明 |
 > | --- | --- |
 > | 上游原仓库 | **[RestRegular/dsh-memory](https://github.com/RestRegular/dsh-memory)**（作者 **RestRegular**）|
-> | 本镜像 | 上游 v0.30.1 + **Termux / Android(glibc) 适配补丁**（符号链接解压、默认 batch、嵌入错误可见性、存储健壮性等，清单见 [MIRROR-PATCHES.md](MIRROR-PATCHES.md)）；文档里的图片 / 链接指向本仓库 |
+> | 本镜像 | 上游 v0.30.1 + **一批平台适配与健壮性改进**（安装器软链/校验/磁盘预检、Termux glibc 自动包装、端口预检与自愈、默认 batch、存储写入与向量校验、检索超时自适应等，清单见 [IMPROVEMENTS.md](IMPROVEMENTS.md)）；文档里的图片 / 链接指向本仓库 |
 > | 许可 | **MIT**，版权归原作者所有，见 [LICENSE](LICENSE)；转载、分发请保留原始版权声明 |
 > | 更新与反馈 | 更新、Issue、PR 请到**上游原仓库**；本镜像不接收 Issue，同步靠手动从上游拉取 |
 >
