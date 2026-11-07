@@ -318,6 +318,18 @@ const DRIVE_PATH = /^[A-Za-z]:[\\/]/u
 const POSIX_ABSOLUTE = /^\//u
 
 /**
+ * 判断一个路径是否已经是绝对路径，**同时认 POSIX 与 Windows 写法**，不依赖宿主 OS。
+ *
+ * 为什么不直接用 `node:path` 的 `isAbsolute`：它在 Linux 上不认 `D:/x`，于是
+ * `memory_save({ path: 'D:/x' })` 会被当成相对路径拼到 cwd 下，同一个工作区在
+ * 不同平台上得到两个 scope 键。
+ */
+export function isAbsoluteWorkspacePath(value: string): boolean {
+  const trimmed = value.trim()
+  return WINDOWS_ABSOLUTE.test(trimmed) || POSIX_ABSOLUTE.test(trimmed)
+}
+
+/**
  * 项目作用域里的**路径规范形**:同一个目录只允许一种写法。
  *
  * 为什么需要:Windows 上 `D:/repositories/dsh-memory` 与 `D:\repositories\dsh-memory`

@@ -35,7 +35,7 @@
  *   <root>/models/bge-m3-Q4_K_M.gguf     ← 模型
  *   <root>/llama-server.log              ← 托管启动时追加的日志
  */
-import { chmodSync, createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, createWriteStream, existsSync, linkSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
                                           
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import { gunzipSync, inflateRawSync } from 'node:zlib'
@@ -166,8 +166,10 @@ export const MODEL_SIZE_BYTES = 437_778_496
                     
               
               
-                                           
+                                                   
               
+                            
+               
                   
               
  
@@ -487,15 +489,59 @@ function extractTarGz(buf        , destDir        )         {
   for (const entry of entries) assertSafeName(entry.name)
   const prefix = commonPrefix(entries.map((entry) => entry.name))
   let written = 0
+
+  // 第一遍：普通文件。链接条目先记下来留到第二遍——tar 里链接可能排在目标
+  // 文件**之前**，边解压边建链接会建出悬空链接。
+  const links                                                       = []
   for (const entry of entries) {
     const rel = stripPrefix(entry.name, prefix)
     if (rel === '') continue
     const target = safeTarget(destDir, rel)
     if (entry.type === '5' || rel.endsWith('/')) continue
-    if (entry.type !== '0' && entry.type !== '\0') continue // 符号链接/硬链接等一律跳过
+    if (entry.type === '2' || entry.type === '1') {
+      links.push({ target, type: entry.type, linkName: entry.linkName })
+      continue
+    }
+    if (entry.type !== '0' && entry.type !== '\0') continue
     writeFile(target, entry.data, entry.mode)
     written++
   }
+
+  // 第二遍：真正的链接。llama.cpp 的 Linux 发行包靠两级 SONAME 软链
+  // （libllama-common.so → libllama-common.so.0 → libllama-common.so.0.9.0）
+  // 让动态加载器找到库；只写普通文件的话 llama-server 会报
+  // "cannot open shared object file" 并立即退出。硬链接（'1'）退化为复制。
+  for (const link of links) {
+    const rel = stripPrefix(link.linkName, prefix)
+    try {
+      if (link.type === '2') {
+        // 安全：链接目标是归档内的相对路径，解析后必须仍在 destDir 内，
+        // 否则一个恶意压缩包就能用 ../ 或绝对路径把软链指到任意位置。
+        if (rel === '' || rel.startsWith('/') || /^[A-Za-z]:/.test(rel)) continue
+        const root = resolve(destDir)
+        const resolved = resolve(dirname(link.target), rel.replace(/\\/g, '/'))
+        if (resolved !== root && !resolved.startsWith(root + sep)) continue
+        mkdirSync(dirname(link.target), { recursive: true })
+        rmSync(link.target, { force: true })
+        symlinkSync(rel, link.target)
+        written++
+      } else {
+        // 硬链接：tar 的 linkName 是相对归档根的路径；link(2) 不可用就复制。
+        const source = safeTarget(destDir, rel)
+        mkdirSync(dirname(link.target), { recursive: true })
+        rmSync(link.target, { force: true })
+        try {
+          linkSync(source, link.target)
+        } catch {
+          copyFileSync(source, link.target)
+        }
+        written++
+      }
+    } catch {
+      // 链接建不出来（Windows 无权限、目标缺失等）就跳过，不影响普通文件。
+    }
+  }
+
   if (written === 0) throw new Error('压缩包里没有任何文件')
   return written
 }

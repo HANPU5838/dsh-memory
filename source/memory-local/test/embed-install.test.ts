@@ -14,7 +14,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { deflateRawSync, gzipSync, inflateRawSync } from 'node:zlib'
@@ -505,12 +505,40 @@ test('tar.gz：顶层目录剥离、目录项跳过、执行位保留', () => {
       { name: 'llama-b12345/docs/README.md', data: Buffer.from('# readme'), mode: 0o644 },
       { name: 'llama-b12345/link.so', type: '2', link: 'llama-server' },
     ]))
-    assert.equal(extractArchive(tar, dest), 2, '只写普通文件，目录项与符号链接都跳过')
+    assert.equal(extractArchive(tar, dest), 3, '2 个普通文件 + 1 个符号链接；目录项跳过')
     assert.equal(readFileSync(join(dest, 'llama-server'), 'utf8'), 'binary')
     assert.equal(readFileSync(join(dest, 'docs', 'README.md'), 'utf8'), '# readme')
     assert.equal(existsSync(join(dest, 'llama-b12345')), false, '顶层目录被剥掉')
     if (process.platform !== 'win32') {
       assert.equal(statSync(join(dest, 'llama-server')).mode & 0o111, 0o111, '执行位保留')
+      assert.equal(readlinkSync(join(dest, 'link.so')), 'llama-server', '符号链接按 linkName 建出来')
+    }
+  } finally {
+    rmSync(dest, { recursive: true, force: true })
+  }
+})
+
+test('tar.gz：两级 SONAME 软链 + 硬链接；链接出现在目标之前也能建对', () => {
+  const dest = tempDir('dsh-install-link-')
+  try {
+    const tar = gzipSync(buildTar([
+      // 链接条目故意排在真实文件**之前**：边解压边建链接会得到悬空链接
+      { name: 'llama-b1/libfoo.so', type: '2', link: 'libfoo.so.0' },
+      { name: 'llama-b1/libfoo.so.0', type: '2', link: 'libfoo.so.0.9.0' },
+      { name: 'llama-b1/libfoo.so.0.9.0', data: Buffer.from('ELF'), mode: 0o755 },
+      // 硬链接：tar 的 linkName 相对归档根
+      { name: 'llama-b1/llama-server', data: Buffer.from('bin'), mode: 0o755 },
+      { name: 'llama-b1/llama-cli', type: '1', link: 'llama-b1/llama-server' },
+      // 越界软链必须被拒绝（不能被解压器写到 destDir 之外）
+      { name: 'llama-b1/evil', type: '2', link: '../../etc/passwd' },
+    ]))
+    extractArchive(tar, dest)
+    if (process.platform !== 'win32') {
+      assert.equal(readlinkSync(join(dest, 'libfoo.so')), 'libfoo.so.0')
+      assert.equal(readlinkSync(join(dest, 'libfoo.so.0')), 'libfoo.so.0.9.0')
+      assert.equal(readFileSync(join(dest, 'libfoo.so'), 'utf8'), 'ELF', '两级软链最终能读到真实文件')
+      assert.equal(readFileSync(join(dest, 'llama-cli'), 'utf8'), 'bin', '硬链接可读')
+      assert.equal(existsSync(join(dest, 'evil')), false, '越界软链被拒绝')
     }
   } finally {
     rmSync(dest, { recursive: true, force: true })

@@ -17,7 +17,7 @@
  * without starting a real model server.
  */
 import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process'
-import { appendFileSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { PoolingKind } from './models.ts'
 
@@ -253,8 +253,20 @@ export class EmbedServerManager {
     if (logFile) {
       appendLogLine(logFile, `\n=== ${new Date().toISOString()} llama-server 由 DSH 启动 pid=${child.pid ?? '?'} args=${args.join(' ')}`)
     }
-    child.once('exit', () => {
-      if (!this.stopping) this.deps.log('embed server: 进程已退出')
+    const startedAt = Date.now()
+    child.once('exit', (code, signal) => {
+      if (!this.stopping) {
+        const aliveMs = Date.now() - startedAt
+        this.deps.log(`embed server: 进程已退出(code=${code ?? 'null'} signal=${signal ?? 'none'}，存活 ${aliveMs}ms)`)
+        // 启动几秒就退出几乎一定是启动失败（缺 .so、端口被占、模型文件损坏…）。
+        // 子进程的 stdout/stderr 都进了日志文件，这里把末尾几行带出来——否则
+        // 主日志里只剩一句「进程已退出」，等于什么都没说（这正是 lib*.so.0
+        // 缺失时最难查的地方）。
+        if (aliveMs < 15_000) {
+          const tail = readLogTail(logFile, 12)
+          if (tail !== '') this.deps.log(`embed server: 启动失败详情（${logFile} 末尾）：\n${tail}`)
+        }
+      }
       this.child = null
       this.owned = false
       this.removePidFile()
@@ -304,4 +316,31 @@ export class EmbedServerManager {
 /** Append a line to a log file (used by callers that want their own tracing). */
 export function appendLogLine(file: string, line: string): void {
   try { appendFileSync(file, `${line}\n`, 'utf8') } catch { /* best effort */ }
+}
+
+/**
+ * 读日志文件末尾若干行（最多回读 16 KiB）。
+ * 子进程秒退时用它把真正的死因带进主日志，避免只剩一句「进程已退出」。
+ */
+function readLogTail(file: string | undefined, maxLines: number): string {
+  if (!file) return ''
+  let fd: number | null = null
+  try {
+    fd = openSync(file, 'r')
+    const size = statSync(file).size
+    const start = Math.max(0, size - 16 * 1024)
+    const buf = Buffer.alloc(size - start)
+    if (buf.length > 0) readSync(fd, buf, 0, buf.length, start)
+    const lines = buf.toString('utf8')
+      .split('\n')
+      .map((line) => line.replace(/\s+$/, ''))
+      .filter((line) => line !== '')
+    return lines.slice(-maxLines).join('\n')
+  } catch {
+    return ''
+  } finally {
+    if (fd !== null) {
+      try { closeSync(fd) } catch { /* best effort */ }
+    }
+  }
 }

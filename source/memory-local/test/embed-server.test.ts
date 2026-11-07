@@ -99,6 +99,32 @@ test('spawns the server with the embedding flags, writes a PID file, and stops i
   }
 })
 
+test('子进程秒退：主日志带出日志文件末尾的真实死因', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-embed-crash-'))
+  const logFile = join(dir, 'llama-server.log')
+  try {
+    const { deps, calls, children } = makeDeps({ healthy: false })
+    const mgr = new EmbedServerManager({ enabled: true, exe: EXE, model: MODEL, cwd: dir, logFile }, deps)
+
+    assert.equal(await mgr.ensureRunning(), 'spawned')
+    // 模拟 llama-server 因缺 .so 秒退：死因只写在子进程日志里
+    writeFileSync(
+      logFile,
+      'llama-server: error while loading shared libraries: libllama-common.so.0: cannot open shared object file\n',
+      'utf8',
+    )
+    children[0]!.exitCode = 1
+    children[0]!.emit('exit', 1, null)
+
+    const text = calls.logs.join('\n')
+    assert.match(text, /进程已退出\(code=1 signal=none/, '退出信息带退出码')
+    assert.match(text, /启动失败详情/, '主日志解释了死因')
+    assert.match(text, /libllama-common\.so\.0/, '死因来自子进程日志末尾')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('adopts a leftover instance recorded in the PID file and owns it', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-embed-adopt-'))
   const logFile = join(dir, 'llama-server.log')

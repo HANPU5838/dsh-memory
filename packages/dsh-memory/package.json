@@ -49,7 +49,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/RestRegular/dsh-memory",
+    "url": "git+https://github.com/HANPU5838/dsh-memory",
     "directory": "packages/dsh-memory"
   },
   "publishConfig": {

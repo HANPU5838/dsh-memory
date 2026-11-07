@@ -11,8 +11,8 @@
  * resolveReadScopes/resolveWriteScope —— 这里**不再**有任何"smoothing over"式的静默回退。
  */
 import type { MemoryScope } from 'dsh-memory'
-import { isAbsolute, resolve } from 'node:path'
-import { canonicalWorkspacePath, defaultScopeDescription, normalizeScopeInput, resolveScopeRef } from '../../memory-local/src/scope.ts'
+import { resolve } from 'node:path'
+import { canonicalWorkspacePath, defaultScopeDescription, isAbsoluteWorkspacePath, normalizeScopeInput, resolveScopeRef } from '../../memory-local/src/scope.ts'
 
 /** Shape each tool shares: JSON-schema parameters + canonical output value. */
 export interface ToolSpec<A, O> {
@@ -834,7 +834,9 @@ function resolveWorkspacePath(raw: string, agent: unknown): string {
   if (value === '') throw new MemoryToolError('PATH_INVALID', 'path 不能为空')
   const cwd = (agent as { session?: { header?: { cwd?: unknown } } } | undefined)?.session?.header?.cwd
   const base = typeof cwd === 'string' && cwd.length > 0 ? cwd : process.cwd()
-  return canonicalWorkspacePath(isAbsolute(value) ? value : resolve(base, value))
+  // 同时认 POSIX 与 Windows 绝对路径写法：Linux 上的 node:path.isAbsolute 不认 `D:/x`,
+  // 会把 Windows 路径当成相对路径拼到 cwd 下（同一工作区会分叉出两个 scope）。
+  return canonicalWorkspacePath(isAbsoluteWorkspacePath(value) ? value : resolve(base, value))
 }
 
 export function memorySaveTool(opts: MemoryToolsOptions): ToolSpec<SaveArgs, SaveResult> {
