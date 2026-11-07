@@ -1,6 +1,22 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/RestRegular/dsh-memory/main/preview/icon-128.png" width="84" alt="记忆系统">
+  <img src="https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/preview/icon-128.png" width="84" alt="记忆系统">
 </p>
+
+> ### 📦 这是镜像仓库，不是原作者仓库
+>
+> 本仓库是 **DSH 记忆系统**（npm 包 `@restregular/dsh-memory`）的**完整克隆镜像**：
+> 代码、文档、提交历史与 tag 均同步自上游，供国内网络环境克隆 / 查阅 / 备份使用。
+>
+> | 项目 | 说明 |
+> | --- | --- |
+> | 上游原仓库 | **[RestRegular/dsh-memory](https://github.com/RestRegular/dsh-memory)**（作者 **RestRegular**）|
+> | 本镜像 | 在上游 `main` 的基础上，只把文档里的图片 / 链接等自引用地址改指向本仓库，**代码与功能未做任何修改** |
+> | 许可 | **MIT**，版权归原作者所有，见 [LICENSE](LICENSE)；转载、分发请保留原始版权声明 |
+> | 更新与反馈 | 更新、Issue、PR 请到**上游原仓库**；本镜像不接收 Issue，同步靠手动从上游拉取 |
+>
+> 它解决什么问题：把「长期记忆」落到本机——JSONL 存储 + 本地向量检索（BGE-M3）+ 六个记忆工具
+> + 自动召回注入 + 硬性规则 + 可视化管理面板，让模型在该记的时候记住、该用的时候用上，默认不联网。
+
 
 # 记忆系统
 
@@ -10,16 +26,16 @@ JSONL 落盘 · 本机向量检索 · 五个模型工具 · 自动召回 · 硬�
 
 [![npm version](https://img.shields.io/npm/v/@restregular/dsh-memory.svg)](https://www.npmjs.com/package/@restregular/dsh-memory)
 [![npm downloads](https://img.shields.io/npm/dm/@restregular/dsh-memory.svg)](https://www.npmjs.com/package/@restregular/dsh-memory)
-[![license](https://img.shields.io/npm/l/@restregular/dsh-memory.svg)](https://github.com/RestRegular/dsh-memory/blob/main/LICENSE)
+[![license](https://img.shields.io/npm/l/@restregular/dsh-memory.svg)](https://github.com/HANPU5838/dsh-memory/blob/main/LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.13-5FA04E.svg)](https://nodejs.org/)
 [![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/plugins/restregular/dsh-memory)
 
-[npm 包](https://www.npmjs.com/package/@restregular/dsh-memory) · [问题反馈](https://github.com/RestRegular/dsh-memory/issues) · [更新日志](https://github.com/RestRegular/dsh-memory/blob/main/CHANGELOG.md)
+[npm 包](https://www.npmjs.com/package/@restregular/dsh-memory) · [问题反馈](https://github.com/RestRegular/dsh-memory/issues) · [更新日志](https://github.com/HANPU5838/dsh-memory/blob/main/CHANGELOG.md)
 
 > **它解决的不是「存一段文本」，而是「让模型在该记的时候记住、该用的时候用上」。**
 > 记忆默认只落在本机；没有向量服务也能工作——检索自动退化为词法，不产生任何网络请求。
 
-![记忆记录：搜索、作用域筛选、类型与修正关系](https://raw.githubusercontent.com/RestRegular/dsh-memory/main/preview/memory-records.png)
+![记忆记录：搜索、作用域筛选、类型与修正关系](https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/preview/memory-records.png)
 
 ## 它解决什么
 
@@ -77,14 +93,14 @@ JSONL 落盘 · 本机向量检索 · 五个模型工具 · 自动召回 · 硬�
 按 **作用域 → 类型 → 记录** 三层展开，根节点显示总数。`supersedes` 是关系而不是层级，
 所以不改树结构：金色虚线从修正版弯到旧版，悬停或选中任意一端，整条修正链一起点亮。
 
-![记忆树](https://raw.githubusercontent.com/RestRegular/dsh-memory/main/preview/memory-tree.png)
+![记忆树](https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/preview/memory-tree.png)
 
 ### 设置
 
 召回、摘要、印象、策略、状态、流程索引、规则、自动召回逐项开关；每个开关都有可见 label、说明和当前状态。
 修改立即写入 `settings.json`，不需要点保存。
 
-![记忆设置](https://raw.githubusercontent.com/RestRegular/dsh-memory/main/preview/memory-settings.png)
+![记忆设置](https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/preview/memory-settings.png)
 
 ### 输入框的记忆权限
 
@@ -119,7 +135,7 @@ JSONL 落盘 · 本机向量检索 · 五个模型工具 · 自动召回 · 硬�
 在本机托管 `llama-server`，下载运行时与模型；内置清单为每个模型配好 `dims` 与 `pooling`，
 避免维度写错导致向量通道静默失效。按硬件推荐，也支持自定义 GGUF。
 
-![向量服务](https://raw.githubusercontent.com/RestRegular/dsh-memory/main/preview/memory-service.png)
+![向量服务](https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/preview/memory-service.png)
 
 ## 安装
 
@@ -645,11 +661,11 @@ npm run verify  # 构建到 .verify/，不落 packages/
 - **0.10.1** —— 深色模式开关跟随宿主 token，修复白点融进白轨道。
 - **0.10.0** —— 多进程安全写入、向量身份加入 pooling、读路径能看到其它进程的新写入。
 
-完整记录见 [CHANGELOG.md](https://github.com/RestRegular/dsh-memory/blob/main/CHANGELOG.md)。
+完整记录见 [CHANGELOG.md](https://github.com/HANPU5838/dsh-memory/blob/main/CHANGELOG.md)。
 
 ## License
 
-[MIT](https://github.com/RestRegular/dsh-memory/blob/main/LICENSE)
+[MIT](https://github.com/HANPU5838/dsh-memory/blob/main/LICENSE)
 
 ---
 
