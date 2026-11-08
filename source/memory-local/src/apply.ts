@@ -17,6 +17,7 @@ import type {
   MemoryScope,
 } from 'dsh-memory'
 import { LocalMemoryService, type MemoryLocalConfig } from './index.ts'
+import { MemoryEventBus, type MemoryEventSink } from './events.ts'
 import type { MemoryStore } from './store.ts'
 
 export const name = 'dsh-memory-local'
@@ -49,6 +50,9 @@ export class CordisMemoryService extends Service {
       }
     })
     this.attachSessionLifecycle(ctx)
+    // 0.31.0：记忆事件总线。宿主有 `emit` 就转发成宿主事件（其他插件可 ctx.on 订阅），
+    // 没有就只做进程内广播 —— 事件是旁路，不能因为宿主缺 API 让记忆加载失败。
+    this.impl.setEventBus(new MemoryEventBus(hostEventSink(ctx)))
     // 0.11.1:同一个目录因为 `D:/x` 与 `D:\x` 写法不同而分叉成两个 scope 的历史数据,
     // 在装配期合并一次(每进程一次;失败只影响合并,不影响读写)。
     try {
@@ -502,6 +506,23 @@ export function apply(ctx: Context, config: MemoryLocalConfig = {}) {
     }
   }
   ctx.plugin(ScopedMemoryService)
+}
+
+/**
+ * 宿主事件出口（0.31.0）：cordis Context 的 `emit` 存在时，把记忆事件名原样转发给宿主，
+ * 其他插件 `ctx.on('memory/record-saved', …)` 即可订阅；老宿主 / 测试环境没有 `emit`
+ * 时返回 undefined，事件总线退化为纯进程内广播（不报错）。
+ */
+function hostEventSink(ctx: Context): MemoryEventSink | undefined {
+  const emit = (ctx as unknown as { emit?: unknown }).emit
+  if (typeof emit !== 'function') return undefined
+  return (name, payload) => {
+    try {
+      (emit as (this: Context, event: string, value: unknown) => void).call(ctx, name, payload)
+    } catch {
+      // 宿主没有声明该事件 / 宿主监听器抛错：丢掉这一条事件，不影响记忆主流程。
+    }
+  }
 }
 
 /**

@@ -2,6 +2,14 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 2026-11-08（第二批）— 插件化改造：平台适配层 / 可插拔嵌入后端 / 事件总线
+
+- **A. 平台适配层 `platform.ts`**：Termux 检测、`$PREFIX`、glibc loader、CPU 核数兜底（`os.cpus()` 为空时用 `availableParallelism`，再兜底 4）、可用内存（MemAvailable 与 cgroup 取小）、ELF `PT_INTERP` 解析、磁盘余量、目录可写性，统一出口。`embed-server` / `hardware` / 面板共用；面板「向量服务」新增**环境自检**（平台 / glibc / 后端 / 磁盘 / 权限，逐条 ✓·✗·—）。
+- **B. 嵌入后端可插拔 `embedding-providers.ts`**：`local`（默认，本机 llama-server）/ `openai`（兼容 `/v1/embeddings`，自动 Bearer）/ `ollama`（`/api/embeddings`）/ `off`（纯词法，永不联网）。只有 `local` 创建子进程管理器；provider 未配置时按 endpoint 推断（回环 = local，远程 = openai）。
+- **C. 记忆事件总线 `events.ts`**：对外发 `memory/record-saved` / `memory/recalled` / `memory/record-forgotten`，`apply.ts` 经宿主 `ctx.emit` 转发（不可用时降级进程内广播）；payload 只含元数据、emit 永不抛。
+- 修复：`hardware.ts` 的核数探测在 Android 上可能为 0（→ NaN 推荐），改用平台适配层兜底。
+- 测试：新增 `platform.test.ts`(4) / `embedding-providers.test.ts`(15) / `events.test.ts`(10) / `provider-config.test.ts`(3)；全套 **607 例 / 606 pass / 1 skipped**。
+
 ## 2026-11-08 — 平台适配与健壮性改进（本仓库维护，上游尚未收录）
 
 > 这一批是本仓库对项目的**实质性完善**，不是临时补丁：安装器、服务生命周期、存储层、检索超时都有对应源码改动与回归测试。

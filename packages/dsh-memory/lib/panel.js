@@ -678,6 +678,12 @@ async function handle(ctx, routePath, req, res) {
       writeJson(res, { ok: true, value: { ...value, query: publicAuditQuery(query) } })
       return
     }
+    // 环境自检：只读探测（平台 / glibc / 后端 / 磁盘 / 权限），面板排障用。
+    if (method === 'GET' && path === '/selfcheck') {
+      const report = typeof memory?.selfCheck === 'function' ? await memory.selfCheck() : null
+      writeJson(res, { ok: true, value: report })
+      return
+    }
     if (method === 'GET' && path === '/audit/stats') {
       writeJson(res, { ok: true, value: auditStats(memory) })
       return

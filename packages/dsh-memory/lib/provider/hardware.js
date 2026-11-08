@@ -11,7 +11,8 @@
  * 依赖注入(spawn/fs/时间)让生命周期可以在测试里跑,不需要真的装显卡。
  */
 import { existsSync, statfsSync } from 'node:fs'
-import { arch as osArch, cpus, platform as osPlatform, totalmem, homedir } from 'node:os'
+import { arch as osArch, platform as osPlatform, totalmem, homedir } from 'node:os'
+import { detectPlatform } from './platform.js'
 import { execFile } from 'node:child_process'
 import { dirname } from 'node:path'
 
@@ -81,7 +82,9 @@ function run(command        , args          , timeoutMs        )                
 export const defaultHardwareDeps               = {
   platform: osPlatform(),
   arch: osArch(),
-  cpuCount: () => cpus().length,
+  // 核数走平台适配层：Android 上 os.cpus() 可能因 SELinux 拦截 /proc/stat 返回空，
+  // 空数组会让「按核数推荐线程」算出 0 / NaN —— detectPlatform 会兜底成 4。
+  cpuCount: () => detectPlatform().cpuCount,
   totalRamMb: () => Math.round(totalmem() / 1048576),
   freeDiskMb: (dir) => {
     // statfs 需要真实存在的路径:从目标目录往上找到第一个存在的祖先。

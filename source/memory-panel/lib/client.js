@@ -69,6 +69,11 @@ window.__ModuleLoader__.load({
       '.memp .dot.off{background:var(--dsw-alias-label-danger, #e05555)}',
       '.memp .pill{font-size:11px;line-height:1.7;padding:0 8px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary);flex:none}',
       '.memp .hint{color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.6}',
+      // 环境自检：服务卡片底部的一条只读报告
+      '.memp .selfcheck{border-top:1px solid var(--dsw-alias-border-l1);padding-top:8px;display:flex;flex-direction:column;gap:6px}',
+      '.memp .selfcheck-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}',
+      '.memp .selfcheck-row{font-size:12px;line-height:1.6;color:var(--dsw-alias-label-secondary)}',
+      '.memp .selfcheck-row b{font-weight:600;color:var(--dsw-alias-label-primary)}',
       '.memp .hint code,.memp .mono code{background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);border-radius:5px;padding:0 4px}',
       // 控件
       '.memp input[type=text],.memp input[type=search],.memp select,.memp input[type=number]{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:6px 10px;font-size:13px;outline:none}',
@@ -1832,6 +1837,47 @@ window.__ModuleLoader__.load({
      * 而展开体里只放"改选择"的东西。硬件探测在面板一出现时取一次(服务端有 10 分钟缓存),
      * 所以这两行不用等展开。下拉是自绘的 —— 原生 select 画不出气泡。
      */
+    /**
+     * 环境自检：点一下把「平台 / glibc / 后端 / 磁盘 / 权限」逐条探测出来。
+     * 只读，不触发嵌入；后端不可用时同时显示最近一次真实失败原因。
+     */
+    function SelfCheck({ status, api }) {
+      const [report, setReport] = React.useState(null)
+      const [busy, setBusy] = React.useState(false)
+      const [error, setError] = React.useState('')
+      const run = async () => {
+        setBusy(true); setError('')
+        try {
+          const value = await api('selfcheck')
+          setReport(value || null)
+        } catch (e) {
+          setError(String((e && e.message) || e))
+        }
+        setBusy(false)
+      }
+      const summary = status && typeof status.platformSummary === 'string' ? status.platformSummary : ''
+      const rows = report && Array.isArray(report.checks)
+        ? report.checks.map((c) => h('div', { key: c.id, className: 'selfcheck-row' },
+          c.ok === true ? '✓ ' : c.ok === false ? '✗ ' : '· ',
+          h('b', null, c.label), '：', String(c.detail || '')))
+        : null
+      return h('div', { className: 'selfcheck' },
+        h('div', { className: 'selfcheck-head' },
+          summary ? h('span', { className: 'mono' }, summary) : h('span', { className: 'muted' }, '环境信息不可用'),
+          h('span', { className: 'server-spacer' }),
+          h('button', { type: 'button', disabled: busy, onClick: run }, busy ? '自检中…' : '环境自检'),
+        ),
+        status && status.lastError
+          ? h('div', { className: 'hint err' }, `最近一次失败：${status.lastError}`)
+          : null,
+        status && status.unavailable && !status.lastError
+          ? h('div', { className: 'hint err' }, '后端当前不可用，检索走词法降级')
+          : null,
+        rows,
+        error ? h('div', { className: 'hint err' }, error) : null,
+      )
+    }
+
     function ModelPicker({ busy, installing, installedBackend, current, onInstall }) {
       const [open, setOpen] = React.useState(false)
       const [report, setReport] = React.useState(null)
@@ -3903,6 +3949,7 @@ window.__ModuleLoader__.load({
         ),
         notice,
         embedNotice ? h('div', { className: 'muted' }, embedNotice) : null,
+        h(SelfCheck, { status: embedServer, api }),
         h(ModelPicker, {
           busy: embedBusy,
           // 下载是后台跑的,`busy`(一次请求)早就结束了;要单独把"正在下载"传给按钮,

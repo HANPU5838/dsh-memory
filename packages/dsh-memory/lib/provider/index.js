@@ -53,12 +53,14 @@ import {
 } from './scope-meta.js'
 import { mergeInjectSettings, normalizeInjectSettings,                     } from './inject-settings.js'
 import { buildStats, lexicalScore, recordScore, tokenize, cosine, normalizeInPlace, hasStrongHit } from './scoring.js'
-import { EmbedClient } from './embed.js'
+import { createEmbeddingProvider,                                                    } from './embedding-providers.js'
+import { canExecute, describePlatform, detectPlatform, freeDiskBytes } from './platform.js'
 import { DailyBudget, blendScores, rerank,                                   } from './rerank.js'
 import { RerankCache } from './rerank-cache.js'
 import { scanSecrets, redactSecrets } from './secrets.js'
 import { EmbedServerManager,                                               } from './embed-server.js'
 import { VectorInstaller, detectInstalled, installPaths,                      } from './embed-install.js'
+import { MemoryEventBus } from './events.js'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { homedir } from 'node:os'
@@ -131,6 +133,14 @@ function isInside(parent        , child        )          {
                                 
               
                        
+         
+                                                      
+                                                              
+                                                      
+         
+                                                      
+                                                              
+                     
                        
                                                       
                     
@@ -235,6 +245,10 @@ function isInside(parent        , child        )          {
                                            
                         
                            
+                                
+                                   
+                                                      
+                  
                     
                  
                 
@@ -397,6 +411,23 @@ export function pickSpawnModel(currentFile        , configuredModel             
   return installedModel
 }
 
+/**
+ * endpoint 没配 provider 时按地址推断后端类型：
+ *  - 未配置 / 回环地址（127.0.0.1、localhost、::1）→ local（插件自己拉 llama-server）
+ *  - 其它地址 → openai（任意 OpenAI 兼容服务；这是最常见的「远程/云端」用法）
+ * 显式配置的 provider 永远优先。
+ */
+export function inferProviderKind(endpoint                    )                        {
+  if (endpoint === undefined || endpoint.trim() === '') return 'local'
+  try {
+    const host = new URL(endpoint).hostname.toLowerCase()
+    if (host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '[::1]') return 'local'
+    return 'openai'
+  } catch {
+    return 'local'
+  }
+}
+
 export function resolveConfig(config                    = {})                 {
   const v = config.retrieval?.vector ?? {}
   // Do not touch an embedding backend the user never asked for: pointing at the
@@ -472,6 +503,8 @@ export function resolveConfig(config                    = {})                 {
       gpuLayers: v.gpuLayers ?? (flavor === 'cpu' || flavor === 'auto' ? 0 : 99),
       ...(selection.queryPrefix !== undefined ? { queryPrefix: selection.queryPrefix } : {}),
       ...(selection.documentPrefix !== undefined ? { documentPrefix: selection.documentPrefix } : {}),
+      provider: v.provider ?? inferProviderKind(v.endpoint),
+      apiKey: v.apiKey ?? (typeof process.env.DSH_MEMORY_API_KEY === 'string' ? process.env.DSH_MEMORY_API_KEY : ''),
       endpoint: v.endpoint ?? 'http://127.0.0.1:8078/v1/embeddings',
       model: v.model ?? selection.modelName,
       dims: v.dims ?? selection.dims,
@@ -711,7 +744,7 @@ export const DEFAULT_VISIBILITY_LEVEL                  = 'normal'
 export class LocalMemoryService                             {
            cfg                
            store             
-           embed             
+           embed                   
           rerankBudget             
           rerankCache = new RerankCache()
   /** Host-provided one-shot LLM call; null = rerank disabled (recall order). */
@@ -755,6 +788,8 @@ export class LocalMemoryService                             {
    * 宿主侧 apply.ts 注入；没有时按「没有归档」处理（纯本地 / 测试环境）。
    */
           archivedLookup                                                   
+  /** 0.31.0 记忆事件总线（旁路）：宿主 apply.ts 注入；未注入时默认实例安全空转。 */
+          events                 = new MemoryEventBus()
   /** 注入半边的审计收集器(可选;没有注入半边时保持 null)。 */
           injectAuditSink   
                                       
@@ -793,11 +828,15 @@ export class LocalMemoryService                             {
     if (this.cfg.projectEnabled) eager.push(this.defaultProjectScope)
     if (this.cfg.globalEnabled) eager.push('global')
     for (const scope of eager) this.store.peek(scope)
-    this.embed = new EmbedClient({
+    this.embed = createEmbeddingProvider({
+      kind: this.cfg.vector.provider,
       endpoint: this.cfg.vector.endpoint,
       model: this.cfg.vector.model,
       dims: this.cfg.vector.dims,
+      pooling: this.cfg.vector.pooling,
+      apiKey: this.cfg.vector.apiKey,
       timeoutMs: this.cfg.vector.timeoutMs,
+      writeTimeoutMs: this.cfg.vector.writeTimeoutMs,
       log: (message) => console.warn(`[dsh-memory-local] ${message}`),
     })
     this.startMaintenance()
@@ -969,6 +1008,9 @@ export class LocalMemoryService                             {
     // Nothing configured and retrieval switched off → do not even build the
     // manager, so no probe, no spawn attempt, no misleading panel state.
     if (!this.cfg.vector.enabled || !this.cfg.vector.configured) return
+    // 只有本地 provider 需要（也才有资格）托管 llama-server 子进程；
+    // openai / ollama / off 都是遥控别人的服务，插件不该拉起任何进程。
+    if (!this.embed.isLocalServer) return
     this.embedServer = new EmbedServerManager(this.cfg.vector.spawn)
     // fire-and-forget: activation must never block on a model load
     void this.ensureEmbedServer(60_000).catch(() => { /* lifecycle never breaks activation */ })
@@ -1051,6 +1093,10 @@ export class LocalMemoryService                             {
                         
                                                         
                     
+                                                      
+                                   
+                                                                                         
+                           
                          
                                                                    
                                                                                
@@ -1059,7 +1105,11 @@ export class LocalMemoryService                             {
     const mgr = this.embedServer
     const cfg = this.cfg.vector
     const pendingEmbeds = this.pendingEmbedCount
-    const mode = !cfg.configured ? 'off' : cfg.spawnConfigured ? 'managed' : 'external'
+    const mode = !cfg.configured
+      ? 'off'
+      : cfg.provider !== 'local'
+        ? 'external'
+        : cfg.spawnConfigured ? 'managed' : 'external'
     const usage = this.vectorInstallUsage()
     const base = {
       enabled: cfg.enabled,
@@ -1075,6 +1125,8 @@ export class LocalMemoryService                             {
       pooling: cfg.pooling,
       flavor: cfg.flavor,
       spawnConfigured: cfg.spawnConfigured,
+      provider: cfg.provider,
+      platformSummary: describePlatform(),
       pendingEmbeds,
       install: this.installSnapshot(),
       maintenance: {
@@ -1090,6 +1142,7 @@ export class LocalMemoryService                             {
       return {
         ...base, owned: false, pid: null, baseUrl: '', reachable: false,
         lastError: null, restarts: 0, unavailable: false, wrapped: false,
+        provider: cfg.provider, platformSummary: describePlatform(),
       }
     }
     const reachable = await mgr.healthCheck()
@@ -1102,6 +1155,92 @@ export class LocalMemoryService                             {
       unavailable: mgr.unavailable,
       wrapped: mgr.launch?.wrapped ?? false,
       pendingEmbeds,
+    }
+  }
+
+  /**
+   * 面板「环境自检」：一次把「这台机器能不能跑、后端通不通、磁盘/权限够不够」列清楚。
+   *
+   * 只做只读探测；local 后端只探 /health，不触发嵌入请求。openai/ollama 会真的探一次
+   * 远端（用户主动点自检时才会发生，不在插件激活路径上）。
+   */
+  async selfCheck()           
+               
+                                                                       
+                                                                                   
+     
+                   
+                                   
+                                                                                    
+     {
+    const info = detectPlatform()
+    const checks                                                                           = []
+    checks.push({ id: 'platform', label: '运行环境', ok: true, detail: describePlatform(info) })
+    if (info.termux) {
+      checks.push({
+        id: 'glibc',
+        label: 'glibc loader',
+        ok: info.glibcLoader !== null,
+        detail: info.glibcLoader ?? '未找到 $PREFIX/glibc/lib/ld-linux-*.so.1（pkg install glibc）',
+      })
+    }
+    if (this.embedServer) {
+      const ok = await this.embedServer.healthCheck(1500).catch(() => false)
+      checks.push({
+        id: 'backend',
+        label: '嵌入后端',
+        ok,
+        detail: ok ? this.embedServer.baseUrl : (this.embedServer.lastError ?? '健康检查未通过'),
+      })
+    } else if (this.cfg.vector.provider === 'off') {
+      // 显式关闭向量检索：不联网、不判成功，只说清楚现在是纯词法。
+      checks.push({ id: 'backend', label: '嵌入后端', ok: null, detail: '已关闭（纯词法检索）' })
+    } else if (!this.cfg.vector.configured) {
+      // 没配置后端时不发任何请求：自检也不该替用户"试一下"一个不存在的服务。
+      checks.push({ id: 'backend', label: '嵌入后端', ok: null, detail: '未配置（纯词法检索）' })
+    } else {
+      const ok = await this.embed.healthCheck(2000).catch(() => false)
+      checks.push({
+        id: 'backend',
+        label: '嵌入后端',
+        ok,
+        detail: ok ? this.cfg.vector.endpoint : `${this.cfg.vector.endpoint} 无法访问`,
+      })
+    }
+    const free = freeDiskBytes(this.cfg.vector.installRoot)
+    checks.push({
+      id: 'disk',
+      label: '安装目录磁盘',
+      ok: free === null ? null : free > 512 * 1024 * 1024,
+      detail: free === null ? '读不到（跳过检查）' : `剩余 ${(free / 1073741824).toFixed(1)} GB`,
+    })
+    const installDirOk = canExecute(this.cfg.vector.installRoot)
+    checks.push({
+      id: 'install-dir',
+      label: '安装目录权限',
+      ok: installDirOk,
+      detail: installDirOk === null ? '目录不存在（尚未安装）' : (installDirOk ? '可写' : '不可写：安装会失败'),
+    })
+    const storeDirOk = canExecute(this.cfg.storeDir)
+    checks.push({
+      id: 'store',
+      label: '记忆目录',
+      ok: storeDirOk,
+      detail: storeDirOk === null ? this.cfg.storeDir : (storeDirOk ? '可写' : '不可写：记忆无法落盘'),
+    })
+    return {
+      platform: {
+        platform: info.platform,
+        arch: info.arch,
+        termux: info.termux,
+        cpuCount: info.cpuCount,
+        totalMemMb: info.totalMemMb,
+        availableMemMb: info.availableMemMb,
+        glibcLoader: info.glibcLoader,
+      },
+      summary: describePlatform(info),
+      provider: this.cfg.vector.provider,
+      checks,
     }
   }
 
@@ -1608,6 +1747,11 @@ export class LocalMemoryService                             {
    */
   setArchivedSessionLookup(lookup                                                   )       {
     this.archivedLookup = lookup
+  }
+
+  /** 宿主注入记忆事件总线（0.31.0）；事件只是旁路，未注入时进程内空转。 */
+  setEventBus(bus                )       {
+    this.events = bus
   }
 
   /** 宿主当前归档的会话 id 集合（实时读取；容错为空集合）。 */
@@ -2601,12 +2745,14 @@ export class LocalMemoryService                             {
     }
 
     let record              
+    let deduped = false
     try {
       const saved = this.store.save(
         { ...saveInput, scope, content, ...(initialized || carryInitial ? { initial: true } : {}) },
         { importance: input.source?.origin === 'auto' ? 0.4 : 0.8, source: { origin: 'explicit' } },
       )
       record = saved.record
+      deduped = saved.deduped
       // 初始规则：只有初始化流程（新作用域 / 半途重试）才写；普通写入带 scopeRule 不生效。
       if (initialized && ruleText !== '') {
         const ruleSaved = this.store.save(
@@ -2623,6 +2769,8 @@ export class LocalMemoryService                             {
       // 目录工具也能明确看到这个作用域尚未就绪。
       throw error
     }
+    // 0.31.0：记录已落库，广播保存事件（旁路；只带元数据，不含正文）。
+    this.events.saved({ scope, id: record.id, kind: record.kind, chars: record.content.length, deduped })
     void this.embedRecord(record).catch(() => {})
     this.store.scheduleFlush()
     return record
@@ -2927,8 +3075,16 @@ export class LocalMemoryService                             {
     // 访问统计要落盘：recency / accessBoost 是排序输入，只在内存里加一等于没算。
     if (internal.touch !== false) for (const hit of hits) this.store.touch(hit.record)
 
+    // 0.31.0：广播召回摘要（query / 命中数 / 涉及作用域 / 向量通道是否参与），不含正文。
+    const recalled = hits.slice(0, topK)
+    this.events.recalled({
+      query: query.text,
+      hits: recalled.length,
+      topScopes: [...new Set(recalled.map((hit) => hit.record.scope))],
+      vector: qvec?.[0] !== undefined,
+    })
     this.store.scheduleFlush()
-    return hits.slice(0, topK)
+    return recalled
   }
 
   /**
@@ -3018,11 +3174,16 @@ export class LocalMemoryService                             {
     const operable = (scope             )          =>
       guardAgent === undefined || approved || this.isScopeOperable(guardAgent, scope)
     const ids           = []
+    // 0.31.0：按 scope 汇总被删 id，删除完成后逐个 scope 广播（旁路，只带 id 不带正文）。
+    const removedByScope                                     = []
     if (input.id) {
       // 按 id 删除天然跨 scope:调用方给的是精确 id,不存在误删别的 scope 的风险。
       for (const s of this.store.allScopes()) {
         if (!operable(s.scope)) continue
-        if (s.remove(input.id)) ids.push(input.id)
+        if (s.remove(input.id)) {
+          ids.push(input.id)
+          removedByScope.push({ scope: s.scope, ids: [input.id] })
+        }
       }
       if (ids.length === 0) throw memoryError('RECORD_NOT_FOUND', `id ${input.id} not found`)
     } else if (input.query) {
@@ -3041,12 +3202,18 @@ export class LocalMemoryService                             {
         const store = this.store.peek(scope) // 读/删路径不创建
         if (!store) continue
         const hit = this.store.findIdsByQuery(scope, input.query)
-        for (const id of hit) if (store.remove(id)) ids.push(id)
+        const removedHere           = []
+        for (const id of hit) if (store.remove(id)) removedHere.push(id)
+        if (removedHere.length > 0) {
+          ids.push(...removedHere)
+          removedByScope.push({ scope, ids: removedHere })
+        }
       }
       if (ids.length === 0) throw memoryError('RECORD_NOT_FOUND', `no record matching query in ${targets.join(', ')}`)
     } else {
       throw memoryError('RECORD_NOT_FOUND', 'forget requires id or query')
     }
+    for (const group of removedByScope) this.events.forgotten(group)
     this.store.scheduleFlush()
     return { removed: ids.length, ids }
   }

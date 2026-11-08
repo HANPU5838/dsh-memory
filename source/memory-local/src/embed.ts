@@ -9,11 +9,37 @@ export interface EmbedClientOptions {
   dims: number
   timeoutMs: number
   /**
+   * OpenAI 兼容后端的 Bearer 令牌（如 `sk-...`）。缺省=不发 `Authorization`
+   * 头，即今天本地 llama-server 的行为；OpenAI/兼容网关缺了它会直接 401。
+   */
+  apiKey?: string
+  /**
+   * 注入的 fetch 实现（测试/自定义传输）。缺省=全局 fetch——不影响既有行为。
+   */
+  fetch?: typeof fetch
+  /**
    * 失败时的告警出口（默认 console.warn）。嵌入失败会被静默降级成词法检索，
    * 没有这条日志的话「检索质量突然变差」完全无迹可查——本机最常见的失败是
    * llama-server 的 HTTP 400「input too large」（默认 batch 512 时 >512 token）。
    */
   log?: (message: string) => void
+}
+
+/**
+ * 把 API 返回的 `number[]` 拷成 Float32Array 并做 L2 归一化（就地）。
+ *
+ * llama-server / OpenAI 都返回 L2 归一化向量，这里再防御性地归一一次：部分
+ * OpenAI 兼容网关（vLLM、LM Studio 的某些模型）返回的是未归一化向量，不归一
+ * 会让 cosine 阈值在整个库的尺度上漂移。导出给 embedding-providers.ts 复用，
+ * 保证「协议校验 + 归一化」只有一份实现。
+ */
+export function toUnitVector(values: number[]): Float32Array {
+  const v = new Float32Array(values)
+  let norm = 0
+  for (let i = 0; i < v.length; i++) norm += v[i]! * v[i]!
+  const n = Math.sqrt(norm)
+  if (n > 0) for (let i = 0; i < v.length; i++) v[i] = v[i]! / n
+  return v
 }
 
 export class EmbedClient {
@@ -75,10 +101,14 @@ export class EmbedClient {
     if (!this.usable) return null
     const timeout = AbortSignal.timeout(opts?.timeoutMs ?? this.opts.timeoutMs)
     const combined = signal ? AbortSignal.any([signal, timeout]) : timeout
+    const doFetch = this.opts.fetch ?? fetch
+    const headers: Record<string, string> = { 'content-type': 'application/json' }
+    // 只有显式配置令牌才带 Authorization：本地 llama-server 不认这个头。
+    if (this.opts.apiKey) headers.authorization = `Bearer ${this.opts.apiKey}`
     try {
-      const res = await fetch(this.opts.endpoint, {
+      const res = await doFetch(this.opts.endpoint, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers,
         body: JSON.stringify({ input: texts, model: this.opts.model }),
         signal: combined,
       })
@@ -103,12 +133,7 @@ export class EmbedClient {
           this.markDown()
           return null
         }
-        const v = new Float32Array(arr)
-        // llama-server returns L2-normalized vectors; normalize defensively anyway
-        let norm = 0
-        for (let i = 0; i < v.length; i++) norm += v[i]! * v[i]!
-        const n = Math.sqrt(norm)
-        if (n > 0) for (let i = 0; i < v.length; i++) v[i] = v[i]! / n
+        const v = toUnitVector(arr)
         out.push(v)
       }
       this.markUp()

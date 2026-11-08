@@ -28,6 +28,7 @@ import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSyn
 import { createConnection } from 'node:net'
 import { basename, dirname, join } from 'node:path'
                                               
+import { DEFAULT_TERMUX_PREFIX as PLATFORM_TERMUX_PREFIX, readElfInterpFromFile } from './platform.js'
 
                                     
                                                                                    
@@ -123,7 +124,7 @@ const DEFAULTS = {
 }
 
 /** Android/Termux 的默认前缀(真机上总是由 $PREFIX 覆盖)。 */
-const DEFAULT_TERMUX_PREFIX = '/data/data/com.termux/files/usr'
+const DEFAULT_TERMUX_PREFIX = PLATFORM_TERMUX_PREFIX
 
 /** 自愈退避:1s / 5s / 30s,最多 3 次。 */
 const RESTART_BACKOFF_MS = [1_000, 5_000, 30_000]
@@ -168,46 +169,8 @@ function defaultReadProcCmdline(pid        )                {
   }
 }
 
-/**
- * 只读 ELF header(前 64 字节)+ program headers 找 PT_INTERP(type=3) 的
- * 文件路径 —— 不需要完整 ELF 解析,也不加载目标程序。
- * 非 ELF / 静态链接(无 PT_INTERP)/ 读取失败都返回 null。
- */
-export function readElfInterpFromFile(exePath        )                {
-  let fd                = null
-  try {
-    fd = openSync(exePath, 'r')
-    const header = Buffer.alloc(64)
-    const headerLen = readSync(fd, header, 0, 64, 0)
-    if (headerLen < 52) return null
-    if (header[0] !== 0x7f || header[1] !== 0x45 || header[2] !== 0x4c || header[3] !== 0x46) return null
-    const is64 = header[4] === 2
-    if (is64 && headerLen < 64) return null
-    const phoff = is64 ? Number(header.readBigUInt64LE(32)) : header.readUInt32LE(28)
-    const phentsize = is64 ? header.readUInt16LE(54) : header.readUInt16LE(42)
-    const phnum = is64 ? header.readUInt16LE(56) : header.readUInt16LE(44)
-    if (phoff <= 0 || phentsize < (is64 ? 56 : 32) || phnum === 0 || phnum > 4096) return null
-    const ph = Buffer.alloc(phentsize)
-    for (let i = 0; i < phnum; i += 1) {
-      if (readSync(fd, ph, 0, phentsize, phoff + i * phentsize) < phentsize) continue
-      if (ph.readUInt32LE(0) !== 3) continue // PT_INTERP
-      const offset = is64 ? Number(ph.readBigUInt64LE(8)) : ph.readUInt32LE(4)
-      const size = is64 ? Number(ph.readBigUInt64LE(32)) : ph.readUInt32LE(16)
-      if (size <= 0 || size > 4096) return null
-      const interp = Buffer.alloc(size)
-      if (readSync(fd, interp, 0, size, offset) <= 0) return null
-      const text = interp.toString('utf8').replace(/\0+$/, '').trim()
-      return text === '' ? null : text
-    }
-    return null
-  } catch {
-    return null
-  } finally {
-    if (fd !== null) {
-      try { closeSync(fd) } catch { /* best effort */ }
-    }
-  }
-}
+/** ELF PT_INTERP 解析已收敛到 platform.ts；这里 re-export 保持既有导入路径不变。 */
+export { readElfInterpFromFile }
 
 /**
  * 端口是否已被监听:connect 成功 = 有人占着;ECONNREFUSED/超时 = 空闲。

@@ -53,6 +53,55 @@
 
 **测试**：`node --test source/*/test/*.test.ts` → **575 例 / 574 pass / 1 skipped**（跳过的是需要真实 Windows zip fixture 的用例）。
 
+## 一之二、插件化改造（A/B/C，2026-11-08 第二批）
+
+> 目标：不再「往项目里贴适配」，而是把差异与能力收敛成层，插件自包含、可组合、可替换。
+> 全程不改 DSH 源码、不注入 NODE_OPTIONS、不打宿主补丁。
+
+### A. 平台适配层（`platform.ts`）
+
+| 能力 | 说明 |
+|---|---|
+| `detectPlatform()` | 一次探测出：是否 Termux、`$PREFIX`、glibc loader 路径、CPU 核数（`os.cpus()` 为 0 时兜底 `availableParallelism`，再兜底 4）、可用内存（`MemAvailable` 与 cgroup 限制取小）、临时目录 |
+| `readElfInterpFromFile()` | ELF `PT_INTERP` 解析（从 embed-server 收敛过来，原导出路径保持兼容） |
+| `freeDiskBytes()` / `canExecute()` | 磁盘余量、目录可写性（noexec/只读挂载的常见坑） |
+| `describePlatform()` | 一行环境摘要，日志与面板共用 |
+| 消费方 | `embed-server`（ELF/loader）、`hardware`（核数兜底）、面板「环境自检」 |
+
+面板「向量服务」卡片新增 **环境自检**：一次只读探测并逐条展示 平台 / glibc loader / 嵌入后端 / 安装目录磁盘 / 安装目录权限 / 记忆目录权限；后端失败时同时显示最近一次真实原因。
+
+### B. 嵌入后端可插拔（`embedding-providers.ts`）
+
+```ts
+retrieval.vector.provider: 'local' | 'openai' | 'ollama' | 'off'   // 默认按 endpoint 推断
+retrieval.vector.apiKey?: string                                    // 也接受环境变量 DSH_MEMORY_API_KEY
+```
+
+| provider | 用途 |
+|---|---|
+| `local`（默认） | 本机 llama-server（插件自己下载/托管）——原来的行为 |
+| `openai` | 任意 OpenAI 兼容 `/v1/embeddings`（含云服务），自动带 `Authorization: Bearer` |
+| `ollama` | `/api/embeddings`，逐条请求 |
+| `off` | 纯词法检索，永不联网 |
+
+- 只有 `local` 会创建 `EmbedServerManager` 拉起子进程；其余 provider 生命周期归外部。
+- 未知 provider 在构造期报错（配置脏数据不静默退化）。
+- endpoint 未配 / 回环地址 → `local`；远程地址 → `openai`。
+
+### C. 事件总线（`events.ts`）
+
+```ts
+memory/record-saved    { scope, id, kind, chars, deduped }
+memory/recalled        { query, hits, topScopes, vector }
+memory/record-forgotten{ scope, ids }
+```
+
+- `apply.ts` 用宿主 `ctx.emit` 转发（拿不到 `ctx.emit` 时退化为纯进程内广播），其他插件 `ctx.on('memory/record-saved', …)` 即可订阅。
+- emit 永不抛、payload 只含元数据（**不含记忆正文**）、监听器抛错不影响主流程。
+- `MemoryEventBus.subscribe()` 也支持进程内订阅（测试与内部消费者用）。
+
+**测试**：`node --test source/*/test/*.test.ts` → **607 例 / 606 pass / 1 skipped**。
+
 ## 二、如何构建与安装
 
 ```bash
