@@ -74,6 +74,7 @@ window.__ModuleLoader__.load({
       '.memp .selfcheck-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}',
       '.memp .selfcheck-row{font-size:12px;line-height:1.6;color:var(--dsw-alias-label-secondary)}',
       '.memp .selfcheck-row b{font-weight:600;color:var(--dsw-alias-label-primary)}',
+      '.memp .provider-pick{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px}',
       '.memp .hint code,.memp .mono code{background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);border-radius:5px;padding:0 4px}',
       // 控件
       '.memp input[type=text],.memp input[type=search],.memp select,.memp input[type=number]{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:6px 10px;font-size:13px;outline:none}',
@@ -1837,6 +1838,56 @@ window.__ModuleLoader__.load({
      * 而展开体里只放"改选择"的东西。硬件探测在面板一出现时取一次(服务端有 10 分钟缓存),
      * 所以这两行不用等展开。下拉是自绘的 —— 原生 select 画不出气泡。
      */
+    /**
+     * 嵌入后端选择器：运行时切换 local / openai / ollama / off。
+     * 只改 provider 与（local 的）子进程生命周期，不动记忆数据与向量边车。
+     */
+    function ProviderPicker({ status, api, onChanged }) {
+      const current = status && typeof status.provider === 'string' ? status.provider : ''
+      const [busy, setBusy] = React.useState(false)
+      const [message, setMessage] = React.useState('')
+      const [failed, setFailed] = React.useState(false)
+      const change = async (e) => {
+        const next = e.target.value
+        if (!next || next === current) return
+        setBusy(true); setMessage(''); setFailed(false)
+        try {
+          const value = await api('provider', { provider: next })
+          setMessage(String((value && value.message) || (value && value.ok ? '已切换' : '切换失败')))
+          setFailed(!(value && value.ok))
+          if (typeof onChanged === 'function') await onChanged()
+        } catch (err) {
+          setMessage(String((err && err.message) || err))
+          setFailed(true)
+        }
+        setBusy(false)
+      }
+      if (!current) return null
+      const hint = current === 'local'
+        ? '本机 llama-server（插件下载并托管）'
+        : current === 'off'
+          ? '纯词法检索，不联网'
+          : current === 'ollama'
+            ? '需要 endpoint 指向 Ollama（如 http://127.0.0.1:11434）'
+            : '任意 OpenAI 兼容 /v1/embeddings 服务'
+      return h('div', { className: 'provider-pick' },
+        h('span', { className: 'muted' }, '嵌入后端'),
+        h('select', {
+          value: current,
+          disabled: busy,
+          title: 'local = 本机 llama-server；openai/ollama 需 endpoint 指向对应服务；off = 纯词法',
+          onChange: change,
+        },
+          h('option', { value: 'local' }, 'local（本机 llama-server）'),
+          h('option', { value: 'openai' }, 'openai（兼容接口）'),
+          h('option', { value: 'ollama' }, 'ollama'),
+          h('option', { value: 'off' }, 'off（纯词法）'),
+        ),
+        h('span', { className: 'muted' }, busy ? '切换中…' : hint),
+        message ? h('span', { className: failed ? 'hint err' : 'hint' }, message) : null,
+      )
+    }
+
     /**
      * 环境自检：点一下把「平台 / glibc / 后端 / 磁盘 / 权限」逐条探测出来。
      * 只读，不触发嵌入；后端不可用时同时显示最近一次真实失败原因。
@@ -3949,6 +4000,7 @@ window.__ModuleLoader__.load({
         ),
         notice,
         embedNotice ? h('div', { className: 'muted' }, embedNotice) : null,
+        h(ProviderPicker, { status: embedServer, api, onChanged: () => load() }),
         h(SelfCheck, { status: embedServer, api }),
         h(ModelPicker, {
           busy: embedBusy,

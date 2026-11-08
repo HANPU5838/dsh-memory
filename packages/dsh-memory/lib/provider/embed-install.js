@@ -23,6 +23,14 @@
  *  - 半成品绝不落地：下载先写 <目标>.part，收流完整后 rename——否则一次断网
  *    留下的半个 gguf 会被 detectInstalled 当成「已安装」，然后 llama-server
  *    报一句莫名其妙的加载失败；
+ *  - 断了要能接上：.part 续传（Range + If-Range），400MB+ 的 GGUF 断一次不该重下；
+ *    但**换源不续**（不同镜像可能不是同一份文件），且续传结果必须过总长校验；
+ *  - 收完必须验完整：总长对不上就删 .part；配置了 sha256 就必须逐字节对上——
+ *    镜像篡改/拼接错位这类事后很难查的问题，在下载结束这一刻就要拦住；
+ *  - 装完必须冒烟：解压校验通过、模型就位后再跑一次 `exe --version`。链接检查
+ *    只能证明文件在，冒烟能证明「这台机器真的跑得起来」（缺 glibc loader、CPU
+ *    指令集不匹配、解压被截断都在这时候暴露），失败就把 exe 摘掉，免得下次
+ *    start() 因为 detectInstalled 直接报「已就绪」把坏安装当成功；
  *  - 可取消：cancel() 中止在途请求、删掉 .part、phase 回到 idle；
  *  - 解压必须防路径穿越：压缩包是远端内容，`../` 或绝对路径条目一律拒绝；
  *  - 链接必须有兜底：tar 里的 SONAME 软链在 FAT/exFAT/部分 Android 共享存储上建
@@ -41,11 +49,14 @@
  *   <root>/models/bge-m3-Q4_K_M.gguf     ← 模型
  *   <root>/llama-server.log              ← 托管启动时追加的日志
  */
-import { chmodSync, copyFileSync, createWriteStream, existsSync, linkSync, mkdirSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, statSync, statfsSync, symlinkSync, writeFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { chmodSync, copyFileSync, createReadStream, createWriteStream, existsSync, linkSync, mkdirSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, statSync, statfsSync, symlinkSync, writeFileSync } from 'node:fs'
                                                   
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import { gunzipSync, inflateRawSync } from 'node:zlib'
                                                   
+import { detectPlatform, glibcLoaderFor, readElfInterpFromFile } from './platform.js'
 
 /** 模型文件名：下载目标与「是否已安装」的判据都用它，不要在两处各写一遍。 */
 export const MODEL_FILE_NAME = 'bge-m3-Q4_K_M.gguf'
@@ -124,6 +135,12 @@ const EXTRA_DISK_RESERVE_BYTES = 200 * 1024 * 1024
                 
                                                      
                     
+     
+                                              
+                                                   
+                                      
+     
+                 
  
 
 /** 安装状态机。idle/error 都可能再次 start()。 */
@@ -133,6 +150,7 @@ const EXTRA_DISK_RESERVE_BYTES = 200 * 1024 * 1024
                          
                 
                        
+               
           
            
 
@@ -177,6 +195,20 @@ const EXTRA_DISK_RESERVE_BYTES = 200 * 1024 * 1024
                                
      
                                             
+     
+                                                   
+          
+                                              
+                                             
+                      
+     
+                                                           
+     
+                                                                
+                                                       
+                               
+     
+                             
  
 
 /** zip 中央目录里一条记录（只保留解压需要的字段）。 */
@@ -1064,6 +1096,267 @@ function closeStream(stream             )                {
   })
 }
 
+// ─────────────────── 下载：断点续传 ───────────────────
+
+/** `Content-Range: bytes <start>-<end>/<total>` 的解析结果。 */
+                               
+                                        
+               
+                     
+             
+                                               
+                      
+ 
+
+/**
+ * 解析 Content-Range。解析不了返回 null（调用方必须把「206 但没有可信
+ * Content-Range」当成失败：续传位置无从校验，拼错一个字节模型就废了）。
+ */
+export function parseContentRange(header               )                      {
+  if (header === null) return null
+  const match = /^\s*bytes\s+(\d+)-(\d+)\/(\d+|\*)\s*$/i.exec(header)
+  if (match === null) return null
+  const start = Number.parseInt(match[1] ?? '', 10)
+  const end = Number.parseInt(match[2] ?? '', 10)
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null
+  const total = match[3] === '*' ? null : Number.parseInt(match[3] ?? '', 10)
+  if (total !== null && (!Number.isFinite(total) || total < end + 1)) return null
+  return { start, end, total }
+}
+
+/**
+ * `.part` 旁边的续传元数据（`<dest>.part.meta`，一行 JSON）。
+ *
+ * 为什么要落盘而不是只放内存：续传的意义是「上次进程已经死了、这次接着下」，
+ * 内存里的校验器活不过重启。它和 `.part` 同生命周期：下载成功（rename）、
+ * 取消、完整性失败时会一起删掉，不会留下孤儿文件。
+ */
+                           
+                                           
+             
+                                                
+               
+                                                   
+                     
+                             
+ 
+
+function partMetaFile(part        )         {
+  return `${part}.meta`
+}
+
+/** 读续传元数据：不存在 / JSON 坏了 / 字段不合法都当「没有」，绝不抛。 */
+function readPartMeta(part        )                         {
+  try {
+    const raw          = JSON.parse(readFileSync(partMetaFile(part), 'utf8'))
+    if (typeof raw !== 'object' || raw === null) return null
+    const state = raw                            
+    if (typeof state.url !== 'string' || state.url === '') return null
+    if (typeof state.bytes !== 'number' || !Number.isFinite(state.bytes) || state.bytes < 0) return null
+    return {
+      url: state.url,
+      bytes: state.bytes,
+      etag: typeof state.etag === 'string' && state.etag !== '' ? state.etag : null,
+      lastModified: typeof state.lastModified === 'string' && state.lastModified !== '' ? state.lastModified : null,
+    }
+  } catch {
+    return null
+  }
+}
+
+/** 写续传元数据：写失败只意味着下次少了校验器，不该把这次下载搞失败。 */
+function writePartMeta(part        , state                 )       {
+  try {
+    mkdirSync(dirname(part), { recursive: true })
+    writeFileSync(partMetaFile(part), JSON.stringify(state))
+  } catch { /* 尽力而为 */ }
+}
+
+/** 删掉 .part 与它的元数据（残留不可信时才调用）。 */
+function clearPart(part        )       {
+  try { rmSync(part, { force: true }) } catch { /* 尽力而为 */ }
+  try { rmSync(partMetaFile(part), { force: true }) } catch { /* 尽力而为 */ }
+}
+
+/** 续传请求头：Range + If-Range（有校验器才带，远端文件变了会自动回 200）。 */
+function resumeHeaders(offset        , state                        )                         {
+  const headers                         = { range: `bytes=${offset}-` }
+  // If-Range 只认强校验器：ETag 优先，其次 Last-Modified 的 HTTP-date。
+  const validator = state?.etag ?? state?.lastModified ?? null
+  if (validator !== null) headers['if-range'] = validator
+  return headers
+}
+
+// ─────────────────── 下载：完整性校验 ───────────────────
+
+/** 流式算 sha256（400MB 的 GGUF 不能一次读进内存）。 */
+function sha256File(path        )                  {
+  return new Promise((resolve, reject) => {
+    const hash = createHash('sha256')
+    const stream = createReadStream(path)
+    stream.on('data', (chunk) => hash.update(chunk))
+    stream.on('error', (error) => reject(diskError(`读取 ${path}`, error)))
+    stream.on('end', () => resolve(hash.digest('hex')))
+  })
+}
+
+/** 归一化 sha256 配置：大小写不敏感，允许 `sha256:` 前缀与前后空白。 */
+export function normalizeSha256(value        )         {
+  return value.trim().toLowerCase().replace(/^sha256:/, '').trim()
+}
+
+/** 把可能为 undefined 的哈希折成一个「要么没有、要么有」的校验参数。 */
+function expectSha256(hash                    )                      {
+  return hash === undefined || hash.trim() === '' ? {} : { sha256: hash }
+}
+
+/**
+ * 按资产名取期望的运行时 sha256：
+ *  - 字符串配置只覆盖**主**运行时包（CUDA 的伴生包不硬套同一个哈希）；
+ *  - 记录配置按资产名精确匹配，主包与伴生包可以各配各的。
+ */
+function assetSha256(
+  configured                                                       ,
+  name        ,
+  main         ,
+)                     {
+  if (configured === undefined) return undefined
+  if (typeof configured === 'string') return main ? configured : undefined
+  const hash = configured[name]
+  return typeof hash === 'string' && hash.trim() !== '' ? hash : undefined
+}
+
+// ─────────────────── 安装后冒烟：跑一次 exe --version ───────────────────
+
+/** 冒烟探测的默认超时。llama-server 打印版本是毫秒级，超时只是兜住卡死。 */
+export const DEFAULT_PROBE_TIMEOUT_MS = 4000
+
+/** 冒烟探测结果。失败时 stderr 尾部会原样进 phase:'error' 的 message。 */
+                                     
+             
+                                              
+                        
+                                          
+                         
+                                         
+                 
+                                                      
+              
+ 
+
+/** 可注入的冒烟探测。返回 null = 跳过探测（CI / 交叉安装环境用）。 */
+                                                                     
+
+/** 一种探测启动方式。 */
+                               
+              
+                
+             
+ 
+
+/**
+ * 探测要从哪启动：
+ *  - 普通 Linux / 非 Linux：直接 `exe --version`；
+ *  - Android/Termux：下回来的 llama-server 是 ubuntu glibc ELF，PT_INTERP 指向
+ *    `/lib/ld-linux-aarch64.so.1`，Android 上不存在，直接 exec 只会得到 ENOENT。
+ *    这时和 embed-server 的启动一样，用 `$PREFIX/glibc/lib/<loader>
+ *    --library-path <libdir> <exe> --version` 包一层——**在解压现场**验证
+ *    「这台机器真能跑」，而不是等托管启动时才暴露。
+ * 解释器存在的普通 Linux 不多包一层（loader 路径可能反而更旧）。
+ */
+function versionProbeCommands(exe        )                        {
+  const direct                      = { file: exe, args: ['--version'], via: '直接执行' }
+  if (process.platform !== 'linux') return [direct]
+  try {
+    const interp = readElfInterpFromFile(exe)
+    if (interp === null || existsSync(interp)) return [direct]
+    const info = detectPlatform()
+    const loader = glibcLoaderFor(info, interp)
+    if (loader === null) return [direct]
+    const args = info.glibcLibDir === null
+      ? [exe, '--version']
+      : ['--library-path', info.glibcLibDir, exe, '--version']
+    return [{ file: loader, args, via: 'Termux glibc loader 包装' }, direct]
+  } catch {
+    return [direct]
+  }
+}
+
+/** 跑一次探测命令。任何异常都翻译成 ok:false + 可读原因，绝不抛。 */
+function runVersionProbe(command                     , timeoutMs        )                     {
+  let status                = null
+  let stdout = ''
+  let stderr = ''
+  let spawnError          = null
+  try {
+    const result = spawnSync(command.file, command.args, {
+      timeout: timeoutMs,
+      encoding: 'utf8',
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      // cwd 与托管启动一致：llama.cpp 的 shim 从这里解析同目录的 dll/so。
+      cwd: dirname(command.file),
+    })
+    status = typeof result.status === 'number' ? result.status : null
+    if (typeof result.stdout === 'string') stdout = result.stdout
+    if (typeof result.stderr === 'string') stderr = result.stderr
+    if (result.error !== undefined && result.error !== null) spawnError = result.error
+  } catch (error) {
+    spawnError = error
+  }
+  if (spawnError !== null) {
+    const code = (spawnError                      ).code
+    const hint = code === 'ETIMEDOUT' ? `（超过 ${timeoutMs}ms 未返回，已强制结束）` : ''
+    return {
+      ok: false,
+      status,
+      stderr: `无法执行 ${command.file}：${describeError(spawnError)}${hint}`,
+      via: command.via,
+    }
+  }
+  if (status === 0) {
+    return { ok: true, status: 0, version: versionLine(stdout, stderr), via: command.via }
+  }
+  return { ok: false, status, stderr: `${stdout}\n${stderr}`.trim(), via: command.via }
+}
+
+/** 从输出里摘一行版本（优先带 version 字样的那行)。 */
+function versionLine(stdout        , stderr        )                {
+  const lines = `${stdout}\n${stderr}`
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line !== '')
+  const hit = lines.find((line) => /version/i.test(line)) ?? lines[0]
+  if (hit === undefined) return null
+  return hit.length > 160 ? `${hit.slice(0, 160)}…` : hit
+}
+
+/** 失败输出只留尾部几行：面板 message 得可读，但排障要看的是最后那几句。 */
+function stderrTail(text                    , maxLines = 8, maxChars = 800)         {
+  if (text === undefined) return ''
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim() !== '')
+  const tail = lines.slice(-maxLines).join('\n')
+  return tail.length > maxChars ? `…${tail.slice(-maxChars)}` : tail
+}
+
+/**
+ * 默认冒烟探测：`exe --version`，4s 超时。Termux 上先用 glibc loader 包装试，
+ * 不行再直连兜底；两者都失败时返回后者的结果（错误信息更贴近「程序本身坏」）。
+ */
+export function probeVersionDefault(exe        , timeoutMs         = DEFAULT_PROBE_TIMEOUT_MS)                     {
+  const commands = versionProbeCommands(exe)
+  let last                     = { ok: false, status: null, stderr: `没有可用的探测方式：${exe}` }
+  for (const command of commands) {
+    const result = runVersionProbe(command, timeoutMs)
+    if (result.ok) return result
+    last = result
+  }
+  return last
+}
+
 // ────────────────────────── 安装器本体 ──────────────────────────
 
 /**
@@ -1192,7 +1485,15 @@ export class VectorInstaller {
         this.setPhase(gen, 'downloading-runtime', `已存在 ${asset.name}，跳过下载`, { receivedBytes: 0, totalBytes: null })
       } else {
         this.setPhase(gen, 'downloading-runtime', `正在下载 llama.cpp 运行时 ${asset.name}`)
-        const got = await this.downloadFrom(gen, runtimeDownloadSources(asset), archivePath, 'llama.cpp 运行时', 'downloading-runtime', '通道')
+        const got = await this.downloadFrom(
+          gen,
+          runtimeDownloadSources(asset),
+          archivePath,
+          'llama.cpp 运行时',
+          'downloading-runtime',
+          '通道',
+          expectSha256(assetSha256(this.opts.runtimeSha256, asset.name, true)),
+        )
         // 成功日志里写清走的哪条通道：直链还是 API 资产端点，排障时第一眼要看的就是它。
         this.report(gen, { message: `运行时下载完成（${formatBytes(got.bytes)}，通道：${got.source.label}）` })
       }
@@ -1227,7 +1528,15 @@ export class VectorInstaller {
         const companionPath = join(paths.dir, companion.name)
         if (fileSize(companionPath) === 0) {
           this.setPhase(gen, 'downloading-runtime', `正在下载 CUDA 运行库 ${companion.name}`)
-          const got = await this.downloadFrom(gen, runtimeDownloadSources(companion), companionPath, 'CUDA 运行库', 'downloading-runtime', '通道')
+          const got = await this.downloadFrom(
+            gen,
+            runtimeDownloadSources(companion),
+            companionPath,
+            'CUDA 运行库',
+            'downloading-runtime',
+            '通道',
+            expectSha256(assetSha256(this.opts.runtimeSha256, companion.name, false)),
+          )
           this.report(gen, { message: `CUDA 运行库下载完成（${formatBytes(got.bytes)}，通道：${got.source.label}）` })
         }
         try {
@@ -1276,6 +1585,11 @@ export class VectorInstaller {
         const got = await this.downloadModel(gen, paths.model, model)
         this.report(gen, { message: `模型下载完成（已下载 ${formatBytes(got.bytes)}，来源：${got.source.label}）` })
       }
+
+      // 最后一道闸：文件齐了不等于跑得起来。跑一次 `llama-server --version`，
+      // 把「缺 glibc loader / 指令集不匹配 / 解压被截断」这类问题在安装流程里
+      // 就暴露出来，而不是等用户第一次检索时才看到后端起不来。
+      this.smokeTest(gen, paths)
 
       const installed = detectInstalled(root, model.file)
       if (installed === null) throw new Error('安装校验失败：llama-server 或模型文件缺失')
@@ -1355,12 +1669,13 @@ export class VectorInstaller {
           async downloadModel(gen        , dest        , model              )                                                     {
     const urls                    = model.sources ?? this.opts.modelSources ?? MODEL_SOURCES
     const sources = urls.map((url)                 => ({ url, accept: '*/*', label: urlHost(url) }))
-    return this.downloadFrom(gen, sources, dest, model.file, 'downloading-model', '源')
+    return this.downloadFrom(gen, sources, dest, model.file, 'downloading-model', '源', expectSha256(model.sha256))
   }
 
   /**
-   * 按候选顺序下载，当前候选失败（网络错误 / 非 2xx / 中途断流）就换下一个，
-   * 每个候选都从 0 重新下（不做断点续传，失败时 download() 已经清掉 .part）。
+   * 按候选顺序下载，当前候选失败（网络错误 / 非 2xx / 中途断流 / 完整性不符）
+   * 就换下一个。续传只在**同一个来源 URL** 上生效（见 download）：换源等于换文件，
+   * 不同镜像的残片不能拼在一起。
    * 全部失败时把所有候选各自的原因一起报出来——只报一句「下载失败」的话，用户
    * 根本分不清是墙、是 DNS、还是磁盘满。
    */
@@ -1371,11 +1686,12 @@ export class VectorInstaller {
     what        ,
     phase              ,
     noun        ,
+    expect                      = {},
   )                                                     {
     const failures           = []
     for (const source of sources) {
       try {
-        const bytes = await this.download(gen, source, dest, what, phase)
+        const bytes = await this.download(gen, source, dest, what, phase, expect)
         return { bytes, source }
       } catch (error) {
         if (this.cancelled || isAbortError(error)) throw error
@@ -1396,8 +1712,22 @@ export class VectorInstaller {
   }
 
   /**
-   * 流式下载到 dest：先写 `<dest>.part`，完整收流后 rename。
+   * 流式下载到 dest：先写 `<dest>.part`，完整收流 + 完整性校验通过后 rename。
    * 每收到一块就上报一次 receivedBytes（面板的百分比来源）。
+   *
+   * 断点续传（400MB 的 GGUF 断一次就重下没人受得了）：
+   *  - `<dest>.part.meta` 记着上次的来源 URL 与校验器；
+   *  - 同源且已有 N 字节 → 发 `Range: bytes=N-` + `If-Range`（ETag/Last-Modified），
+   *    服务端回 **206 且 Content-Range 起点 = N** 就追加写；起点对不上说明残片
+   *    不可信，删掉报错；
+   *  - 服务端不支持 Range（回 200）→ 从头覆盖（flags 'w'），
+   *    用 content-length 当总长；
+   *  - 416（残片比远端还长 / 远端文件变小）→ 丢掉残片，退化成整段重下；
+   *  - **换源不续**：镜像之间可能不是同一份文件，拼错了只有 sha256 能救，索性不复用。
+   *
+   * 完整性（两关，都失败即删 .part，绝不留半成品）：
+   *  - 总长：content-length（200）或 Content-Range 的 total（206）vs 落地字节；
+   *  - sha256：配置里声明了就必须匹配（GGUF 多数没有官方哈希，至少保住 size）。
    */
           async download(
     gen        ,
@@ -1405,19 +1735,81 @@ export class VectorInstaller {
     dest        ,
     what        ,
     phase              ,
+    expect                      = {},
   )                  {
     const url = source.url
     const part = `${dest}.part`
-    const res = await this.request(url, source.accept)
+    // 只有「同一个来源 URL」的 .part 才敢续：换源时先清掉（模型的多镜像、
+    // 运行时的直链/API 两条通道都是不同 URL）。
+    const previous = readPartMeta(part)
+    const sameSource = previous !== null && previous.url === url
+    if (!sameSource) clearPart(part)
+    let startAt = sameSource ? fileSize(part) : 0
+
+    let res = await this.request(url, source.accept, startAt > 0 ? resumeHeaders(startAt, previous) : undefined)
+    if (res.status === 416 && startAt > 0) {
+      // 残片比远端总长还大（或远端文件被换成了更小的）：这份残片永远拼不回来。
+      clearPart(part)
+      startAt = 0
+      this.report(gen, { message: `${what}：续传被拒（HTTP 416），丢弃残片后从头下载`, receivedBytes: 0, totalBytes: null })
+      res = await this.request(url, source.accept)
+    }
     if (!res.ok) {
       throw new Error(`下载${what}失败：HTTP ${res.status}${res.statusText !== '' ? ` ${res.statusText}` : ''}（${url}）`)
     }
-    const total = parseContentLength(res.headers.get('content-length')) // 拿不到就是 null
+
+    // 总长与续传起点：206 必须自报 Content-Range，否则无从确认拼接位置。
+    let total               
+    let append = false
+    if (res.status === 206) {
+      const range = parseContentRange(res.headers.get('content-range'))
+      if (range === null) {
+        // 位置不明的追加写会把文件写坏，宁可这份残片不要。
+        clearPart(part)
+        throw new Error(`下载${what}失败：服务器返回 206 却没有可解析的 Content-Range（${urlHost(url)}），无法确认续传位置`)
+      }
+      if (range.start !== startAt) {
+        clearPart(part)
+        throw new Error(
+          `下载${what}失败：续传起点不一致（本地已有 ${startAt} 字节，服务器从 ${range.start} 字节开始），` +
+          `已删除残片；请重试（会从 0 重新下载）`,
+        )
+      }
+      const length = parseContentLength(res.headers.get('content-length'))
+      total = range.total ?? (length === null ? null : startAt + length)
+      append = startAt > 0
+    } else {
+      // 200 = 服务端不支持 Range（或这是第一次下载）：从 0 覆盖写。
+      total = parseContentLength(res.headers.get('content-length')) // 拿不到就是 null
+    }
+    // fetch 会**自动解码** Content-Encoding：这时 content-length/Content-Range 说的
+    // 是压缩后的字节数，拿来校验落地字节必然误报；而且按区间续传拼的是解码后的
+    // 数据流，区间语义不再成立。这类响应只能当「总长未知」下完，靠 sha256 兜底。
+    const contentEncoding = (res.headers.get('content-encoding') ?? '').trim().toLowerCase()
+    if (contentEncoding !== '' && contentEncoding !== 'identity') {
+      if (startAt > 0) {
+        clearPart(part)
+        throw new Error(
+          `下载${what}失败：服务器对这份内容启用了 Content-Encoding（${contentEncoding}），` +
+          `无法按字节区间续传，已删除残片；请重试（会从 0 重新下载）`,
+        )
+      }
+      total = null
+    }
+    // 覆盖写时进度/落地字节的基准是 0：startAt 那一截已经被截掉了。
+    const base = append ? startAt : 0
     const body = res.body
     if (body === null) throw new Error(`下载${what}失败：响应没有可读的数据流`)
     const reader = body.getReader()
-    const stream = createWriteStream(part, { flags: 'w' })
+    const stream = createWriteStream(part, { flags: append ? 'a' : 'w' })
     this.sink = { gen, part, stream }
+    // 先落续传元数据：下一秒断网，下一次也能带着同一个校验器接着续。
+    writePartMeta(part, {
+      url,
+      bytes: base,
+      etag: res.headers.get('etag'),
+      lastModified: res.headers.get('last-modified'),
+    })
     // 用容器而不是裸 let：错误在回调里赋值、在循环里读，容器能让 TS 的类型收窄
     // 保持可预测（裸 let 在闭包里赋值后收窄会被重置/变 never）。
     const failure                          = { error: null }
@@ -1432,17 +1824,49 @@ export class VectorInstaller {
         received += value.byteLength
         if (!stream.write(value)) await waitDrain(stream)
         if (failure.error !== null) throw failure.error
-        this.report(gen, { phase, receivedBytes: received, totalBytes: total, error: null })
+        // 进度按「这个文件已收多少」报，续传时要把既有的那一截算上。
+        this.report(gen, { phase, receivedBytes: base + received, totalBytes: total, error: null })
       }
       await closeStream(stream)
       if (failure.error !== null) throw failure.error
     } catch (error) {
       try { stream.destroy() } catch { /* 已经坏了 */ }
-      try { rmSync(part, { force: true }) } catch { /* 尽力而为 */ }
       if (this.sink?.part === part) this.sink = null
+      // 这里**不删** .part：网络抖动/断流留下的残片正是下次续传的本钱。
+      // 只有「残片不可信」（取消、416、Content-Range 不一致、完整性失败）才删。
       // 写盘失败（磁盘满/无权限）要说得明白，别把 ERR_STREAM 之类的丢给用户。
       if (failure.error !== null && !isAbortError(error)) throw diskError(`写入 ${part}`, failure.error)
       throw error
+    }
+
+    const landed = base + received
+    this.ensureActive(gen)
+    // 完整性第一关：声明了多少就必须落地多少。短了是断流，长了是拼接错位。
+    if (total !== null && landed !== total) {
+      clearPart(part)
+      throw new Error(
+        `下载${what}不完整：服务器声明 ${total} 字节，实际落地 ${landed} 字节` +
+        `（来源 ${urlHost(url)}${append ? `，其中续传 ${formatBytes(startAt)}` : ''}），已删除残片`,
+      )
+    }
+    // 完整性第二关：配置了 sha256 就必须逐字节对上（镜像篡改 / 镜像换版 / 拼接错位）。
+    const expected = expect.sha256 === undefined ? '' : normalizeSha256(expect.sha256)
+    if (expected !== '') {
+      let actual        
+      try {
+        actual = await sha256File(part)
+      } catch (error) {
+        clearPart(part)
+        throw error
+      }
+      this.ensureActive(gen)
+      if (actual !== expected) {
+        clearPart(part)
+        throw new Error(
+          `下载${what}校验失败：sha256 不匹配（期望 ${expected}，实际 ${actual}）。` +
+          `文件可能在镜像上被替换/篡改，或续传拼错了内容，已删除残片（来源 ${urlHost(url)}）；请换一个源或稍后重试`,
+        )
+      }
     }
     try {
       renameSync(part, dest)
@@ -1450,17 +1874,69 @@ export class VectorInstaller {
       if (this.sink?.part === part) this.sink = null
       throw diskError(`重命名 ${dest}`, error)
     }
+    // rename 只带走了 .part，元数据要单独清，别留孤儿文件。
+    try { rmSync(partMetaFile(part), { force: true }) } catch { /* 尽力而为 */ }
     if (this.sink?.part === part) this.sink = null
-    this.report(gen, { phase, receivedBytes: received, totalBytes: total, error: null })
-    return received
+    this.report(gen, { phase, receivedBytes: landed, totalBytes: total, error: null })
+    return landed
   }
 
-  /** 发一个带 UA 的请求；网络层错误翻译成人话，但 AbortError 原样上抛。 */
-          async request(url        , accept        )                    {
+  /**
+   * 安装后冒烟：文件齐了不等于跑得起来，跑一次 `exe --version` 才算装完。
+   *
+   * 探测方式是注入的（默认 spawnSync，4s 超时；Termux 上自动用 glibc loader
+   * 包装，与托管启动保持一致）。失败时：
+   *  - message 带 stderr 尾部（缺哪个 .so、哪条 loader，用户一眼能看到）；
+   *  - 顺手把 exe 摘掉：detectInstalled 只看文件在不在，留着它下次 start()
+   *    会直接报「已就绪，无需下载」，把坏安装当成功——静默失效最难排查。
+   *    压缩包还在，重试只需要重新解压+校验，不会白下几十 MB。
+   */
+          smokeTest(gen        , paths              )       {
+    const probe = this.opts.probeVersion ?? probeVersionDefault
+    this.setPhase(gen, 'verifying', `冒烟测试：${basename(paths.exe)} --version`)
+    // spawnSync 有 4s 超时兜底，但它是阻塞的：取消只能在探测前后生效。
+    // 这个取舍是有意的——宁可多等几秒，也要拦下「装完即坏」。
+    this.ensureActive(gen)
+    let result                           
+    try {
+      result = probe(paths.exe)
+    } catch (error) {
+      // 注入的探测实现自己炸了也要变成可读的 error，而不是一句裸异常。
+      throw new Error(`安装后冒烟测试失败：探测 ${basename(paths.exe)} 时出错（${describeError(error)}）`)
+    }
+    this.ensureActive(gen)
+    if (result === null) {
+      this.report(gen, { message: '冒烟测试：已跳过（probeVersion 返回 null）' })
+      return
+    }
+    if (!result.ok) {
+      const tail = stderrTail(result.stderr)
+      const how = result.status === null || result.status === undefined ? '无法执行' : `退出码 ${result.status}`
+      const via = result.via === undefined ? '' : `（${result.via}）`
+      try { rmSync(paths.exe, { force: true }) } catch { /* 尽力而为 */ }
+      throw new Error(
+        `安装后冒烟测试失败：${basename(paths.exe)} --version ${how}${via}` +
+        (tail === '' ? '' : `\nstderr 尾部：\n${tail}`) +
+        `\n运行时可能缺少依赖库、与当前系统不兼容，或解压不完整。已移除 ${basename(paths.exe)}，` +
+        `以免下次启动把坏安装当成「已就绪」；压缩包还在，重试会重新解压并再次冒烟`,
+      )
+    }
+    const version = result.version === null || result.version === undefined || result.version === ''
+      ? ''
+      : `：${result.version}`
+    this.report(gen, { message: `冒烟测试通过${version}` })
+  }
+
+  /** 发一个带 UA 的请求；extraHeaders 给续传（Range/If-Range）用。 */
+          async request(url        , accept        , extraHeaders                         )                    {
     const impl = this.opts.fetchImpl ?? fetch
     const signal = this.requestSignal()
     try {
-      return await impl(url, { headers: { accept, 'user-agent': USER_AGENT }, signal, redirect: 'follow' })
+      return await impl(url, {
+        headers: { accept, 'user-agent': USER_AGENT, ...extraHeaders },
+        signal,
+        redirect: 'follow',
+      })
     } catch (error) {
       if (isAbortError(error)) throw error
       throw new Error(`网络请求失败（${urlHost(url)}）：${describeError(error)}`)
@@ -1488,13 +1964,25 @@ export class VectorInstaller {
     return external === undefined ? controller.signal : AbortSignal.any([controller.signal, external])
   }
 
-  /** 销毁在途的 .part 流并删文件（取消路径）。 */
+  /** 销毁在途的 .part 流并删文件（取消路径；残片与它的元数据一起清掉）。 */
           dropSink()       {
     const sink = this.sink
     this.sink = null
     if (sink === null) return
     try { sink.stream.destroy() } catch { /* 已经坏了 */ }
     try { rmSync(sink.part, { force: true }) } catch { /* 尽力而为 */ }
+    try { rmSync(partMetaFile(sink.part), { force: true }) } catch { /* 尽力而为 */ }
+  }
+
+  /**
+   * 在长操作的等待点之间检查「这一轮还作数吗」。
+   * 已取消 → 抛 AbortError（run() 的 catch 会把它收成 idle，而不是 error）。
+   */
+          ensureActive(gen        )       {
+    if (!this.cancelled && gen === this.generation) return
+    const error = new Error('已取消')
+    error.name = 'AbortError'
+    throw error
   }
 
           fail(error         )       {

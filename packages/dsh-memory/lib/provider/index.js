@@ -178,6 +178,10 @@ function isInside(parent        , child        )          {
                                                                              
                                
                        
+                                          
+                          
+                                                   
+                                                     
                                 
                                                                                       
                                
@@ -247,6 +251,8 @@ function isInside(parent        , child        )          {
                            
                                 
                                    
+                                              
+                             
                                                       
                   
                     
@@ -257,6 +263,8 @@ function isInside(parent        , child        )          {
                              
                             
                     
+                       
+                                                              
                              
                             
    
@@ -411,6 +419,19 @@ export function pickSpawnModel(currentFile        , configuredModel             
   return installedModel
 }
 
+const VECTOR_OVERRIDE_FILE = 'vector.json'
+
+/** 读取面板持久化的 provider 覆盖；文件不存在 / 内容非法都返回 null。 */
+function readProviderOverride(storeDir        )                               {
+  try {
+    const raw = JSON.parse(readFileSync(join(storeDir, VECTOR_OVERRIDE_FILE), 'utf8'))                          
+    const kind = raw.provider
+    return kind === 'local' || kind === 'openai' || kind === 'ollama' || kind === 'off' ? kind : null
+  } catch {
+    return null
+  }
+}
+
 /**
  * endpoint 没配 provider 时按地址推断后端类型：
  *  - 未配置 / 回环地址（127.0.0.1、localhost、::1）→ local（插件自己拉 llama-server）
@@ -504,6 +525,7 @@ export function resolveConfig(config                    = {})                 {
       ...(selection.queryPrefix !== undefined ? { queryPrefix: selection.queryPrefix } : {}),
       ...(selection.documentPrefix !== undefined ? { documentPrefix: selection.documentPrefix } : {}),
       provider: v.provider ?? inferProviderKind(v.endpoint),
+      providerExplicit: v.provider !== undefined,
       apiKey: v.apiKey ?? (typeof process.env.DSH_MEMORY_API_KEY === 'string' ? process.env.DSH_MEMORY_API_KEY : ''),
       endpoint: v.endpoint ?? 'http://127.0.0.1:8078/v1/embeddings',
       model: v.model ?? selection.modelName,
@@ -518,6 +540,8 @@ export function resolveConfig(config                    = {})                 {
       backfillMaxChars: v.backfillMaxChars ?? 8_000,
       // BGE CLS baseline noise floor measured ~0.42 on unrelated pairs
       minScore: v.minScore ?? 0.5,
+      modelSha256: v.modelSha256 ?? '',
+      runtimeSha256: v.runtimeSha256,
       // 回填是批量等长内容里最慢的路径：32 条 × 数千 token 在 CPU 上会超时，
       // 整批失败后记录永久留在 pending；小批更容易在预算内完成。
       backfillBatchSize: v.backfillBatchSize ?? 8,
@@ -801,6 +825,10 @@ export class LocalMemoryService                             {
 
   constructor(config                    = {}) {
     this.cfg = resolveConfig(config)
+    // 面板里切换过的 provider 存在 <storeDir>/vector.json；只有配置没显式写
+    // provider 时才让它生效（配置文件永远优先，避免"面板改过就再也改不回来"）。
+    const override = readProviderOverride(this.cfg.storeDir)
+    if (override !== null && !this.cfg.vector.providerExplicit) this.cfg.vector.provider = override
     this.inject = this.loadInjectSettings((config                        ).inject)
     this.names = new ScopeNames(join(this.cfg.storeDir, 'scopes.json'))
     this.meta = new ScopeMetaStore({ root: this.cfg.storeDir })
@@ -828,17 +856,7 @@ export class LocalMemoryService                             {
     if (this.cfg.projectEnabled) eager.push(this.defaultProjectScope)
     if (this.cfg.globalEnabled) eager.push('global')
     for (const scope of eager) this.store.peek(scope)
-    this.embed = createEmbeddingProvider({
-      kind: this.cfg.vector.provider,
-      endpoint: this.cfg.vector.endpoint,
-      model: this.cfg.vector.model,
-      dims: this.cfg.vector.dims,
-      pooling: this.cfg.vector.pooling,
-      apiKey: this.cfg.vector.apiKey,
-      timeoutMs: this.cfg.vector.timeoutMs,
-      writeTimeoutMs: this.cfg.vector.writeTimeoutMs,
-      log: (message) => console.warn(`[dsh-memory-local] ${message}`),
-    })
+    this.embed = this.createEmbed()
     this.startMaintenance()
     this.startEmbedServer()
   }
@@ -1002,6 +1020,61 @@ export class LocalMemoryService                             {
     }
     out.sort((a, b) => b.updatedAt - a.updatedAt)
     return out.slice(0, input.limit ?? 100)
+  }
+
+  /** 按当前配置构造 provider（构造器与运行时切换共用）。 */
+          createEmbed()                    {
+    return createEmbeddingProvider({
+      kind: this.cfg.vector.provider,
+      endpoint: this.cfg.vector.endpoint,
+      model: this.cfg.vector.model,
+      dims: this.cfg.vector.dims,
+      pooling: this.cfg.vector.pooling,
+      apiKey: this.cfg.vector.apiKey,
+      timeoutMs: this.cfg.vector.timeoutMs,
+      writeTimeoutMs: this.cfg.vector.writeTimeoutMs,
+      log: (message) => console.warn(`[dsh-memory-local] ${message}`),
+    })
+  }
+
+  /** 记住面板里选的 provider（配置文件显式写 provider 时它不生效）。 */
+          persistProviderOverride(kind                       )       {
+    try {
+      writeFileSync(join(this.cfg.storeDir, 'vector.json'), `${JSON.stringify({ provider: kind, updatedAt: Date.now() }, null, 2)}\n`, 'utf8')
+    } catch (error) {
+      console.warn(`[dsh-memory-local] 保存 provider 选择失败：${(error         )?.message ?? String(error)}`)
+    }
+  }
+
+  /**
+   * 面板「切换嵌入后端」：local / openai / ollama / off，运行时生效并持久化。
+   *
+   * 只重启 provider 与（仅 local 的）子进程管理器；记忆数据与向量边车不动 ——
+   * model/dims/pooling 没变时向量仍可复用，变了由既有的身份校验自动作废旧向量。
+   */
+  async setEmbeddingProvider(kind                       )                                                                              {
+    const allowed                          = ['local', 'openai', 'ollama', 'off']
+    if (!allowed.includes(kind)) {
+      return { ok: false, provider: this.cfg.vector.provider, message: `未知 provider：${String(kind)}` }
+    }
+    if (kind === this.cfg.vector.provider) {
+      return { ok: true, provider: kind, message: '未变化' }
+    }
+    // 切走之前先停掉本地下游（只有 local 才有子进程）。
+    try { this.embedServer?.stop() } catch { /* best effort */ }
+    this.embedServer = null
+    this.cfg.vector.provider = kind
+    this.embed = this.createEmbed()
+    this.persistProviderOverride(kind)
+    // 切回 local 且已配置 → 重新托管启动；其它 provider 不碰子进程。
+    if (kind === 'local' && this.cfg.vector.enabled && this.cfg.vector.configured) this.startEmbedServer()
+    return {
+      ok: true,
+      provider: kind,
+      message: kind === 'off'
+        ? '已切换到 off：纯词法检索，不联网'
+        : `已切换到 ${kind}；endpoint 需要指向对应服务`,
+    }
   }
 
   /** Own the embedding backend's lifetime: spawn on activation, stop on dispose. */          startEmbedServer()       {
@@ -1397,8 +1470,14 @@ export class LocalMemoryService                             {
     this.installer?.cancel()
     this.installer = new VectorInstaller({
       root: this.cfg.vector.installRoot,
-      model: { file: model.file, ...(model.bytes !== undefined ? { bytes: model.bytes } : {}), ...(model.sources !== undefined ? { sources: model.sources } : {}) },
+      model: {
+        file: model.file,
+        ...(model.bytes !== undefined ? { bytes: model.bytes } : {}),
+        ...(model.sources !== undefined ? { sources: model.sources } : {}),
+        ...(this.cfg.vector.modelSha256 !== '' ? { sha256: this.cfg.vector.modelSha256 } : {}),
+      },
       ...(flavor === 'auto' ? {} : { flavor }),
+      ...(this.cfg.vector.runtimeSha256 !== undefined ? { runtimeSha256: this.cfg.vector.runtimeSha256 } : {}),
       ...(this.cfg.vector.installModelSources && model.sources === undefined ? { modelSources: this.cfg.vector.installModelSources } : {}),
       onProgress: (progress) => {
         if (progress.phase === 'done') this.adoptInstalledBackend()

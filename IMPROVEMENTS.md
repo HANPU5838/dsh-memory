@@ -102,6 +102,28 @@ memory/record-forgotten{ scope, ids }
 
 **测试**：`node --test source/*/test/*.test.ts` → **607 例 / 606 pass / 1 skipped**。
 
+## 一之三、可靠性收尾（2026-11-08 第三批）
+
+| # | 类型 | 改进 | 解决的真实问题 |
+|---|---|---|---|
+| I21 | P1 | **下载断点续传**：`.part.meta` 记录来源/ETag/Last-Modified，同源才发 `Range` + `If-Range`；206 起点匹配→追加，200→从头，416→丢残片，换源不续 | 400MB+ 模型下到一半失败要整包重下，手机流量/弱网代价大 |
+| I22 | P1 | **完整性校验**：声明总长 vs 落地字节；可选 `modelSha256` / `runtimeSha256`（按资产名）；不匹配 → `phase:'error'` + 删残片 | 截断但「长度合法」的 GGUF 会落地，直到 llama-server 加载才报错 |
+| I23 | P1 | **安装后冒烟**：模型就位后跑 `llama-server --version`（Termux 自动 glibc 包装，4s 超时），失败 → error + stderr 尾部，并摘掉 exe 防止被误判「已就绪」 | 装完看着成功、启动才发现缺库/不兼容 |
+| I24 | P1 | **孤儿进程清理**：启动时若 pid 存活 + cmdline 是 llama-server + /health 不通 → SIGTERM，3s 未退升级 SIGKILL；cmdline 不符 / 非 Linux / 读不到 /proc 一律不动 | 插件被 SIGKILL/LMK 强杀后，孤儿 llama-server 继续占 797MB RSS 与端口，新实例 bind 失败 |
+| I25 | P2 | **面板切换嵌入后端**：`POST /provider` + 服务卡片下拉，运行时切换 local/openai/ollama/off 并持久化到 `<storeDir>/vector.json`（配置文件显式写 provider 时优先） | 换后端要改 YAML 重启 |
+| I26 | P2 | **CI**：`.github/workflows/ci.yml`（ubuntu + Node 24），push/PR 到 main 跑 `node --test source/*/test/*.test.ts` | 上游无 CI，回归只能靠手动跑 |
+
+**测试**：`node --test source/*/test/*.test.ts` → **629 例 / 628 pass / 1 skipped**（新增下载续传/校验/冒烟 17、孤儿清理 4、provider 切换 1）。
+
+### 与原「未做项」的对照
+
+- ✅ 模型下载断点续传 + sha256 校验 → I21/I22
+- ✅ 安装后 `--version` 冒烟 → I23
+- ✅ SIGKILL 孤儿进程清理 → I24
+- ✅ CI → I26
+- ✅ 面板展示/切换 provider 与自检 → I25 + 环境自检
+- ⬜ 60s 全量发现（1k→10k 条）的 IO/内存优化仍是已知项（见下文）
+
 ## 二、如何构建与安装
 
 ```bash
@@ -128,9 +150,7 @@ node --test source/*/test/*.test.ts
 
 ## 四、已知但本次未做
 
-1. 安装校验只到「链接可解析」这一步，还没有执行 `llama-server --version` 的冒烟测试（需要子进程包装串起来）。
-2. 模型下载无断点续传、无 sha256 校验。
-3. llama-server 被 SIGKILL 后仍可能留下孤儿进程（自愈只负责重拉，不负责清理旧的）。
-4. 60 秒一次的跨 scope 发现是全量读文件，1k→10k 条规模下 IO/内存会明显变重。
-5. 面板「向量服务」卡片还没有展示 `lastError` / `restarts` / 是否 glibc 包装（后端字段已就绪）。
-6. 上游无 CI；本仓库同样没有（测试靠手动跑）。
+1. 60 秒一次的跨 scope 发现是全量读文件，1k→10k 条规模下 IO/内存会明显变重。
+2. 旧压缩包不重复校验 sha256（只校验本次真正下载的文件）。
+3. 冒烟探测是阻塞的 spawnSync（≤4s，用户点按钮才会触发），阻塞期间不响应取消。
+4. 面板尚未展示「自愈重试次数」`restarts`（`lastError` 已在自检里显示）。

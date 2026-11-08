@@ -14,11 +14,13 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { deflateRawSync, gzipSync, inflateRawSync } from 'node:zlib'
 import {
+  DEFAULT_PROBE_TIMEOUT_MS,
   MODEL_FILE_NAME,
   MODEL_SIZE_BYTES,
   VectorInstaller,
@@ -28,11 +30,16 @@ import {
   extractArchiveReport,
   freeDiskBytes,
   installPaths,
+  normalizeSha256,
+  parseContentRange,
   pickRuntimeAsset,
+  probeVersionDefault,
   runtimeAssetPattern,
   runtimeDownloadSources,
   verifyRuntimeLinks,
   type InstallProgress,
+  type VersionProbe,
+  type VersionProbeResult,
 } from '../src/embed-install.ts'
 
 // ───────────────────────────── 小工具 ─────────────────────────────
@@ -149,17 +156,35 @@ function buildTar(specs: readonly TarSpec[]): Buffer {
   return Buffer.concat(blocks)
 }
 
-/** 假 Response：分块给完就关流。 */
-function streamResponse(chunks: readonly Uint8Array[], totalBytes: number | null, status = 200): Response {
+/** 假 Response：分块给完就关流。extraHeaders 给 206/续传用例带 Content-Range 等头。 */
+function streamResponse(
+  chunks: readonly Uint8Array[],
+  totalBytes: number | null,
+  status = 200,
+  extraHeaders: Record<string, string> = {},
+): Response {
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       for (const chunk of chunks) controller.enqueue(chunk)
       controller.close()
     },
   })
-  const headers: Record<string, string> = {}
+  const headers: Record<string, string> = { ...extraHeaders }
   if (totalBytes !== null) headers['content-length'] = String(totalBytes)
   return new Response(stream, { status, headers })
+}
+
+/**
+ * 冒烟探测的假实现。**所有走完整流程的用例都必须注入它**：解压出来的
+ * `llama-server` 是测试里造的假二进制（文本），真的 spawnSync 只会 EACCES。
+ */
+function fakeProbe(): VersionProbe {
+  return () => ({ ok: true, status: 0, version: 'version: 9999 (fake)', via: '测试注入' })
+}
+
+/** 计算 Buffer 的 sha256 十六进制（给完整性用例生成期望值，不调被测代码）。 */
+function sha256Hex(data: Buffer): string {
+  return createHash('sha256').update(data).digest('hex')
 }
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -790,7 +815,7 @@ test('完整流程：查发行版 → 下运行时 → 解压 → 下模型 → 
       return new Response('unexpected', { status: 404 })
     })
     const reports: InstallProgress[] = []
-    const installer = new VectorInstaller({ root, fetchImpl, onProgress: (p) => reports.push(p) })
+    const installer = new VectorInstaller({ root, fetchImpl, onProgress: (p) => reports.push(p), probeVersion: fakeProbe() })
 
     installer.start()
     installer.start() // 幂等：第二次必须被忽略（否则会下两遍）
@@ -873,7 +898,7 @@ test('回归 issue #4：cudart 资产排在主包前面时，CUDA 安装仍下 l
       if (url.includes(MODEL_FILE_NAME)) return streamResponse([modelBytes], modelBytes.length)
       return new Response('unexpected', { status: 404 })
     })
-    const installer = new VectorInstaller({ root, fetchImpl, flavor: 'cuda' })
+    const installer = new VectorInstaller({ root, fetchImpl, flavor: 'cuda', probeVersion: fakeProbe() })
 
     installer.start()
     await waitFor(() => installer.progress.phase === 'done' || installer.progress.phase === 'error', 'CUDA 安装结束')
@@ -915,7 +940,7 @@ test('运行时通道回退：直链被重置 → 改用 GitHub API 资产端点
       return new Response('unexpected', { status: 404 })
     })
     const reports: InstallProgress[] = []
-    const installer = new VectorInstaller({ root, fetchImpl, onProgress: (p) => reports.push(p) })
+    const installer = new VectorInstaller({ root, fetchImpl, onProgress: (p) => reports.push(p), probeVersion: fakeProbe() })
     installer.start()
     await waitFor(() => installer.progress.phase === 'done' || installer.progress.phase === 'error', '安装结束')
 
@@ -984,7 +1009,7 @@ test('完整流程：响应没有 content-length 时 totalBytes 为 null', async
       return streamResponse([modelBytes], null)
     })
     const reports: InstallProgress[] = []
-    const installer = new VectorInstaller({ root, fetchImpl, onProgress: (p) => reports.push(p) })
+    const installer = new VectorInstaller({ root, fetchImpl, onProgress: (p) => reports.push(p), probeVersion: fakeProbe() })
     installer.start()
     await waitFor(() => installer.progress.phase === 'done' || installer.progress.phase === 'error', '安装结束')
 
@@ -1114,7 +1139,7 @@ test('模型多源回退：前一个源失败就换下一个，直到成功', as
       return streamResponse([modelBytes], modelBytes.length)
     })
     const reports: InstallProgress[] = []
-    const installer = new VectorInstaller({ root, fetchImpl, modelSources: sources, onProgress: (p) => reports.push(p) })
+    const installer = new VectorInstaller({ root, fetchImpl, modelSources: sources, onProgress: (p) => reports.push(p), probeVersion: fakeProbe() })
     installer.start()
     await waitFor(() => installer.progress.phase === 'done' || installer.progress.phase === 'error', '安装结束')
 
@@ -1280,6 +1305,622 @@ test('磁盘预检：读不到可用空间时跳过预检，不拦死安装', as
 
     assert.ok(calls > 0, 'statfs 读不到空间时必须放行，而不是把安装拦死')
     assert.match(installer.progress.message, /GitHub API 限流/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// ─────────────── 断点续传 / 完整性校验 / 安装后冒烟 ───────────────
+
+/** 假运行时的下载直链（续传用例里被反复访问的就是它）。 */
+const RUNTIME_URL = 'https://example.invalid/runtime'
+
+/** 预置「上次进程下到一半」的现场：.part 有前 split 字节，旁边有 .part.meta。 */
+function seedPart(
+  archivePath: string,
+  bytes: Buffer,
+  split: number,
+  url: string,
+  etag: string | null = '"etag-v1"',
+): string {
+  const part = `${archivePath}.part`
+  mkdirSync(dirname(archivePath), { recursive: true })
+  writeFileSync(part, bytes.subarray(0, split))
+  writeFileSync(`${part}.meta`, JSON.stringify({ url, bytes: split, etag, lastModified: null }))
+  return part
+}
+
+interface FlowOptions {
+  runtimeName: string
+  /** 运行时那次请求的响应（续传用例在这里断言请求头、造 206/200/416）。 */
+  runtimeResponse: (headers: Record<string, string>) => Response
+  modelBytes: Buffer
+  /** 模型响应覆盖（完整性用例要造「声明长度和实际不符」）。 */
+  modelResponse?: () => Response
+  /** 每次请求的回调（断言 Range/If-Range 用）。 */
+  onRequest?: (url: string, headers: Record<string, string>) => void
+}
+
+/** 完整流程的假 fetch：打开发行版接口、下运行时、下模型，全部离线。 */
+function flowFetch(opts: FlowOptions): typeof fetch {
+  return fakeFetch((url, init) => {
+    const headers = (init?.headers ?? {}) as Record<string, string>
+    opts.onRequest?.(url, headers)
+    if (url.includes('api.github.com')) {
+      return jsonResponse([{ assets: [{ name: opts.runtimeName, browser_download_url: RUNTIME_URL }] }])
+    }
+    if (url === RUNTIME_URL) return opts.runtimeResponse(headers)
+    if (url.includes(MODEL_FILE_NAME)) {
+      return opts.modelResponse === undefined
+        ? streamResponse([opts.modelBytes], opts.modelBytes.length)
+        : opts.modelResponse()
+    }
+    return new Response('unexpected', { status: 404 })
+  })
+}
+
+function waitDone(installer: VectorInstaller, what: string): Promise<void> {
+  return waitFor(() => installer.progress.phase === 'done' || installer.progress.phase === 'error', what)
+}
+
+test('parseContentRange：解析 bytes 区间、total=* 与各种坏格式', () => {
+  assert.deepEqual(parseContentRange('bytes 100-199/2000'), { start: 100, end: 199, total: 2000 })
+  assert.deepEqual(parseContentRange(' bytes 0-0/* '), { start: 0, end: 0, total: null })
+  assert.equal(parseContentRange(null), null)
+  assert.equal(parseContentRange(''), null)
+  assert.equal(parseContentRange('items 1-2/3'), null, '单位必须是 bytes')
+  assert.equal(parseContentRange('bytes 100-/2000'), null)
+  assert.equal(parseContentRange('bytes 200-100/2000'), null, 'end < start 不合法')
+  assert.equal(parseContentRange('bytes 0-9/5'), null, 'total 小于区间上界不合法')
+  assert.equal(parseContentRange('bytes 0-9/abc'), null)
+})
+
+test('normalizeSha256：大小写不敏感、允许 sha256: 前缀', () => {
+  const hex = 'a'.repeat(64)
+  assert.equal(normalizeSha256(hex), hex)
+  assert.equal(normalizeSha256(`  SHA256:${hex.toUpperCase()} `), hex)
+})
+
+test('probeVersionDefault：真跑一次 --version；跑不起来的可执行文件给出原因', () => {
+  // 拿 node 自己当「一定能跑起来的 exe」：默认实现必须真的 spawn 成功。
+  const ok = probeVersionDefault(process.execPath)
+  assert.equal(ok.ok, true, ok.stderr ?? '')
+  assert.equal(ok.status, 0)
+  assert.match(ok.version ?? '', /v\d+/, `摘出的版本行：${String(ok.version)}`)
+
+  const missing = probeVersionDefault(join(tmpdir(), `dsh-probe-missing-${process.pid}`))
+  assert.equal(missing.ok, false)
+  assert.match(missing.stderr ?? '', /无法执行|ENOENT/i)
+  assert.ok(DEFAULT_PROBE_TIMEOUT_MS >= 3000 && DEFAULT_PROBE_TIMEOUT_MS <= 5000, '超时取 3-5 秒')
+})
+
+test('断点续传：206 + Content-Range 起点匹配 → 追加写，装完无 .part/.meta 残留', async (t) => {
+  if (!hostSupported()) {
+    t.skip(`宿主平台 ${process.platform}-${process.arch} 不在支持列表，跳过`)
+    return
+  }
+  const root = tempDir('dsh-install-resume-')
+  try {
+    const paths = installPaths(root)
+    const runtime = buildRuntimeFixture()
+    const split = Math.floor(runtime.bytes.length / 3)
+    const archivePath = join(paths.dir, runtime.name)
+    const part = seedPart(archivePath, runtime.bytes, split, RUNTIME_URL)
+    const rest = runtime.bytes.subarray(split)
+    const modelBytes = Buffer.alloc(32 * 1024, 4)
+    const seen: Record<string, string> = {}
+    const fetchImpl = flowFetch({
+      runtimeName: runtime.name,
+      runtimeResponse: (headers) => {
+        seen['range'] = headers.range ?? ''
+        seen['if-range'] = headers['if-range'] ?? ''
+        // 服务端认可续传：只给剩下的字节 + 完整的 Content-Range
+        return streamResponse([rest], rest.length, 206, {
+          'content-range': `bytes ${split}-${runtime.bytes.length - 1}/${runtime.bytes.length}`,
+        })
+      },
+      modelBytes,
+      onRequest: (url, headers) => {
+        if (url !== RUNTIME_URL) return
+        seen['range'] = headers.range ?? ''
+        seen['if-range'] = headers['if-range'] ?? ''
+      },
+    })
+    const reports: InstallProgress[] = []
+    const installer = new VectorInstaller({
+      root,
+      fetchImpl,
+      onProgress: (p) => reports.push(p),
+      probeVersion: fakeProbe(),
+    })
+    installer.start()
+    await waitDone(installer, '续传安装结束')
+
+    assert.equal(installer.progress.phase, 'done', installer.progress.error ?? installer.progress.message)
+    assert.equal(seen['range'], `bytes=${split}-`, '必须按已下载字节发 Range')
+    assert.equal(seen['if-range'], '"etag-v1"', '带着 .meta 里的校验器发 If-Range')
+    assert.deepEqual(readFileSync(archivePath), runtime.bytes, '追加写后压缩包逐字节等于原文件')
+    assert.equal(existsSync(part), false, '.part 收尾清理')
+    assert.equal(existsSync(`${part}.meta`), false, '.part.meta 收尾清理')
+    // 进度要把续传的那一截算进去，否则面板百分比会从 0 再跳一次
+    const runtimeReports = reports.filter((p) => p.phase === 'downloading-runtime' && p.totalBytes !== null)
+    assert.equal(runtimeReports.at(-1)?.receivedBytes, runtime.bytes.length)
+    assert.equal(runtimeReports.at(-1)?.totalBytes, runtime.bytes.length)
+    assert.ok(reports.some((p) => p.phase === 'verifying'), '走完冒烟阶段')
+    assert.equal(detectInstalled(root)?.model, paths.model)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('断点续传：服务端不支持 Range 回 200 → 从头覆盖，不会拼出重复内容', async (t) => {
+  if (!hostSupported()) {
+    t.skip(`宿主平台 ${process.platform}-${process.arch} 不在支持列表，跳过`)
+    return
+  }
+  const root = tempDir('dsh-install-resume200-')
+  try {
+    const paths = installPaths(root)
+    const runtime = buildRuntimeFixture()
+    const split = Math.floor(runtime.bytes.length / 2)
+    const archivePath = join(paths.dir, runtime.name)
+    const part = seedPart(archivePath, runtime.bytes, split, RUNTIME_URL)
+    let range: string | null = null
+    const fetchImpl = flowFetch({
+      runtimeName: runtime.name,
+      runtimeResponse: () => streamResponse([runtime.bytes], runtime.bytes.length), // 200 = 忽略 Range
+      modelBytes: Buffer.alloc(16 * 1024, 4),
+      onRequest: (url, headers) => {
+        if (url === RUNTIME_URL) range = headers.range ?? null
+      },
+    })
+    const installer = new VectorInstaller({ root, fetchImpl, probeVersion: fakeProbe() })
+    installer.start()
+    await waitDone(installer, '安装结束')
+
+    assert.equal(installer.progress.phase, 'done', installer.progress.error ?? installer.progress.message)
+    assert.equal(range, `bytes=${split}-`, '仍然会尝试续传（服务端自己决定认不认）')
+    assert.deepEqual(readFileSync(archivePath), runtime.bytes, '回 200 必须从头覆盖，不能把整份接在残片后面')
+    assert.equal(existsSync(part), false)
+    assert.equal(existsSync(`${part}.meta`), false)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('换源不续传：.part 来自另一个 URL 时从头下载（不同镜像可能是不同文件）', async (t) => {
+  if (!hostSupported()) {
+    t.skip(`宿主平台 ${process.platform}-${process.arch} 不在支持列表，跳过`)
+    return
+  }
+  const root = tempDir('dsh-install-resume-src-')
+  try {
+    const paths = installPaths(root)
+    const runtime = buildRuntimeFixture()
+    const archivePath = join(paths.dir, runtime.name)
+    // 残片来自别的镜像（内容其实一样，但按规矩不能拼）
+    const part = seedPart(archivePath, runtime.bytes, 10, 'https://other.invalid/old-runtime')
+    let range: string | null = 'unset'
+    const fetchImpl = flowFetch({
+      runtimeName: runtime.name,
+      runtimeResponse: () => streamResponse([runtime.bytes], runtime.bytes.length),
+      modelBytes: Buffer.alloc(8 * 1024, 4),
+      onRequest: (url, headers) => {
+        if (url === RUNTIME_URL) range = headers.range ?? null
+      },
+    })
+    const installer = new VectorInstaller({ root, fetchImpl, probeVersion: fakeProbe() })
+    installer.start()
+    await waitDone(installer, '安装结束')
+
+    assert.equal(installer.progress.phase, 'done', installer.progress.error ?? installer.progress.message)
+    assert.equal(range, null, '换源时不能带 Range')
+    assert.deepEqual(readFileSync(archivePath), runtime.bytes)
+    assert.equal(existsSync(part), false)
+    assert.equal(existsSync(`${part}.meta`), false)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('断点续传：Content-Range 起点对不上 → error 且删残片，不拼出坏文件', async (t) => {
+  if (!hostSupported()) {
+    t.skip(`宿主平台 ${process.platform}-${process.arch} 不在支持列表，跳过`)
+    return
+  }
+  const root = tempDir('dsh-install-resume-offset-')
+  try {
+    const paths = installPaths(root)
+    const runtime = buildRuntimeFixture()
+    const split = Math.floor(runtime.bytes.length / 3)
+    const archivePath = join(paths.dir, runtime.name)
+    const part = seedPart(archivePath, runtime.bytes, split, RUNTIME_URL)
+    const fetchImpl = flowFetch({
+      runtimeName: runtime.name,
+      // 起点故意错开一位（真发生过：CDN 忽略 Range 又硬编 206）
+      runtimeResponse: () => streamResponse([runtime.bytes], runtime.bytes.length, 206, {
+        'content-range': `bytes ${split - 1}-${runtime.bytes.length - 1}/${runtime.bytes.length}`,
+      }),
+      modelBytes: Buffer.alloc(1024, 4),
+    })
+    const installer = new VectorInstaller({ root, fetchImpl, probeVersion: fakeProbe() })
+    installer.start()
+    await waitDone(installer, '进入 error')
+
+    assert.equal(installer.progress.phase, 'error')
+    assert.match(installer.progress.message, /续传起点不一致/)
+    assert.equal(existsSync(part), false, '起点对不上说明残片不可信，必须删掉')
+    assert.equal(existsSync(`${part}.meta`), false)
+    assert.equal(existsSync(archivePath), false, '没有把坏文件落到正式文件名上')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('断点续传：HTTP 416（残片比远端还长）→ 丢弃残片从头下，装完', async (t) => {
+  if (!hostSupported()) {
+    t.skip(`宿主平台 ${process.platform}-${process.arch} 不在支持列表，跳过`)
+    return
+  }
+  const root = tempDir('dsh-install-resume416-')
+  try {
+    const paths = installPaths(root)
+    const runtime = buildRuntimeFixture()
+    const archivePath = join(paths.dir, runtime.name)
+    // 残片比远端总长还大：典型的「远端换了更小的文件」
+    const part = seedPart(archivePath, runtime.bytes, runtime.bytes.length + 100, RUNTIME_URL)
+    writeFileSync(part, Buffer.concat([runtime.bytes, Buffer.alloc(100, 1)]))
+    let attempts = 0
+    const fetchImpl = flowFetch({
+      runtimeName: runtime.name,
+      runtimeResponse: () => {
+        attempts++
+        if (attempts === 1) return new Response(null, { status: 416, statusText: 'Range Not Satisfiable' })
+        return streamResponse([runtime.bytes], runtime.bytes.length)
+      },
+      modelBytes: Buffer.alloc(4 * 1024, 4),
+    })
+    const reports: InstallProgress[] = []
+    const installer = new VectorInstaller({
+      root,
+      fetchImpl,
+      onProgress: (p) => reports.push(p),
+      probeVersion: fakeProbe(),
+    })
+    installer.start()
+    await waitDone(installer, '安装结束')
+
+    assert.equal(installer.progress.phase, 'done', installer.progress.error ?? installer.progress.message)
+    assert.equal(attempts, 2, '416 之后不带 Range 重试一次')
+    assert.ok(reports.some((p) => /续传被拒（HTTP 416）/.test(p.message)), '给出丢弃残片的提示')
+    assert.deepEqual(readFileSync(archivePath), runtime.bytes)
+    assert.equal(existsSync(part), false)
+    assert.equal(existsSync(`${part}.meta`), false)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('完整性：落地字节与声明总长不符 → error 且删 .part/.meta，不留半成品', async (t) => {
+  if (!hostSupported()) {
+    t.skip(`宿主平台 ${process.platform}-${process.arch} 不在支持列表，跳过`)
+    return
+  }
+  const root = tempDir('dsh-install-size-')
+  try {
+    const paths = installPaths(root)
+    const runtime = buildRuntimeFixture()
+    const modelBytes = Buffer.alloc(64 * 1024, 3)
+    const declared = modelBytes.length + 1024 // 声明比实际多 1KB（模拟断流）
+    const fetchImpl = flowFetch({
+      runtimeName: runtime.name,
+      runtimeResponse: () => streamResponse([runtime.bytes], runtime.bytes.length),
+      modelBytes,
+      modelResponse: () => streamResponse([modelBytes.subarray(0, modelBytes.length - 512)], declared),
+    })
+    const installer = new VectorInstaller({ root, fetchImpl, probeVersion: fakeProbe() })
+    installer.start()
+    await waitDone(installer, '进入 error')
+
+    assert.equal(installer.progress.phase, 'error')
+    assert.match(installer.progress.message, /不完整/)
+    assert.match(installer.progress.message, new RegExp(`声明 ${declared} 字节，实际落地 ${modelBytes.length - 512} 字节`))
+    assert.equal(existsSync(paths.model), false, '半成品不落到正式文件名')
+    assert.equal(existsSync(`${paths.model}.part`), false, '.part 被删')
+    assert.equal(existsSync(`${paths.model}.part.meta`), false, '.part.meta 被删')
+    assert.equal(detectInstalled(root), null, '不会被误判成已安装')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('完整性：响应带 Content-Encoding 时不拿声明长度当校验基准（fetch 会解码）', async (t) => {
+  if (!hostSupported()) {
+    t.skip(`宿主平台 ${process.platform}-${process.arch} 不在支持列表，跳过`)
+    return
+  }
+  const root = tempDir('dsh-install-encoded-')
+  try {
+    const paths = installPaths(root)
+    const runtime = buildRuntimeFixture()
+    const modelBytes = Buffer.alloc(16 * 1024, 7)
+    const fetchImpl = flowFetch({
+      runtimeName: runtime.name,
+      runtimeResponse: () => streamResponse([runtime.bytes], runtime.bytes.length),
+      modelBytes,
+      // content-length 是**压缩后**的长度（多 500 字节），body 是 fetch 解码后的
+      // 明文。照 content-length 校验落地字节就会把一次正常下载误报成「不完整」。
+      modelResponse: () => streamResponse([modelBytes], modelBytes.length + 500, 200, { 'content-encoding': 'gzip' }),
+    })
+    const installer = new VectorInstaller({ root, fetchImpl, probeVersion: fakeProbe() })
+    installer.start()
+    await waitDone(installer, '安装结束')
+
+    assert.equal(installer.progress.phase, 'done', installer.progress.error ?? installer.progress.message)
+    assert.equal(statSync(paths.model).size, modelBytes.length, '内容按解码后的字节落地')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('完整性：配置了 sha256 就必须匹配 —— 不匹配 error 并删残片，匹配 → done', async (t) => {
+  if (!hostSupported()) {
+    t.skip(`宿主平台 ${process.platform}-${process.arch} 不在支持列表，跳过`)
+    return
+  }
+  const ok = Buffer.alloc(32 * 1024, 8)
+  const right = sha256Hex(ok)
+  const roots: string[] = []
+  try {
+    // 1) 哈希不对：镜像被换/被篡改
+    const badRoot = tempDir('dsh-install-sha-bad-')
+    roots.push(badRoot)
+    const runtime = buildRuntimeFixture()
+    const badPaths = installPaths(badRoot)
+    const bad = new VectorInstaller({
+      root: badRoot,
+      fetchImpl: flowFetch({
+        runtimeName: runtime.name,
+        runtimeResponse: () => streamResponse([runtime.bytes], runtime.bytes.length),
+        modelBytes: ok,
+      }),
+      model: { file: MODEL_FILE_NAME, bytes: ok.length, sha256: 'f'.repeat(64) },
+      probeVersion: fakeProbe(),
+    })
+    bad.start()
+    await waitDone(bad, '进入 error')
+    assert.equal(bad.progress.phase, 'error')
+    assert.match(bad.progress.message, /sha256 不匹配/)
+    assert.match(bad.progress.message, /期望 f{64}/, 'message 里带期望值')
+    assert.equal(existsSync(`${badPaths.model}.part`), false, '不匹配的残片必须删')
+    assert.equal(existsSync(`${badPaths.model}.part.meta`), false)
+    assert.equal(existsSync(badPaths.model), false)
+
+    // 2) 哈希对上（允许 sha256: 前缀 + 大写）：正常装完
+    const goodRoot = tempDir('dsh-install-sha-ok-')
+    roots.push(goodRoot)
+    const goodPaths = installPaths(goodRoot)
+    const good = new VectorInstaller({
+      root: goodRoot,
+      fetchImpl: flowFetch({
+        runtimeName: runtime.name,
+        runtimeResponse: () => streamResponse([runtime.bytes], runtime.bytes.length),
+        modelBytes: ok,
+      }),
+      model: { file: MODEL_FILE_NAME, bytes: ok.length, sha256: `sha256:${right.toUpperCase()}` },
+      probeVersion: fakeProbe(),
+    })
+    good.start()
+    await waitDone(good, '安装结束')
+    assert.equal(good.progress.phase, 'done', good.progress.error ?? good.progress.message)
+    assert.deepEqual(readFileSync(goodPaths.model), ok, '校验通过后模型原样落地')
+    assert.equal(existsSync(`${goodPaths.model}.part.meta`), false)
+  } finally {
+    for (const root of roots) rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('完整性：运行时资产按名字配 sha256 —— 主包匹配 → done', async (t) => {
+  if (!hostSupported()) {
+    t.skip(`宿主平台 ${process.platform}-${process.arch} 不在支持列表，跳过`)
+    return
+  }
+  const root = tempDir('dsh-install-runtime-sha-')
+  try {
+    const paths = installPaths(root)
+    const runtime = buildRuntimeFixture()
+    const installer = new VectorInstaller({
+      root,
+      fetchImpl: flowFetch({
+        runtimeName: runtime.name,
+        runtimeResponse: () => streamResponse([runtime.bytes], runtime.bytes.length),
+        modelBytes: Buffer.alloc(8 * 1024, 2),
+      }),
+      runtimeSha256: { [runtime.name]: sha256Hex(runtime.bytes) },
+      probeVersion: fakeProbe(),
+    })
+    installer.start()
+    await waitDone(installer, '安装结束')
+    assert.equal(installer.progress.phase, 'done', installer.progress.error ?? installer.progress.message)
+    assert.ok(existsSync(paths.exe))
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('完整性：运行时 sha256 不符 → error，且不会去解压/下模型', async (t) => {
+  if (!hostSupported()) {
+    t.skip(`宿主平台 ${process.platform}-${process.arch} 不在支持列表，跳过`)
+    return
+  }
+  const root = tempDir('dsh-install-runtime-sha-bad-')
+  try {
+    const paths = installPaths(root)
+    const runtime = buildRuntimeFixture()
+    let modelRequested = false
+    const fetchImpl = flowFetch({
+      runtimeName: runtime.name,
+      runtimeResponse: () => streamResponse([runtime.bytes], runtime.bytes.length),
+      modelBytes: Buffer.alloc(1024, 2),
+      onRequest: (url) => {
+        if (url.includes(MODEL_FILE_NAME)) modelRequested = true
+      },
+    })
+    const installer = new VectorInstaller({
+      root,
+      fetchImpl,
+      runtimeSha256: '0'.repeat(64),
+      probeVersion: fakeProbe(),
+    })
+    installer.start()
+    await waitDone(installer, '进入 error')
+
+    assert.equal(installer.progress.phase, 'error')
+    assert.match(installer.progress.message, /sha256 不匹配/)
+    assert.match(installer.progress.message, /llama\.cpp 运行时校验失败/, 'message 要写明是哪一件下载物')
+    assert.equal(existsSync(join(paths.dir, runtime.name)), false, '校验失败的压缩包不落到正式文件名')
+    assert.equal(existsSync(join(paths.dir, `${runtime.name}.part`)), false)
+    assert.equal(modelRequested, false, '运行时都没过校验，不该继续下模型')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('安装后冒烟：成功后 done，并把版本行写进日志', async (t) => {
+  if (!hostSupported()) {
+    t.skip(`宿主平台 ${process.platform}-${process.arch} 不在支持列表，跳过`)
+    return
+  }
+  const root = tempDir('dsh-install-smoke-ok-')
+  try {
+    const paths = installPaths(root)
+    const runtime = buildRuntimeFixture()
+    const probed: string[] = []
+    const reports: InstallProgress[] = []
+    const installer = new VectorInstaller({
+      root,
+      fetchImpl: flowFetch({
+        runtimeName: runtime.name,
+        runtimeResponse: () => streamResponse([runtime.bytes], runtime.bytes.length),
+        modelBytes: Buffer.alloc(8 * 1024, 6),
+      }),
+      onProgress: (p) => reports.push(p),
+      probeVersion: (exe) => {
+        probed.push(exe)
+        return { ok: true, status: 0, version: 'version: 9999 (abcdef0)', via: '测试注入' }
+      },
+    })
+    installer.start()
+    await waitDone(installer, '安装结束')
+
+    assert.equal(installer.progress.phase, 'done', installer.progress.error ?? installer.progress.message)
+    assert.deepEqual(probed, [paths.exe], '冒烟探测的就是装好的 llama-server')
+    assert.ok(reports.some((p) => p.phase === 'verifying'), '上报 verifying 阶段')
+    assert.ok(reports.some((p) => /冒烟测试通过：version: 9999/.test(p.message)), '完成日志里带版本')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('安装后冒烟：失败 → error 带 stderr 尾部，并摘掉 exe 免得被当成已安装', async (t) => {
+  if (!hostSupported()) {
+    t.skip(`宿主平台 ${process.platform}-${process.arch} 不在支持列表，跳过`)
+    return
+  }
+  const root = tempDir('dsh-install-smoke-bad-')
+  try {
+    const paths = installPaths(root)
+    const runtime = buildRuntimeFixture()
+    const stderr = [
+      'llama-server: error while loading shared libraries: libllama-common.so.0: cannot open shared object file: No such file or directory',
+      'second line that should be kept in the tail',
+    ].join('\n')
+    const installer = new VectorInstaller({
+      root,
+      fetchImpl: flowFetch({
+        runtimeName: runtime.name,
+        runtimeResponse: () => streamResponse([runtime.bytes], runtime.bytes.length),
+        modelBytes: Buffer.alloc(8 * 1024, 6),
+      }),
+      probeVersion: (): VersionProbeResult => ({ ok: false, status: 127, stderr, via: '测试注入' }),
+    })
+    installer.start()
+    await waitDone(installer, '进入 error')
+
+    assert.equal(installer.progress.phase, 'error', '冒烟失败绝不能报 done')
+    assert.equal(installer.progress.error, installer.progress.message)
+    assert.match(installer.progress.message, /冒烟测试失败/)
+    assert.match(installer.progress.message, /退出码 127/)
+    assert.match(installer.progress.message, /stderr 尾部/)
+    assert.match(installer.progress.message, /libllama-common\.so\.0/, 'stderr 尾部要原样带出来')
+    assert.match(installer.progress.message, /已移除 llama-server/, '说明为什么会摘掉可执行文件')
+    assert.equal(existsSync(paths.exe), false, 'exe 被摘掉：否则下次 start() 会直接报「已就绪」')
+    assert.equal(detectInstalled(root), null, 'detectInstalled 不再认为装好了（重试会重新解压+冒烟）')
+    assert.equal(existsSync(paths.model), true, '模型没被牵连删除（几百 MB 别白下）')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('安装后冒烟：probeVersion 返回 null = 跳过探测，仍然 done', async (t) => {
+  if (!hostSupported()) {
+    t.skip(`宿主平台 ${process.platform}-${process.arch} 不在支持列表，跳过`)
+    return
+  }
+  const root = tempDir('dsh-install-smoke-skip-')
+  try {
+    const runtime = buildRuntimeFixture()
+    const reports: InstallProgress[] = []
+    const installer = new VectorInstaller({
+      root,
+      fetchImpl: flowFetch({
+        runtimeName: runtime.name,
+        runtimeResponse: () => streamResponse([runtime.bytes], runtime.bytes.length),
+        modelBytes: Buffer.alloc(4 * 1024, 6),
+      }),
+      onProgress: (p) => reports.push(p),
+      probeVersion: () => null,
+    })
+    installer.start()
+    await waitDone(installer, '安装结束')
+    assert.equal(installer.progress.phase, 'done', installer.progress.error ?? installer.progress.message)
+    assert.ok(reports.some((p) => /冒烟测试：已跳过/.test(p.message)))
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('cancel：在途下载被中止时 .part 与 .part.meta 一起清掉', async (t) => {
+  if (!hostSupported()) {
+    t.skip(`宿主平台 ${process.platform}-${process.arch} 不在支持列表，跳过`)
+    return
+  }
+  const root = tempDir('dsh-install-cancel-meta-')
+  try {
+    const paths = installPaths(root)
+    const runtime = buildRuntimeFixture()
+    const fetchImpl = fakeFetch((url, init) => {
+      if (url.includes('api.github.com')) {
+        return jsonResponse([{ assets: [{ name: runtime.name, browser_download_url: RUNTIME_URL }] }])
+      }
+      return stallResponse(init?.signal, Buffer.alloc(16 * 1024, 9), 8 * 1024 * 1024)
+    })
+    const reports: InstallProgress[] = []
+    const installer = new VectorInstaller({
+      root,
+      fetchImpl,
+      onProgress: (p) => reports.push(p),
+      probeVersion: fakeProbe(),
+    })
+    installer.start()
+    const part = `${join(paths.dir, runtime.name)}.part`
+    await waitFor(() => existsSync(`${part}.meta`), '.part.meta 被创建')
+    await waitFor(() => reports.some((p) => p.phase === 'downloading-runtime' && p.receivedBytes > 0), '收到第一块')
+
+    installer.cancel()
+    assert.equal(installer.progress.phase, 'idle')
+    assert.equal(existsSync(part), false, '.part 被清理')
+    assert.equal(existsSync(`${part}.meta`), false, '.part.meta 也一起清理（不留孤儿文件）')
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

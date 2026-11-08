@@ -59,3 +59,48 @@ test('非 local provider 不创建后端管理器；selfCheck 结构稳定', asy
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('运行时切换 provider：立即生效、持久化，且显式配置优先', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-provider-switch-'))
+  try {
+    const svc = new LocalMemoryService({
+      storeDir: dir,
+      retrieval: { vector: { enabled: true, provider: 'off', endpoint: 'http://127.0.0.1:9/v1/embeddings' } },
+    })
+    try {
+      const bad = await svc.setEmbeddingProvider('nope' as never)
+      assert.equal(bad.ok, false, '未知 provider 要被拒绝')
+
+      const switched = await svc.setEmbeddingProvider('ollama')
+      assert.equal(switched.ok, true)
+      assert.equal(switched.provider, 'ollama')
+      assert.equal((await svc.embedServerStatus()).provider, 'ollama', '状态立即反映新 provider')
+    } finally {
+      svc.dispose?.()
+    }
+
+    // 重新构造（配置里仍未显式写 provider）→ 使用持久化的选择
+    const reopened = new LocalMemoryService({
+      storeDir: dir,
+      retrieval: { vector: { enabled: true, provider: 'off', endpoint: 'http://127.0.0.1:9/v1/embeddings' } },
+    })
+    try {
+      assert.equal((await reopened.embedServerStatus()).provider, 'off', '显式配置永远优先于面板覆盖')
+    } finally {
+      reopened.dispose?.()
+    }
+
+    // 配置里不写 provider → 覆盖生效
+    const viaOverride = new LocalMemoryService({
+      storeDir: dir,
+      retrieval: { vector: { enabled: true, endpoint: 'https://example.com/v1/embeddings' } },
+    })
+    try {
+      assert.equal((await viaOverride.embedServerStatus()).provider, 'ollama', '无显式配置时采用持久化选择')
+    } finally {
+      viaOverride.dispose?.()
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

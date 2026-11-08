@@ -1,0 +1,41 @@
+# 最小 CI：不构建，直接跑源码测试。
+#
+# 为什么不需要构建步骤：所有测试都用 Node 内置的 TypeScript 类型擦除直接跑
+# `source/**/test/*.test.ts`，而 packages/ 里的产物只影响插件安装、不影响测试。
+# 这样 CI 反馈最快，也避免「CI 跑的是构建产物、本地跑的是源码」这种双份真相。
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['24']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: 版本信息
+        run: |
+          node --version
+          uname -a
+
+      # 真实 Windows 发行包 fixture 在 Linux CI 上不存在，对应用例会自行 skip；
+      # 跳过不等于失败，这里只要求退出码为 0。
+      - name: 运行测试
+        run: node --test source/*/test/*.test.ts

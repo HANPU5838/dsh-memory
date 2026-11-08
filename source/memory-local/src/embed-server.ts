@@ -89,8 +89,8 @@ export interface EmbedServerDeps {
   spawn: typeof nodeSpawn
   /** Resolve true when the server answers its health endpoint. */
   probe: (url: string, timeoutMs: number) => Promise<boolean>
-  /** Signal a process to stop. */
-  kill: (pid: number) => void
+  /** Signal a process to stop（signal 省略 = SIGTERM）。 */
+  kill: (pid: number, signal?: 'SIGTERM' | 'SIGKILL') => void
   log: (message: string) => void
   /** Wait helper (injected so tests run instantly). */
   sleep: (ms: number) => Promise<void>
@@ -107,6 +107,9 @@ export interface EmbedServerDeps {
   /** Termux 前缀(默认 $PREFIX),glibc loader 与库目录都在其下。 */
   prefix: string
 }
+
+/** 孤儿进程 SIGTERM 后最多等多久再升级 SIGKILL。 */
+const ORPHAN_GRACE_MS = 3_000
 
 const DEFAULTS = {
   host: '127.0.0.1',
@@ -144,9 +147,9 @@ async function defaultProbe(url: string, timeoutMs: number): Promise<boolean> {
   }
 }
 
-function defaultKill(pid: number): void {
+function defaultKill(pid: number, signal?: 'SIGTERM' | 'SIGKILL'): void {
   try {
-    process.kill(pid)
+    process.kill(pid, signal ?? 'SIGTERM')
   } catch {
     // already gone, or not ours to kill
   }
@@ -339,11 +342,51 @@ export class EmbedServerManager {
         this.deps.log(`embed server: 复用外部实例(${this.baseUrl}),不接管生命周期`)
         return 'external'
       }
+      // 健康检查失败：先处理「上一轮被 SIGKILL/LMK 强杀后残留的孤儿 llama-server」。
+      // 它会继续占着 RSS 与端口，还会让新实例 bind 失败 —— 清理干净再启动。
+      await this.cleanupOrphan()
       return await this.spawnServer()
     } catch (error) {
       this.deps.log(`embed server: 启动失败(已忽略): ${(error as Error)?.message ?? String(error)}`)
       return 'failed'
     }
+  }
+
+  /**
+   * 清理上一轮留下的孤儿 llama-server（pid 文件里有记录、进程还活着、
+   * cmdline 确实是 llama-server，但 /health 不通）。
+   *
+   * 安全边界：非 Linux / 读不到 /proc / cmdline 不符 → 一律不动（旧行为），
+   * 也绝不清理自己正在托管的子进程。
+   */
+  private async cleanupOrphan(): Promise<void> {
+    if (this.deps.platform !== 'linux') return
+    const pid = this.readPidFile()
+    if (pid === null) return
+    if (!this.isAlive(pid)) {
+      this.removePidFile()
+      return
+    }
+    if (this.owned && this.pid === pid) return // 自己的子进程,交给 stop()/自愈逻辑
+    const cmdline = this.deps.readProcCmdline(pid)
+    if (cmdline === null || !cmdline.includes('llama-server')) {
+      this.deps.log(`embed server: pid=${pid} 存活但不是 llama-server（PID 复用），跳过清理`)
+      this.removePidFile()
+      return
+    }
+    this.deps.log(`embed server: 清理孤儿 llama-server pid=${pid}（上轮被强杀后残留,健康检查不通）`)
+    try { this.deps.kill(pid, 'SIGTERM') } catch { /* already gone */ }
+    // 固定 15 × 200ms ≈ 3s：用注入的 sleep 时测试可以瞬间跑完，
+    // 不用真实时钟（否则测试会忙等 3 秒）。
+    for (let waited = 0; waited < ORPHAN_GRACE_MS / 200; waited += 1) {
+      await this.deps.sleep(200)
+      if (!this.isAlive(pid)) break
+    }
+    if (this.isAlive(pid)) {
+      this.deps.log(`embed server: pid=${pid} 未响应 SIGTERM，升级 SIGKILL`)
+      try { this.deps.kill(pid, 'SIGKILL') } catch { /* already gone */ }
+    }
+    this.removePidFile()
   }
 
   /** Poll until the health endpoint answers or the budget runs out. */

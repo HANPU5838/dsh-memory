@@ -2,6 +2,16 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 2026-11-08（第三批）— 可靠性收尾：下载续传/完整性、安装冒烟、孤儿清理、provider 切换、CI
+
+- **下载断点续传**：同源 `.part` 续传（`Range` + `If-Range`，206 追加 / 200 覆盖 / 416 重下，换源不续）；`Content-Encoding` 不影响校验基准。
+- **完整性校验**：声明总长 vs 落地字节；可选 `modelSha256` / `runtimeSha256`（字符串或按资产名），不匹配即 error 并删残片。
+- **安装后冒烟**：模型就位后 `llama-server --version`（Termux 自动 glibc 包装，4s 超时），失败 → error + stderr 尾部并摘掉 exe。
+- **孤儿清理**：启动时清理「pid 存活 + cmdline 是 llama-server + /health 不通」的残留进程（SIGTERM → 3s 后 SIGKILL），cmdline 不符/非 Linux 不误杀。
+- **面板切换 provider**：`POST /provider` + 服务卡片下拉，运行时切 local/openai/ollama/off，持久化 `<storeDir>/vector.json`（显式配置优先）。
+- **CI**：`.github/workflows/ci.yml`，ubuntu + Node 24 直接跑源码测试。
+- 测试：新增 22 例；全套 **629 例 / 628 pass / 1 skipped**。
+
 ## 2026-11-08（第二批）— 插件化改造：平台适配层 / 可插拔嵌入后端 / 事件总线
 
 - **A. 平台适配层 `platform.ts`**：Termux 检测、`$PREFIX`、glibc loader、CPU 核数兜底（`os.cpus()` 为空时用 `availableParallelism`，再兜底 4）、可用内存（MemAvailable 与 cgroup 取小）、ELF `PT_INTERP` 解析、磁盘余量、目录可写性，统一出口。`embed-server` / `hardware` / 面板共用；面板「向量服务」新增**环境自检**（平台 / glibc / 后端 / 磁盘 / 权限，逐条 ✓·✗·—）。

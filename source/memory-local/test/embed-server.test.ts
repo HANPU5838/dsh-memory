@@ -55,6 +55,7 @@ function makeDeps(opts: MakeDepsOptions) {
   const calls = {
     spawn: [] as SpawnRecord[],
     killed: [] as number[],
+    killedSignals: [] as Array<'SIGTERM' | 'SIGKILL' | undefined>,
     logs: [] as string[],
     slept: [] as number[],
     portChecks: [] as Array<{ host: string; port: number }>,
@@ -80,7 +81,7 @@ function makeDeps(opts: MakeDepsOptions) {
       return child
     }) as unknown as EmbedServerDeps['spawn'],
     probe: opts.probe ?? (async () => opts.healthy),
-    kill: (pid: number) => { calls.killed.push(pid) },
+    kill: (pid: number, signal?: 'SIGTERM' | 'SIGKILL') => { calls.killed.push(pid); calls.killedSignals.push(signal) },
     log: (message: string) => { calls.logs.push(message) },
     sleep: opts.sleep ?? (async (ms: number) => { calls.slept.push(ms) }),
     portInUse: async (host: string, port: number) => {
@@ -683,6 +684,75 @@ test('stop 前校验 /proc/<pid>/cmdline：PID 被复用则不误杀', async () 
     assert.equal(mgr.stop(), false, '没有进程被信号')
     assert.deepEqual(calls.killed, [], '不误杀无关进程')
     assert.match(calls.logs.join('\n'), /PID 已复用|不含 llama-server/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+// ────────────────────────── 孤儿进程清理 ──────────────────────────
+
+test('清理孤儿：pid 存活 + cmdline 是 llama-server + 健康检查不通 → SIGTERM 后重新启动', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-embed-orphan-'))
+  const logFile = join(dir, 'llama-server.log')
+  try {
+    writeFileSync(`${logFile}.pid`, String(process.pid), 'utf8')
+    const { deps, calls } = makeDeps({ healthy: false })
+    const mgr = new EmbedServerManager({ enabled: true, exe: EXE, model: MODEL, cwd: dir, logFile }, deps)
+
+    assert.equal(await mgr.ensureRunning(), 'spawned')
+    assert.equal(calls.killed[0], process.pid, '孤儿被 kill')
+    assert.equal(calls.killedSignals[0], 'SIGTERM', '先温柔终止')
+    // 测试里 kill 是注入的（进程其实杀不掉），所以会升级 SIGKILL —— 真实环境同理。
+    assert.ok(calls.killedSignals.includes('SIGKILL'), 'SIGTERM 无效升级 SIGKILL')
+    assert.ok(calls.logs.some((m) => m.includes('清理孤儿')), '要有清理日志')
+    assert.equal(calls.spawn.length, 1, '清理后照常启动新实例')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('cmdline 不是 llama-server：isAlive 身份校验直接判否，绝不误杀', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-embed-notorphan-'))
+  const logFile = join(dir, 'llama-server.log')
+  try {
+    writeFileSync(`${logFile}.pid`, String(process.pid), 'utf8')
+    const { deps, calls } = makeDeps({ healthy: false, readProcCmdline: () => '/bin/bash -c foo' })
+    const mgr = new EmbedServerManager({ enabled: true, exe: EXE, model: MODEL, cwd: dir, logFile }, deps)
+
+    await mgr.ensureRunning()
+    assert.deepEqual(calls.killed, [], '绝不误杀别的进程')
+    assert.ok(!calls.logs.some((m) => m.includes('清理孤儿')), '不应尝试清理')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('SIGTERM 无效时升级 SIGKILL', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-embed-orphan-kill-'))
+  const logFile = join(dir, 'llama-server.log')
+  try {
+    writeFileSync(`${logFile}.pid`, String(process.pid), 'utf8')
+    const { deps, calls } = makeDeps({ healthy: false })
+    const mgr = new EmbedServerManager({ enabled: true, exe: EXE, model: MODEL, cwd: dir, logFile }, deps)
+
+    await mgr.ensureRunning()
+    assert.ok(calls.killedSignals.includes('SIGKILL'), '顽固进程要升级 SIGKILL')
+    assert.ok(calls.logs.some((m) => m.includes('升级 SIGKILL')))
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('非 Linux：不做孤儿清理（保持旧行为）', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-embed-orphan-win-'))
+  const logFile = join(dir, 'llama-server.log')
+  try {
+    writeFileSync(`${logFile}.pid`, String(process.pid), 'utf8')
+    const { deps, calls } = makeDeps({ healthy: false, platform: 'win32' })
+    const mgr = new EmbedServerManager({ enabled: true, exe: EXE, model: MODEL, cwd: dir, logFile }, deps)
+
+    await mgr.ensureRunning()
+    assert.deepEqual(calls.killed, [], '非 Linux 不清理')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

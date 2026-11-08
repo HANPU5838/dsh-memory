@@ -678,6 +678,20 @@ async function handle(ctx, routePath, req, res) {
       writeJson(res, { ok: true, value: { ...value, query: publicAuditQuery(query) } })
       return
     }
+    // 运行时切换嵌入后端（local / openai / ollama / off）。
+    if (method === 'POST' && path === '/provider') {
+      const body = await readJsonBody(req)
+      const provider = typeof body?.provider === 'string' ? body.provider.trim() : ''
+      if (!['local', 'openai', 'ollama', 'off'].includes(provider)) {
+        throw new ApiError(400, 'PROVIDER_INVALID', 'provider 必须是 local / openai / ollama / off')
+      }
+      if (typeof memory?.setEmbeddingProvider !== 'function') {
+        writeJson(res, { ok: true, value: { ok: false, provider, message: '当前 provider 不支持运行时切换' } })
+        return
+      }
+      writeJson(res, { ok: true, value: await memory.setEmbeddingProvider(provider) })
+      return
+    }
     // 环境自检：只读探测（平台 / glibc / 后端 / 磁盘 / 权限），面板排障用。
     if (method === 'GET' && path === '/selfcheck') {
       const report = typeof memory?.selfCheck === 'function' ? await memory.selfCheck() : null
