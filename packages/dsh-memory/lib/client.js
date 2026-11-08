@@ -1924,6 +1924,9 @@ window.__ModuleLoader__.load({
         status && status.unavailable && !status.lastError
           ? h('div', { className: 'hint err' }, '后端当前不可用，检索走词法降级')
           : null,
+        status && typeof status.restarts === 'number' && status.restarts > 0
+          ? h('div', { className: 'hint' }, `后端已自愈重拉 ${status.restarts} 次${status.lastError ? `（最近失败：${status.lastError}）` : ''}`)
+          : null,
         rows,
         error ? h('div', { className: 'hint err' }, error) : null,
       )

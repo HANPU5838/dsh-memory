@@ -1190,6 +1190,22 @@ function resumeHeaders(offset: number, state: PartResumeState | null): Record<st
 // ─────────────────── 下载：完整性校验 ───────────────────
 
 /** 流式算 sha256（400MB 的 GGUF 不能一次读进内存）。 */
+/**
+ * 已存在的压缩包能不能直接复用。
+ *
+ * 复用的前提：文件非空；配置了 sha256 时必须匹配（截断/被替换的旧包不能再拿去解压，
+ * 否则会把「上一轮下载失败但留下坏包」误当成好东西）。
+ */
+export async function existingArchiveUsable(path: string, expectedSha256: string): Promise<boolean> {
+  if (fileSize(path) <= 0) return false
+  if (expectedSha256 === '') return true
+  try {
+    return (await sha256File(path)) === expectedSha256
+  } catch {
+    return false
+  }
+}
+
 function sha256File(path: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const hash = createHash('sha256')
@@ -1480,10 +1496,17 @@ export class VectorInstaller {
 
       const asset = await this.resolveRuntimeAsset(gen, platform, arch, flavor)
       const archivePath = join(paths.dir, asset.name)
-      if (fileSize(archivePath) > 0) {
-        // 上轮下完但解压/下模型失败：压缩包还在，别白下第二遍。
-        this.setPhase(gen, 'downloading-runtime', `已存在 ${asset.name}，跳过下载`, { receivedBytes: 0, totalBytes: null })
+      const expectedRuntimeSha = expectSha256(assetSha256(this.opts.runtimeSha256, asset.name, true))
+      // 上轮下完但解压/下模型失败：压缩包还在，别白下第二遍 —— 但如果配了
+      // sha256 而旧包对不上，说明它是坏包/半包，必须删掉重下。
+      const reuse = await existingArchiveUsable(archivePath, expectedRuntimeSha)
+      if (reuse) {
+        this.setPhase(gen, 'downloading-runtime', `已存在 ${asset.name}，跳过下载（校验通过）`, { receivedBytes: 0, totalBytes: null })
       } else {
+        if (fileSize(archivePath) > 0) {
+          rmSync(archivePath, { force: true })
+          this.report(gen, { message: `已存在的 ${asset.name} 校验不通过，重新下载` })
+        }
         this.setPhase(gen, 'downloading-runtime', `正在下载 llama.cpp 运行时 ${asset.name}`)
         const got = await this.downloadFrom(
           gen,
@@ -1492,7 +1515,7 @@ export class VectorInstaller {
           'llama.cpp 运行时',
           'downloading-runtime',
           '通道',
-          expectSha256(assetSha256(this.opts.runtimeSha256, asset.name, true)),
+          expectedRuntimeSha,
         )
         // 成功日志里写清走的哪条通道：直链还是 API 资产端点，排障时第一眼要看的就是它。
         this.report(gen, { message: `运行时下载完成（${formatBytes(got.bytes)}，通道：${got.source.label}）` })

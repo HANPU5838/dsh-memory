@@ -111,7 +111,8 @@ memory/record-forgotten{ scope, ids }
 | I23 | P1 | **安装后冒烟**：模型就位后跑 `llama-server --version`（Termux 自动 glibc 包装，4s 超时），失败 → error + stderr 尾部，并摘掉 exe 防止被误判「已就绪」 | 装完看着成功、启动才发现缺库/不兼容 |
 | I24 | P1 | **孤儿进程清理**：启动时若 pid 存活 + cmdline 是 llama-server + /health 不通 → SIGTERM，3s 未退升级 SIGKILL；cmdline 不符 / 非 Linux / 读不到 /proc 一律不动 | 插件被 SIGKILL/LMK 强杀后，孤儿 llama-server 继续占 797MB RSS 与端口，新实例 bind 失败 |
 | I25 | P2 | **面板切换嵌入后端**：`POST /provider` + 服务卡片下拉，运行时切换 local/openai/ollama/off 并持久化到 `<storeDir>/vector.json`（配置文件显式写 provider 时优先） | 换后端要改 YAML 重启 |
-| I26 | P2 | **CI**：`.github/workflows/ci.yml`（ubuntu + Node 24），push/PR 到 main 跑 `node --test source/*/test/*.test.ts` | 上游无 CI，回归只能靠手动跑 |
+| I26 | P2 | **旧压缩包复验**：配置了 `runtimeSha256` 时，复用的既有压缩包必须匹配哈希，不匹配就删掉重下 | 上一轮失败留下的坏包会被直接解压 |
+| I27 | P2 | **CI**：`.github/workflows/ci.yml`（ubuntu + Node 24），push/PR 到 main 跑 `node --test source/*/test/*.test.ts` | 上游无 CI，回归只能靠手动跑 |
 
 **测试**：`node --test source/*/test/*.test.ts` → **629 例 / 628 pass / 1 skipped**（新增下载续传/校验/冒烟 17、孤儿清理 4、provider 切换 1）。
 
@@ -150,7 +151,5 @@ node --test source/*/test/*.test.ts
 
 ## 四、已知但本次未做
 
-1. 60 秒一次的跨 scope 发现是全量读文件，1k→10k 条规模下 IO/内存会明显变重。
-2. 旧压缩包不重复校验 sha256（只校验本次真正下载的文件）。
-3. 冒烟探测是阻塞的 spawnSync（≤4s，用户点按钮才会触发），阻塞期间不响应取消。
-4. 面板尚未展示「自愈重试次数」`restarts`（`lastError` 已在自检里显示）。
+1. 冒烟探测是阻塞的 spawnSync（≤4s，用户点按钮才会触发），阻塞期间不响应取消（可改为异步 spawn）。
+2. 10k 条以上时向量仍常驻内存（增量索引已解决「每 60s 全量读文件」，内存占用本身未做分层/淘汰）。
