@@ -560,6 +560,16 @@ export class MemoryStore {
           loaded = new Set        ()
   /** scope -> its jsonl filename, so reload can map files back to scopes. */
           fileNames = new Map                     ()
+  /**
+   * 磁盘文件名 → scope 键的索引。
+   *
+   * discovery 以前对每个 projects/*.jsonl 都 readFileSync 整份文件、只为拿第一行的
+   * scope（7000 条实测 RSS 125MB、每 60 秒全量重读）。索引把这一步变成一次
+   * 小文件读取 + readdir；未知文件才回退去读内容。
+   */
+          scopeIndex = new Map                     ()
+          scopeIndexLoaded = false
+          scopeIndexDirty = false
           flushTimer                                       = null
           events                   
           refreshTtlMs        
@@ -690,18 +700,84 @@ export class MemoryStore {
    * record inside each file.
    */
   loadDiscovered()                {
+    this.ensureScopeIndex()
     const discovered                = []
-    if (existsSync(join(this.root, 'global.jsonl'))) discovered.push('global')
+    const seen = new Set        ()
+    if (existsSync(join(this.root, 'global.jsonl'))) {
+      discovered.push('global')
+      seen.add('global.jsonl')
+      this.scopeIndex.set('global.jsonl', 'global')
+    }
     const projDir = join(this.root, 'projects')
     if (existsSync(projDir)) {
       for (const file of readdirSync(projDir)) {
         if (!file.endsWith('.jsonl')) continue
-        const scope = firstScopeInFile(join(projDir, file))
-        if (scope) discovered.push(scope)
+        // 索引键与 scopeFileName() 一致：相对 root 的路径（含 projects/ 前缀）。
+        const key = `projects/${file}`
+        seen.add(key)
+        let scope = this.scopeIndex.get(key)
+        if (scope === undefined) {
+          // 索引里没有（首次运行 / 别的进程刚写的文件）→ 才去读文件内容。
+          const found = firstScopeInFile(join(projDir, file))
+          if (found) {
+            scope = found
+            this.scopeIndex.set(key, found)
+            this.scopeIndexDirty = true
+          }
+        }
+        if (scope !== undefined) discovered.push(scope)
       }
     }
+    // 清理已经被删掉的文件对应的索引项。
+    for (const file of [...this.scopeIndex.keys()]) {
+      if (!seen.has(file)) {
+        this.scopeIndex.delete(file)
+        this.scopeIndexDirty = true
+      }
+    }
+    if (this.scopeIndexDirty) this.saveScopeIndex()
     for (const scope of discovered) this.scope(scope) // triggers lazy disk load
     return discovered
+  }
+
+          scopeIndexFilePath()         {
+    return join(this.root, 'scopes.index.json')
+  }
+
+          ensureScopeIndex()       {
+    if (this.scopeIndexLoaded) return
+    this.scopeIndexLoaded = true
+    try {
+      const raw = JSON.parse(readFileSync(this.scopeIndexFilePath(), 'utf8'))                       
+      const files = raw.files
+      if (files !== null && typeof files === 'object') {
+        for (const [file, scope] of Object.entries(files                           )) {
+          if (typeof scope === 'string' && scope !== '') this.scopeIndex.set(file, scope               )
+        }
+      }
+    } catch { /* 首次运行 / 损坏 → 空索引，靠 readdir 重建 */ }
+  }
+
+          saveScopeIndex()       {
+    this.scopeIndexDirty = false
+    try {
+      const files                         = {}
+      for (const [file, scope] of this.scopeIndex) files[file] = scope
+      const tmp = `${this.scopeIndexFilePath()}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`
+      writeFileSync(tmp, `${JSON.stringify({ schemaVersion: 1, files }, null, 2)}\n`, 'utf8')
+      renameSync(tmp, this.scopeIndexFilePath())
+    } catch { /* 索引只是加速，写失败不影响正确性 */ }
+  }
+
+  /** 写盘后登记「文件名 → scope」，让下一次 discovery 不用读文件内容。 */
+          rememberScopeFile(scope             )       {
+    if (!this.scopeIndexLoaded) this.ensureScopeIndex()
+    const file = this.fileNames.get(scope) ?? scopeFileName(scope)
+    if (this.scopeIndex.get(file) !== scope) {
+      this.scopeIndex.set(file, scope)
+      this.scopeIndexDirty = true
+      this.saveScopeIndex()
+    }
   }
 
           fileFor(scope             )         {
@@ -801,6 +877,7 @@ export class MemoryStore {
         s.vectorsDirty = false
       } else {
         writeJsonlAtomic(file, merged)
+        this.rememberScopeFile(s.scope)
       }
       s.replaceRecords(merged)
       for (const id of upserts.keys()) s.upserts.delete(id)

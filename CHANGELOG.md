@@ -2,6 +2,26 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.31.0 — 平台适配 · 插件化 · 可靠性（本仓库维护，2026-11-08）
+
+> 上游 `@restregular/dsh-memory` 的 npm 最新版仍是 0.30.1；本版本是本仓库在其之上的完整改进，
+> 详情见 [IMPROVEMENTS.md](IMPROVEMENTS.md) 与 [docs/architecture.md](docs/architecture.md)。
+
+**平台适配**：symbolic-link 安全的 tar 解压（llama.cpp 的 SONAME 链）、Termux glibc 自动包装
+（不再依赖仓库外猴补丁）、默认 `-b/-ub 2048`、查询嵌入预算自适应、`storeDir` 绝对路径、
+CPU/内存/磁盘/权限探测统一到 `platform.ts`。
+
+**插件化**：可插拔嵌入后端（`local` / `openai` / `ollama` / `off`，面板可运行时切换并持久化）；
+记忆事件总线（`memory/record-saved` / `recalled` / `record-forgotten`，经宿主 `ctx.emit` 转发）；
+面板「环境自检」；面板 provider 下拉。
+
+**可靠性**：安装后 `llama-server --version` 冒烟；下载断点续传 + 大小/sha256 校验；
+孤儿进程清理（SIGTERM→SIGKILL，cmdline 校验防误杀）；自愈重拉；端口预检；
+`flush` 写盘异常不冒泡；只读目录锁死循环修复；`.vec` 维度校验与压缩；访问统计落盘。
+
+**工程**：CI（ubuntu + Node 24，`node --test`）；发现索引（`scopes.index.json`，避免每 60s
+全量读所有作用域文件）；测试 630+ 例。
+
 ## 2026-11-08（第三批）— 可靠性收尾：下载续传/完整性、安装冒烟、孤儿清理、provider 切换、CI
 
 - **下载断点续传**：同源 `.part` 续传（`Range` + `If-Range`，206 追加 / 200 覆盖 / 416 重下，换源不续）；`Content-Encoding` 不影响校验基准。

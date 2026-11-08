@@ -10,7 +10,7 @@
 > | 项目 | 说明 |
 > | --- | --- |
 > | 上游原仓库 | **[RestRegular/dsh-memory](https://github.com/RestRegular/dsh-memory)**（作者 **RestRegular**）|
-> | 本镜像 | 上游 v0.30.1 + **一批平台适配与健壮性改进**（安装器软链/校验/磁盘预检、Termux glibc 自动包装、端口预检与自愈、默认 batch、存储写入与向量校验、检索超时自适应等，清单见 [IMPROVEMENTS.md](IMPROVEMENTS.md)）；文档里的图片 / 链接指向本仓库 |
+> | 本镜像 | **v0.31.0**（上游 v0.30.1 + 平台适配 / 插件化 / 可靠性改进）（安装器软链/校验/磁盘预检、Termux glibc 自动包装、端口预检与自愈、默认 batch、存储写入与向量校验、检索超时自适应等，清单见 [IMPROVEMENTS.md](IMPROVEMENTS.md)、架构见 [docs/architecture.md](docs/architecture.md)）；文档里的图片 / 链接指向本仓库 |
 > | 许可 | **MIT**，版权归原作者所有，见 [LICENSE](LICENSE)；转载、分发请保留原始版权声明 |
 > | 更新与反馈 | 更新、Issue、PR 请到**上游原仓库**；本镜像不接收 Issue，同步靠手动从上游拉取 |
 >
@@ -27,6 +27,7 @@ JSONL 落盘 · 本机向量检索 · 六个模型工具 · 自动召回 · 硬�
 [![npm version](https://img.shields.io/npm/v/@restregular/dsh-memory.svg)](https://www.npmjs.com/package/@restregular/dsh-memory)
 [![npm downloads](https://img.shields.io/npm/dm/@restregular/dsh-memory.svg)](https://www.npmjs.com/package/@restregular/dsh-memory)
 [![license](https://img.shields.io/npm/l/@restregular/dsh-memory.svg)](https://github.com/HANPU5838/dsh-memory/blob/main/LICENSE)
+[![ci](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.13-5FA04E.svg)](https://nodejs.org/)
 [![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/plugins/restregular/dsh-memory)
 

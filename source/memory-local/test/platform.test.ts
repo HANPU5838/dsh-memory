@@ -93,7 +93,8 @@ test('freeDiskBytes：真实目录能读到，深路径会向上找祖先，不�
     const free = freeDiskBytes(dir)
     assert.ok(free !== null && free > 0, '应读到可用字节')
     assert.ok(freeDiskBytes(join(dir, 'a', 'b', 'c')) !== null, '祖先存在即可')
-    assert.equal(freeDiskBytes('/definitely/not/here/at/all'), null)
+    // 空路径没有可回退的祖先 → 未知（真实 Linux 上 / 永远存在，用它测 null 不可靠）
+    assert.equal(freeDiskBytes(''), null)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
