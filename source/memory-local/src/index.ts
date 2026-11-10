@@ -1809,6 +1809,7 @@ export class LocalMemoryService implements MemoryServiceApi {
    * consistent instead of ripping files out from under a live store.
    */
   wipeAllRecords(): { removed: number; scopes: string[] } {
+    this.discoverScopes()
     let removed = 0
     const scopes: string[] = []
     for (const scope of this.store.allScopes()) {
@@ -1871,6 +1872,7 @@ export class LocalMemoryService implements MemoryServiceApi {
     const created: string[] = []
     let merged = 0
     if (!this.cfg.cognitive.consolidationEnabled) return { created, merged }
+    this.discoverScopes()
     const now = Date.now()
     for (const scopeStore of this.store.allScopes()) {
       if (scopeStore.vectors.size === 0) continue
@@ -1957,6 +1959,10 @@ export class LocalMemoryService implements MemoryServiceApi {
   }
 
   runHousekeeping(): { purged: string[]; evicted: string[]; dormant: string[]; tombstones: string[]; consolidated: string[]; health?: { score: number; conflictRate: number; duplicateRate: number; quarantined: number; pending: number } } {
+    // 0.41.1：维护任务必须覆盖**磁盘上所有作用域**，不能只扫本进程已加载的。
+    //（懒加载机制下，没被本会话碰过的旧 scope 不会被加载，否则休眠/墓碑清理/
+    // 巩固/健康度都会漏掉它们。）
+    this.discoverScopes()
     const frozen = (scope: string): boolean => this.isArchivedSessionScope(scope)
     const purged = this.store.purgeExpired(Date.now(), frozen)
     const evicted = this.store.enforceLimit(this.cfg.maxRecordsPerScope, Date.now(), frozen)
@@ -4078,17 +4084,25 @@ export class LocalMemoryService implements MemoryServiceApi {
 
   /** 0.40.0（P1）：记忆健康度报告（抽样重复率 + 冲突/失效/隔离/休眠/嵌入覆盖 + 0-100 分）。 */
   healthReport(): HealthReport {
+    this.discoverScopes()
     const records: MemoryRecord[] = []
     const vectors = new Map<string, Float32Array>()
+    // 历史版本（被别的记录 supersedes 指向的旧记录）不参与重复率统计：
+    // 旧版 vs 新版天然高相似，算进去会让健康分误扣（实测 22% 里 4 对全是历史版本）。
+    const retired = new Set<string>()
     for (const scopeStore of this.store.allScopes()) {
-      for (const rec of scopeStore.records.values()) records.push(rec)
+      for (const rec of scopeStore.records.values()) {
+        records.push(rec)
+        if (rec.supersedes !== undefined) retired.add(rec.supersedes)
+      }
       for (const [id, vec] of scopeStore.vectors) vectors.set(id, vec)
     }
-    return computeHealth(records, { vectors, now: Date.now() })
+    return computeHealth(records, { vectors, now: Date.now(), excludeFromDuplicates: retired })
   }
 
   /** 0.40.0（P1）：冲突中心 —— 列出带冲突标记的活记录（按置信度降序）。 */
   listConflicts(): Array<{ id: string; scope: string; content: string; conflictWith: string[]; conflictConfidence: number; updatedAt: number }> {
+    this.discoverScopes()
     const out: Array<{ id: string; scope: string; content: string; conflictWith: string[]; conflictConfidence: number; updatedAt: number }> = []
     for (const scopeStore of this.store.allScopes()) {
       for (const rec of scopeStore.records.values()) {

@@ -82,6 +82,11 @@ export interface HealthOptions {
   dormantAfterDays?: number
   /** 重复对明细上限，默认 DEFAULT_DUPLICATE_DETAIL_LIMIT(20)。 */
   duplicateDetailLimit?: number
+  /**
+   * 0.41.1：不参与重复率统计的 id（典型是"被修正/被取代"的历史版本）。
+   * 旧版本与新版本天然高相似，把它们算进重复率会让健康分误扣分。
+   */
+  excludeFromDuplicates?: Iterable<string>
 }
 
 /** 一个扣分项的可解释明细。 */
@@ -280,8 +285,10 @@ export function computeHealth(records: Iterable<MemoryRecord>, options: HealthOp
   const pending = total - embedded
 
   // ── 3. 重复率（抽样：锚点 × 全量邻居，O(sample × n)，确定性）──
+  const excludedFromDuplicates = new Set<string>(options.excludeFromDuplicates ?? [])
   const duplicateCandidates = embeddedRecords
     .filter((record) => !isTombstonedRecord(record) && !isQuarantinedRecord(record))
+    .filter((record) => !excludedFromDuplicates.has(record.id))
     .sort((a, b) => a.id.localeCompare(b.id))
   const sampleSize = Math.min(duplicateSample, duplicateCandidates.length)
   let duplicatePairs = 0

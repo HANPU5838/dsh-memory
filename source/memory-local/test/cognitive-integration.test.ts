@@ -176,3 +176,28 @@ test('本地备份：创建 / 列出 / 恢复，且拒绝路径穿越', async ()
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('维护/健康度覆盖磁盘上所有作用域（未加载的旧 scope 不漏算）', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-magic-discover-'))
+  const first = new LocalMemoryService({ storeDir: dir, scopes: { global: true, project: true } })
+  const OTHER = 'project:/other-scope'
+  try {
+    await first.save({ scope: OTHER, kind: 'note', content: '旧作用域里的记忆' })
+    first.flushSync()
+  } finally { first.flushSync() }
+  // 新进程：默认只加载 project:/当前项目 + global，OTHER 不会被加载
+  const second = new LocalMemoryService({ storeDir: dir, scopes: { global: true, project: true } })
+  try {
+    const report = second.healthReport()
+    assert.ok(report.total >= 1, `健康度必须覆盖磁盘上的旧 scope（实际 total=${report.total}）`)
+    const housekeeping = second.runHousekeeping()
+    assert.ok(Array.isArray(housekeeping.purged))
+    const conflicts = second.listConflicts()
+    assert.ok(Array.isArray(conflicts))
+    const consolidated = second.consolidateNow()
+    assert.ok(Array.isArray(consolidated.created))
+  } finally {
+    second.flushSync()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

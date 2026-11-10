@@ -82,6 +82,11 @@ export const HEALTH_SCORE_RULES                             = [
                            
                                                        
                                
+     
+                                            
+                                   
+     
+                                          
  
 
 /** 一个扣分项的可解释明细。 */
@@ -280,8 +285,10 @@ export function computeHealth(records                        , options          
   const pending = total - embedded
 
   // ── 3. 重复率（抽样：锚点 × 全量邻居，O(sample × n)，确定性）──
+  const excludedFromDuplicates = new Set        (options.excludeFromDuplicates ?? [])
   const duplicateCandidates = embeddedRecords
     .filter((record) => !isTombstonedRecord(record) && !isQuarantinedRecord(record))
+    .filter((record) => !excludedFromDuplicates.has(record.id))
     .sort((a, b) => a.id.localeCompare(b.id))
   const sampleSize = Math.min(duplicateSample, duplicateCandidates.length)
   let duplicatePairs = 0

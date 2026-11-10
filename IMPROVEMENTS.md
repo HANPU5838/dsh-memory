@@ -294,6 +294,9 @@ cognitive:
 | G11 | **记忆树列表视图（0.41.0）** | 手机屏幕下画布太空/节点挤右 → 默认列表视图（作用域→类型→记录可折叠、状态徽章/强度条/详情面板）；「列表/画布」可切换并持久化 |
 | G12 | **健康卡片去重入口（0.41.0）** | 重复率 >5% 时显示「去重巩固」，一键 consolidate + 重新体检 |
 
+| G13 | **维护覆盖全部作用域（0.41.1）** | `healthReport`/`runHousekeeping`/`listConflicts`/`consolidateNow`/`wipeAllRecords` 先 `discoverScopes()`，不再只扫已加载 scope |
+| G14 | **重复率排除历史版本（0.41.1）** | superseded 旧版本不计入重复率；真实库 72.9→92.9 分、22%→0% |
+
 ## 三、如何从上游同步
 
 ```bash
