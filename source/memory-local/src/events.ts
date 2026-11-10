@@ -42,6 +42,8 @@ export interface MemoryRecalledPayload {
   topScopes: string[]
   /** 向量通道是否参与（false = 只走了词法/重排）。 */
   vector: boolean
+  /** 0.32.0：本次被语义去重合并掉的重复命中数（同义记忆只留分最高的一条）。 */
+  merged?: number
 }
 
 /** 一次删除之后。ids 是被删掉的记录 id，正文已经不在。 */

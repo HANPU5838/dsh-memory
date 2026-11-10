@@ -14,7 +14,7 @@ import type {
   MemoryScope,
   MemoryServiceApi,
 } from 'dsh-memory'
-import { MemoryStore, newId, scopeFileName, type ScopeStore } from './store.ts'
+import { MemoryStore, newId, scopeFileName, isDormantRecord, isTombstonedRecord, type ScopeStore } from './store.ts'
 import {
   canonicalWorkspacePath,
   defaultScopeDescription,
@@ -52,7 +52,11 @@ import {
   type ScopeOrigin,
 } from './scope-meta.ts'
 import { mergeInjectSettings, normalizeInjectSettings, type InjectSettings } from './inject-settings.ts'
-import { buildStats, lexicalScore, recordScore, tokenize, cosine, normalizeInPlace, hasStrongHit } from './scoring.ts'
+import { buildStats, lexicalScore, recordScore, tokenize, cosine, normalizeInPlace, hasStrongHit, finalFloor, semanticDedupe, mmrSelect } from './scoring.ts'
+import { adaptiveScopeThreshold, calibrateScore } from './retrieval/adapt.ts'
+import { MERGE_THRESHOLD, planNearDuplicateMerge } from './cognitive/merge.ts'
+import { assessConflicts, applyConflictMarker, hasCriticalDetailConflict } from './cognitive/conflict.ts'
+import { shouldSkipRecord, revive, tombstone, purgeTombstones, markDormant, restore as restoreTombstoned, snapshot as writeSnapshot, restoreSnapshot as readSnapshotFile } from './cognitive/lifecycle.ts'
 import { createEmbeddingProvider, type EmbeddingProvider, type EmbeddingProviderKind } from './embedding-providers.ts'
 import { canExecute, describePlatform, detectPlatform, freeDiskBytes } from './platform.ts'
 import { DailyBudget, blendScores, rerank, type LlmInvoke, type RerankConfig } from './rerank.ts'
@@ -203,8 +207,22 @@ export interface MemoryLocalConfig {
       }
     }
     llm?: Partial<RerankConfig>
+    /** 0.32.0：终态分绝对下限（低于此值的命中不返回；0 = 关闭）。 */
+    finalFloor?: number
+    /** 0.32.0：同义结果合并阈值（余弦；0 = 关闭）。 */
+    dedupeThreshold?: number
+    /** 0.32.0：是否用 MMR 做结果多样性选择。 */
+    mmr?: boolean
+    /** 0.32.0：MMR 的相关性/多样性权衡（1 = 只看相关，越小越重多样性）。 */
+    mmrLambda?: number
   }
   limits?: { maxRecordsPerScope?: number; maxRecordChars?: number }
+  /** 0.32.0：认知层（语义合并 / 冲突标记 / 生命周期）。缺省全部开启。 */
+  cognitive?: {
+    merge?: { enabled?: boolean; threshold?: number }
+    conflict?: { enabled?: boolean; minSimilarity?: number }
+    lifecycle?: { dormantAfterDays?: number; dormantMaxImportance?: number; tombstoneDays?: number }
+  }
   /** Secret handling (design §11). Default: refuse obvious credentials. */
   secrets?: { mode?: 'refuse' | 'redact'; enabled?: boolean }
 }
@@ -272,6 +290,23 @@ export interface ResolvedConfig {
   maxRecordsPerScope: number
   maxRecordChars: number
   secrets: { enabled: boolean; mode: 'refuse' | 'redact' }
+  /** 0.32.0：结果整形（地板分 / 同义去重 / MMR）。 */
+  shaping: {
+    floor: number
+    dedupeThreshold: number
+    mmr: boolean
+    mmrLambda: number
+  }
+  /** 0.32.0：认知层（语义合并 / 冲突 / 生命周期）。 */
+  cognitive: {
+    mergeEnabled: boolean
+    mergeThreshold: number
+    conflictEnabled: boolean
+    conflictMinSimilarity: number
+    dormantAfterDays: number
+    dormantMaxImportance: number
+    tombstoneDays: number
+  }
 }
 
 /** vector 配置节的类型别名,给下面的模型解析helpers 用。 */
@@ -581,6 +616,24 @@ export function resolveConfig(config: MemoryLocalConfig = {}): ResolvedConfig {
     secrets: {
       enabled: config.secrets?.enabled ?? true,
       mode: config.secrets?.mode ?? 'refuse',
+    },
+    // 0.32.0：结果整形。floor 默认 0.2（与 REAL_HIT_FLOOR 同源），dedupe 0.85
+    // 略低于实测同义对 0.865，既能合并重复又不误伤「相关但不同」的条目。
+    shaping: {
+      floor: config.retrieval?.finalFloor ?? 0.2,
+      dedupeThreshold: config.retrieval?.dedupeThreshold ?? 0.85,
+      mmr: config.retrieval?.mmr ?? true,
+      mmrLambda: config.retrieval?.mmrLambda ?? 0.7,
+    },
+    // 0.32.0：认知层默认开启；任何一项都可以单独关掉回到 0.31 的行为。
+    cognitive: {
+      mergeEnabled: config.cognitive?.merge?.enabled ?? true,
+      mergeThreshold: config.cognitive?.merge?.threshold ?? 0.92,
+      conflictEnabled: config.cognitive?.conflict?.enabled ?? true,
+      conflictMinSimilarity: config.cognitive?.conflict?.minSimilarity ?? 0.75,
+      dormantAfterDays: config.cognitive?.lifecycle?.dormantAfterDays ?? 30,
+      dormantMaxImportance: config.cognitive?.lifecycle?.dormantMaxImportance ?? 0.3,
+      tombstoneDays: config.cognitive?.lifecycle?.tombstoneDays ?? 30,
     },
   }
 }
@@ -1610,11 +1663,22 @@ export class LocalMemoryService implements MemoryServiceApi {
    * 0.30.0：归档会话作用域在归档期间**冻结** —— 过期与容量都不碰它们，
    * 恢复会话后记忆原样回来；恢复后下一次 housekeeping 再按原规则清理。
    */
-  runHousekeeping(): { purged: string[]; evicted: string[] } {
+  runHousekeeping(): { purged: string[]; evicted: string[]; dormant: string[]; tombstones: string[] } {
     const frozen = (scope: string): boolean => this.isArchivedSessionScope(scope)
     const purged = this.store.purgeExpired(Date.now(), frozen)
     const evicted = this.store.enforceLimit(this.cfg.maxRecordsPerScope, Date.now(), frozen)
-    return { purged, evicted }
+    // 0.32.0：生命周期维护 —— 长期未访问且不重要的记录转休眠（不删），
+    // 墓碑超过保留期的才物理删除。归档会话作用域一律冻结。
+    const liveScopes = this.store.allScopes().map((s) => s.scope).filter((scope) => !frozen(scope))
+    const dormant = this.cfg.cognitive.dormantAfterDays > 0
+      ? markDormant(this.store, {
+          afterDays: this.cfg.cognitive.dormantAfterDays,
+          maxImportance: this.cfg.cognitive.dormantMaxImportance,
+          scopes: liveScopes,
+        }).marked
+      : []
+    const tombstones = purgeTombstones(this.store, { now: Date.now(), ...(liveScopes.length > 0 ? { scopes: liveScopes } : {}) })
+    return { purged, evicted, dormant, tombstones }
   }
 
   /**
@@ -2861,8 +2925,62 @@ export class LocalMemoryService implements MemoryServiceApi {
     // save-time budget: one full record, much slower than a search query
     // 记录按"文档"嵌入:有些模型(nomic/e5)要求文档与查询带不同前缀,不带质量会掉。
     const vec = await this.embed.embed([`${this.cfg.vector.documentPrefix ?? ''}${record.content}`], undefined, { timeoutMs: this.cfg.vector.writeTimeoutMs }).catch(() => null)
-    if (vec?.[0]) s.appendVector(record.id, normalizeInPlace(vec[0]))
-    else s.embedPending.add(record.id) // backfill queue; the retry timer drains it
+    if (vec?.[0]) {
+      const normalized = normalizeInPlace(vec[0])
+      s.appendVector(record.id, normalized)
+      // 0.32.0：拿到向量后做一次语义整理（近重复合并 / 冲突打标）。
+      // 放在嵌入之后是因为这一步要靠向量；失败不影响主流程。
+      this.applyCognition(record, normalized)
+    } else {
+      s.embedPending.add(record.id) // backfill queue; the retry timer drains it
+    }
+  }
+
+  /**
+   * 0.32.0：写后语义整理。
+   * - 余弦 ≥ mergeThreshold：视为同一条记忆的不同说法，新记录原地接管（supersedes 旧记录，
+   *   tags 并集、importance 取大、generation+1），旧记录保留为已修正而不是删除；
+   * - 余弦在 [conflictMinSimilarity, mergeThreshold)：只打冲突标记，绝不自动改内容。
+   * 整个函数 best-effort：任何异常都吞掉，写记忆本身不能因为整理失败而失败。
+   */
+  private applyCognition(record: MemoryRecord, vec: Float32Array): void {
+    try {
+      const hits = this.store.findSimilar(vec, {
+        scope: record.scope,
+        minScore: this.cfg.cognitive.conflictMinSimilarity,
+        excludeIds: [record.id],
+        limit: 3,
+      })
+      if (hits.length === 0) return
+      // 相似度 ≥ 合并阈值 **且** 关键细节不冲突才合并。
+      // 只看余弦会把「占用 10.4GB」和「占用 20GB」这种措辞几乎一样、事实却矛盾的
+      // 两条合并掉（这种对的余弦往往比同义改写还高）。
+      const similar = hits.find((hit) => hit.similarity >= this.cfg.cognitive.mergeThreshold)
+      const mergeSafe = similar !== undefined && !hasCriticalDetailConflict(record.content, similar.record.content)
+      if (this.cfg.cognitive.mergeEnabled && mergeSafe && similar !== undefined) {
+        const plan = planNearDuplicateMerge(record, similar.record, similar.similarity, {
+          threshold: this.cfg.cognitive.mergeThreshold,
+        })
+        if (plan?.record !== undefined) {
+          this.store.scope(record.scope).insert(plan.record)
+          this.store.scheduleFlush()
+          return
+        }
+      }
+      if (this.cfg.cognitive.conflictEnabled) {
+        const assessment = assessConflicts({ content: record.content, candidates: hits })
+        // 关键细节冲突即使相似度超过合并阈值也要标出来（冲突判定不能只看相似区间）。
+        const detailConflict = hits.find((hit) => hasCriticalDetailConflict(record.content, hit.record.content))
+        if (assessment.conflicted || detailConflict !== undefined) {
+          applyConflictMarker(this.store, record.id, assessment.conflicted
+            ? assessment
+            : { conflicted: true, findings: [detailConflict!], marker: { conflictWith: detailConflict!.record.id, conflictConfidence: detailConflict!.similarity }, severity: 'high' })
+          this.store.scheduleFlush()
+        }
+      }
+    } catch {
+      // 整理失败不影响记忆本身
+    }
   }
 
   /**
@@ -2978,10 +3096,15 @@ export class LocalMemoryService implements MemoryServiceApi {
     // 面板的语义检索复用这条流水线,但它是"看一眼"的浏览:不写访问计数,也不在
     // 没有任何向量时白跑一次嵌入请求。这两个开关只给面板的 searchForPanel 用,
     // 工具 / 注入调用不会传。
-    const internal = query as MemoryQuery & { touch?: boolean; vector?: boolean; includeSuperseded?: boolean; includeExpired?: boolean; kinds?: Record<string, readonly string[]> }
+    const internal = query as MemoryQuery & { touch?: boolean; vector?: boolean; includeSuperseded?: boolean; includeExpired?: boolean; includeDormant?: boolean; includeTombstoned?: boolean; kinds?: Record<string, readonly string[]> }
     const allowVector = internal.vector !== false && this.cfg.vector.enabled && this.cfg.vector.configured
     const includeSuperseded = internal.includeSuperseded === true
     const includeExpired = internal.includeExpired === true
+    // 0.32.0：休眠/墓碑记录默认不参与召回（面板历史浏览显式打开时才显示）。
+    const includeDormant = internal.includeDormant === true
+    const includeTombstoned = internal.includeTombstoned === true
+    // 面板的历史浏览不做结果整形（不去噪/不合并/不做 MMR）：用户要看到全部命中。
+    const shapingEnabled = internal.shaping !== false
     // 注入侧按可见域的类型白名单检索(scope → 允许的类型;未列出的 scope 不限制)。
     // 工具侧不传 kinds:它需要看到范围外命中,才能发起审批。
     const kindFilter = internal.kinds === undefined
@@ -3023,7 +3146,7 @@ export class LocalMemoryService implements MemoryServiceApi {
     }
 
     // --- channel 1: lexical recall, scored per scope with local IDF ---
-    type Cand = { record: MemoryRecord; recallScore: number; isGlobal: boolean }
+    type Cand = { record: MemoryRecord; recallScore: number; isGlobal: boolean; vector?: Float32Array | null }
     const candidates = new Map<string, Cand>()
     for (const { store, isGlobal } of stores) {
       const all = [...store.records.values()]
@@ -3037,17 +3160,22 @@ export class LocalMemoryService implements MemoryServiceApi {
         const rec = all[i]!
         if (!includeExpired && rec.expiredAt && rec.expiredAt < now) continue
         if (!includeSuperseded && retired.has(rec.id)) continue
+        // 0.32.0：休眠/墓碑记录不进召回（forget 变软删后，靠这里立即不可见）。
+        if (shouldSkipRecord(rec, { includeDormant, includeTombstoned })) continue
         if (kindFilter !== undefined && !kindFilter(rec.scope, rec.kind)) continue
         const lex = lexicalScore(queryTokens, tokenSets[i]!, stats)
         if (lex <= 0) continue
         // Weak-only overlap (no shared word/bigram) must clear the "real hit"
         // floor, not the permissive threshold — kills single-char collisions.
-        // 阈值只分两档:global 用 globalThreshold,其余(session / project / 自定义)用
-        // projectThreshold —— 不新增配置项。
-        const floor = isGlobal ? this.cfg.globalThreshold : this.cfg.projectThreshold
+        // 0.32.0：阈值改成按查询长度自适应（短查询放宽、长查询收紧），
+        // 且词法分先做跨 scope 校准，这样 global 与 project 的分数可以同槽排序。
+        const floor = adaptiveScopeThreshold(query.text, rec.scope, {
+          globalThreshold: this.cfg.globalThreshold,
+          projectThreshold: this.cfg.projectThreshold,
+        })
         const effective = hasStrongHit(queryTokens, tokenSets[i]!) ? floor : Math.max(floor, REAL_HIT_FLOOR)
         if (lex < effective) continue
-        candidates.set(rec.id, { record: rec, recallScore: lex, isGlobal })
+        candidates.set(rec.id, { record: rec, recallScore: calibrateScore(lex, rec.scope), isGlobal, vector: store.vectors.get(rec.id) ?? null })
       }
     }
 
@@ -3092,9 +3220,11 @@ export class LocalMemoryService implements MemoryServiceApi {
         const rec = this.findById(id)
         if (!rec) continue
         if (!includeExpired && rec.expiredAt !== undefined && rec.expiredAt < now) continue
+        if (shouldSkipRecord(rec, { includeDormant, includeTombstoned })) continue
         if (kindFilter !== undefined && !kindFilter(rec.scope, rec.kind)) continue
         if (!(rec.scope === 'global' && sim < this.cfg.globalThreshold)) {
-          candidates.set(id, { record: rec, recallScore: sim, isGlobal: rec.scope === 'global' })
+          const store = stores.find((s) => s.scope === rec.scope)?.store
+          candidates.set(id, { record: rec, recallScore: sim, isGlobal: rec.scope === 'global', vector: store?.vectors.get(id) ?? null })
         }
       }
     }
@@ -3115,14 +3245,40 @@ export class LocalMemoryService implements MemoryServiceApi {
         || a.record.id.localeCompare(b.record.id))
       .slice(0, recallN)
 
+    // 0.32.0：结果整形 —— 地板分 → 同义去重 → MMR 多样性。
+    // 之前直接拿召回排序截断，实测「5 条里 3 条弱相关噪声」，同义记忆还会同时占位；
+    // 现在先按终态分砍噪声，再合并同义条目，最后用 MMR 选一组既相关又不重复的结果。
+    type ShapedCand = Cand & { id: string; score: number }
+    // 注意：整形函数（finalFloor/semanticDedupe/mmrSelect）按 **item.id** 去重，
+    // 候选里没有 id 字段时它们会把所有条目当成同一个 `undefined` 合并掉。
+    let shaped: ShapedCand[] = ranked.map((c) => ({ ...c, id: c.record.id, score: shape(c) }))
+    const mergedIds: string[] = []
+    if (shapingEnabled) {
+      // 地板分作用在**匹配强度**(recallScore: 词法校准分/余弦)上，而不是衰减后的
+      // 终态分 —— 否则一条很相关但很久没被访问的记忆会被 recency 压到线下误杀。
+      if (this.cfg.shaping.floor > 0) shaped = shaped.filter((c) => c.recallScore >= this.cfg.shaping.floor)
+      if (this.cfg.shaping.dedupeThreshold > 0 && shaped.length > 1) {
+        const dedupe = semanticDedupe(shaped, this.cfg.shaping.dedupeThreshold)
+        shaped = dedupe.hits
+        mergedIds.push(...dedupe.merged)
+      }
+      // 有 LLM 重排时给两倍余量，让重排有得选；没有就按 topK 直接收敛。
+      const pickN = this.cfg.llm.enabled
+        ? Math.min(shaped.length, Math.max(topK * 2, topK))
+        : Math.min(shaped.length, topK)
+      shaped = this.cfg.shaping.mmr && shaped.length > 1
+        ? mmrSelect(shaped, this.cfg.shaping.mmrLambda, pickN)
+        : shaped.slice(0, pickN)
+    }
+
     // --- channel 3: LLM rerank (optional; any skip/failure keeps recall order) ---
     // 键必须是 **record.id**。这里曾经写成 `c.id`(Cand 上没有 id 字段),所有候选都落到
     // 同一个 `undefined` 键上:排序数组本身是对的,但每条命中拿到的都是最后一个候选的
     // 分数(面板上表现为「每条相关度都一样」),重排的候选 id 也全成了 undefined。
-    const finalScores = new Map<string, number>(ranked.map((c) => [c.record.id, shape(c)]))
-    if (this.cfg.llm.enabled && this.llmInvoke && ranked.length >= 2) {
-      const asCands = ranked.map((c) => ({ id: c.record.id, content: c.record.content, recallScore: finalScores.get(c.record.id)! }))
-      const cacheKey = RerankCache.key(query.text, ranked.map((c) => c.record.id), this.cfg.llm.model)
+    const finalScores = new Map<string, number>(shaped.map((c) => [c.record.id, c.score]))
+    if (this.cfg.llm.enabled && this.llmInvoke && shaped.length >= 2) {
+      const asCands = shaped.map((c) => ({ id: c.record.id, content: c.record.content, recallScore: finalScores.get(c.record.id)! }))
+      const cacheKey = RerankCache.key(query.text, shaped.map((c) => c.record.id), this.cfg.llm.model)
       let outcome = this.rerankCache.get(cacheKey)
       if (!outcome) {
         outcome = await rerank({
@@ -3142,15 +3298,20 @@ export class LocalMemoryService implements MemoryServiceApi {
       }
       // 重排必须能改变顺序,否则它只改了显示分数、召回序列原样输出。没有重排时
       // finalScores 就等于 shape(),这个二次排序与原顺序完全一致(同一套 tie-break)。
-      ranked.sort((a, b) => finalScores.get(b.record.id)! - finalScores.get(a.record.id)!
+      shaped.sort((a, b) => finalScores.get(b.record.id)! - finalScores.get(a.record.id)!
         || scopeTier(a.record.scope) - scopeTier(b.record.scope)
         || a.record.id.localeCompare(b.record.id))
     }
 
-    const hits: MemoryHit[] = ranked.map((c) => ({
+    const hits: MemoryHit[] = shaped.map((c) => ({
       record: internal.touch === false ? c.record : touch(c.record),
-      score: round4(finalScores.get(c.record.id)!),
+      score: round4(finalScores.get(c.record.id) ?? c.score),
     }))
+    // 0.32.0：命中即唤醒休眠记忆（与 save 清 dormantAt 同口径），否则休眠记录
+    // 永远只能靠写回唤醒。唤醒只发生在真正被访问时，面板浏览不会触发。
+    if (internal.touch !== false) {
+      for (const hit of hits) if (isDormantRecord(hit.record)) revive(this.store, hit.record.id)
+    }
     // 访问统计要落盘：recency / accessBoost 是排序输入，只在内存里加一等于没算。
     if (internal.touch !== false) for (const hit of hits) this.store.touch(hit.record)
 
@@ -3161,6 +3322,7 @@ export class LocalMemoryService implements MemoryServiceApi {
       hits: recalled.length,
       topScopes: [...new Set(recalled.map((hit) => hit.record.scope))],
       vector: qvec?.[0] !== undefined,
+      ...(mergedIds.length > 0 ? { merged: mergedIds.length } : {}),
     })
     this.store.scheduleFlush()
     return recalled
@@ -3209,12 +3371,17 @@ export class LocalMemoryService implements MemoryServiceApi {
       text: input.text,
       scopes,
       topK: input.topK ?? 20,
-      // 面板是**历史浏览器**:退役/过期记录也要能搜到,否则用户无法从面板确认旧版本。
+      // 面板是**历史浏览器**:退役/过期/休眠/墓碑记录也要能搜到,否则用户无法从面板
+      // 确认旧版本、也无法找回误删的记录(0.32.0 起 forget 是软删)。
       includeSuperseded: true,
       includeExpired: true,
+      includeDormant: true,
+      includeTombstoned: true,
+      // 历史浏览器不做结果整形：用户要看到全部命中，而不是被去噪/合并后的子集。
+      shaping: false,
       vector,
       touch: false,
-    } as MemoryQuery & { vector: boolean; touch: boolean; includeSuperseded: boolean; includeExpired: boolean })
+    } as MemoryQuery & { vector: boolean; touch: boolean; includeSuperseded: boolean; includeExpired: boolean; includeDormant: boolean; includeTombstoned: boolean; shaping: boolean })
     // 嵌入请求失败会被 EmbedClient 熔断(markDown),所以"跑完还健康"就等于向量通道
     // 真的产出了分数;否则这次只能算词法排序。
     const vectorRan = vector && this.embed.isHealthy
@@ -3257,11 +3424,15 @@ export class LocalMemoryService implements MemoryServiceApi {
     const removedByScope: { scope: string; ids: string[] }[] = []
     if (input.id) {
       // 按 id 删除天然跨 scope:调用方给的是精确 id,不存在误删别的 scope 的风险。
-      for (const s of this.store.allScopes()) {
-        if (!operable(s.scope)) continue
-        if (s.remove(input.id)) {
+      // tombstone 需要 MemoryStore（它要按 id 定位 scope），不能传 ScopeStore。
+      const located = this.store.scopeOf(input.id)
+      if (located !== undefined && operable(located.store.scope)) {
+        // 0.32.0：forget 改为软删（墓碑），默认保留 30 天可 restore；
+        // 物理删除交给维护任务 purgeTombstones，避免误删不可恢复。
+        const t = tombstone(this.store, input.id, { days: this.cfg.cognitive.tombstoneDays, reason: 'forget' })
+        if (t.ok && t.reason !== 'already-tombstoned') {
           ids.push(input.id)
-          removedByScope.push({ scope: s.scope, ids: [input.id] })
+          removedByScope.push({ scope: located.store.scope, ids: [input.id] })
         }
       }
       if (ids.length === 0) throw memoryError('RECORD_NOT_FOUND', `id ${input.id} not found`)
@@ -3282,7 +3453,14 @@ export class LocalMemoryService implements MemoryServiceApi {
         if (!store) continue
         const hit = this.store.findIdsByQuery(scope, input.query)
         const removedHere: string[] = []
-        for (const id of hit) if (store.remove(id)) removedHere.push(id)
+        for (const id of hit) {
+          const rec = store.records.get(id)
+          // 已经被软删过的记录不再重复“删除”，否则第二次 forget 会返回一堆旧 id，
+          // 也让 RECORD_NOT_FOUND 的语义失效。
+          if (rec === undefined || isTombstonedRecord(rec)) continue
+          const t = tombstone(this.store, id, { days: this.cfg.cognitive.tombstoneDays, reason: 'forget' })
+          if (t.ok) removedHere.push(id)
+        }
         if (removedHere.length > 0) {
           ids.push(...removedHere)
           removedByScope.push({ scope, ids: removedHere })
@@ -3295,6 +3473,29 @@ export class LocalMemoryService implements MemoryServiceApi {
     for (const group of removedByScope) this.events.forgotten(group)
     this.store.scheduleFlush()
     return { removed: ids.length, ids }
+  }
+
+  /**
+   * 0.32.0：撤销 forget（从墓碑恢复）。默认只在保留窗口内有效；
+   * 记录已被活动新版本取代 / 窗口已过时需要显式 force。
+   */
+  restoreRecord(id: string, opts: { force?: boolean } = {}): { restored: boolean; reason?: string } {
+    const result = restoreTombstoned(this.store, id, opts.force === true ? { force: true } : {})
+    if (result.ok) this.store.scheduleFlush()
+    return { restored: result.ok, ...(result.reason !== undefined ? { reason: result.reason } : {}) }
+  }
+
+  /** 0.32.0：导出记忆快照（gzip JSONL，不含向量；导入后按当前模型重新嵌入）。 */
+  snapshotStore(file: string, opts: { scopes?: MemoryScope[]; includeTombstoned?: boolean } = {}): { file: string; records: number; bytes: number } {
+    const result = writeSnapshot(this.store, file, opts)
+    return { file: result.file, records: result.records, bytes: result.bytes }
+  }
+
+  /** 0.32.0：从快照恢复（默认跳过已存在 id、同 scope 内容去重）。 */
+  restoreStore(file: string, opts: { targetScope?: MemoryScope; overwrite?: boolean } = {}): { imported: number; skipped: number } {
+    const result = readSnapshotFile(this.store, file, opts)
+    this.store.scheduleFlush()
+    return { imported: result.imported, skipped: result.skipped }
   }
 
   /**
@@ -3324,11 +3525,15 @@ export class LocalMemoryService implements MemoryServiceApi {
     }
     const retired = internal.includeSuperseded ? new Set<string>() : new Set(this.supersededIds(wanted))
     const now = Date.now()
+    const includeDormant = (input as { includeDormant?: boolean }).includeDormant === true
+    const includeTombstoned = (input as { includeTombstoned?: boolean }).includeTombstoned === true
     let records: MemoryRecord[] = []
     for (const store of stores) {
       for (const rec of store.records.values()) {
         if (retired.has(rec.id)) continue
         if (internal.includeExpired !== true && rec.expiredAt !== undefined && rec.expiredAt < now) continue
+        // 0.32.0：休眠/墓碑记录默认不出现在列表里（面板历史浏览显式打开）。
+        if (shouldSkipRecord(rec, { includeDormant, includeTombstoned })) continue
         records.push(rec)
       }
     }
@@ -3680,14 +3885,23 @@ export class LocalMemoryService implements MemoryServiceApi {
     this.discoverScopes()
     const archived = this.archivedSessionScopes()
     return this.store.allScopes()
-      .map((s) => ({
-        scope: s.scope,
-        ...(this.names.nameOf(s.scope) !== undefined ? { name: this.names.nameOf(s.scope) } : {}),
-        records: s.records.size,
-        pendingEmbeds: s.embedPending.size,
-        updatedAt: [...s.records.values()].reduce((max, r) => Math.max(max, r.updatedAt), 0),
-        ...(archived.has(s.scope) ? { archived: true } : {}),
-      }))
+      .map((s) => {
+        // 0.32.0：墓碑记录不算“记录数”（forget 变软删后，删掉的记忆不该继续
+        // 出现在目录/待嵌入统计里；物理删除由 purgeTombstones 负责）。
+        const live = [...s.records.values()].filter((r) => !isTombstonedRecord(r))
+        const pending = [...s.embedPending].filter((id) => {
+          const rec = s.records.get(id)
+          return rec !== undefined && !isTombstonedRecord(rec)
+        })
+        return {
+          scope: s.scope,
+          ...(this.names.nameOf(s.scope) !== undefined ? { name: this.names.nameOf(s.scope) } : {}),
+          records: live.length,
+          pendingEmbeds: pending.length,
+          updatedAt: live.reduce((max, r) => Math.max(max, r.updatedAt), 0),
+          ...(archived.has(s.scope) ? { archived: true } : {}),
+        }
+      })
       .sort((a, b) => b.updatedAt - a.updatedAt || b.records - a.records || a.scope.localeCompare(b.scope))
   }
 

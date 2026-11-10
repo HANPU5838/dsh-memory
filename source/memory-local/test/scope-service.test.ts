@@ -465,8 +465,11 @@ test('scope 数上限只影响自定义 scope:会话 scope 数量增长不受限
 // ------------------------------------------------------------------ 删空即移除(0.5.1)
 
 test('作用域被删空后不再留空文件,下次写入重新创建', async () => {
+  // 0.32.0：forget 改为软删（墓碑可恢复），所以“删空即移除文件”改为两段式：
+  //   forget 后列表不可见但文件保留（保留期内可 restore）；墓碑过期、维护任务
+  //   物理清理之后，空文件才会被移除。这里用 tombstoneDays: 0 让保留期立即结束。
   const dir = tempDir()
-  const svc = newService(dir)
+  const svc = newService(dir, { cognitive: { lifecycle: { tombstoneDays: 0 } } })
   const scope = 'handbook'
   const file = join(dir, 'projects', `${createHash('sha1').update(scope).digest('hex')}.jsonl`)
   const vec = file.replace(/\.jsonl$/, '.vec')
@@ -475,10 +478,16 @@ test('作用域被删空后不再留空文件,下次写入重新创建', async (
     svc.store.flush()
     assert.ok(existsSync(file), '写入后文件在')
 
-    // 删掉最后一条 → flush 时应当把 .jsonl 与 .vec 一起移除,而不是留 0 字节文件
+    // 软删：列表/检索立即不可见，但文件仍在（保留期内可 restore）
     await svc.forget({ id: rec.id })
     svc.store.flush()
-    assert.equal(existsSync(file), false, '删空后 .jsonl 应当被移除')
+    assert.equal((await svc.list({ scope })).length, 0, '软删后列表不可见')
+    assert.ok(existsSync(file), '墓碑保留期内文件仍在（可恢复）')
+
+    // 墓碑过期 → 维护任务物理清理 → 空文件随之移除
+    svc.runHousekeeping()
+    svc.store.flush()
+    assert.equal(existsSync(file), false, '墓碑过期清理后 .jsonl 应当被移除')
     assert.equal(existsSync(vec), false, '.vec 边车也一并移除')
 
     // 删空的作用域在**同一进程**里仍然是已知的(内存里有它的 store),只是磁盘上没了
