@@ -188,6 +188,10 @@ test('applyConflictResolution：invalidate-old 只写 validUntil，不 flush', (
   const older = save(store, scope, '端口 8080 用 npm 构建')
   const newer = save(store, scope, '端口 9090 用 pnpm 构建')
   const now = 777_000
+  // 关键：显式错开 updatedAt，否则两次 save 落在同一毫秒时「时间信号」会从 1 变 0.5，
+  // 决策在快慢机器上会翻转（CI 上就这么挂过一次）。测试必须与机器速度无关。
+  older.updatedAt = now - 10
+  newer.updatedAt = now
   const decision = resolveConflict({
     newer,
     older,
