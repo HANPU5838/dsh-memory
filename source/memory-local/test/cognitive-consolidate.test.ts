@@ -396,3 +396,13 @@ test('CONSOLIDATION_THRESHOLD 默认 0.9（略低于语义合并的 0.92）', ()
   assert.equal(CONSOLIDATION_THRESHOLD, 0.9)
   assert.equal(splitPoints('第一句，第二句。').length, 1, '逗号不是句子边界')
 })
+
+test('0.41.5 关键细节冲突的记录不会被巩固合并（10.4GB vs 20GB）', () => {
+  const now = Date.now()
+  const mk = (id, content) => ({ id, scope: 'global', kind: 'fact', content, tags: [], importance: 0.6, createdAt: now, updatedAt: now, source: { origin: 'explicit' } })
+  const a = mk('a', '服务器内存占用 10.4GB')
+  const b = mk('b', '服务器内存占用 20GB')
+  // 即使相似度人为给到 1，关键细节冲突也必须阻止聚簇
+  const result = clusterRecords([a, b], { threshold: 0.9, similarity: () => 1 })
+  assert.equal(result.clusters.length, 0, '冲突对不能被聚成一簇')
+})

@@ -3303,7 +3303,7 @@ export class LocalMemoryService                             {
    * - 余弦在 [conflictMinSimilarity, mergeThreshold)：只打冲突标记，绝不自动改内容。
    * 整个函数 best-effort：任何异常都吞掉，写记忆本身不能因为整理失败而失败。
    */
-          applyCognition(record              , vec              )       {
+          applyCognition(record              , vec              , retried = false)       {
     try {
       const hits = this.store.findSimilar(vec, {
         scope: record.scope,
@@ -3311,7 +3311,15 @@ export class LocalMemoryService                             {
         excludeIds: [record.id],
         limit: 3,
       })
-      if (hits.length === 0) return
+      if (hits.length === 0) {
+        // 0.41.5：连写两条时嵌入几乎同时完成，先完成的记录可能还看不到对方的向量
+        // → 冲突/合并漏判。延迟 300ms 重查一次（只重试一次，timer unref 不阻塞退出）。
+        if (!retried && !isTombstonedRecord(record)) {
+          const timer = setTimeout(() => this.applyCognition(record, vec, true), 300)
+          if (typeof timer.unref === 'function') timer.unref()
+        }
+        return
+      }
       // 相似度 ≥ 合并阈值 **且** 关键细节不冲突才合并。
       // 只看余弦会把「占用 10.4GB」和「占用 20GB」这种措辞几乎一样、事实却矛盾的
       // 两条合并掉（这种对的余弦往往比同义改写还高）。

@@ -30,6 +30,7 @@ import {
                   
 } from '../store.js'
 import { unionTags } from './merge.js'
+import { hasCriticalDetailConflict } from './conflict.js'
 import { validFromOf, validUntilOf } from './temporal.js'
 
 /** 聚类阈值：余弦相似度 ≥ 0.90 视为同一簇（略低于语义合并的 0.92：巩固允许"角度相近"）。 */
@@ -154,6 +155,9 @@ function clusterScope(
     }
   } else {
     const similarityOf = (a              , b              )         => {
+      // 0.41.5：关键细节冲突（10.4GB vs 20GB）绝不参与巩固 —— 即使余弦再高、
+      // 即使冲突检测因时序漏判，也不能把互斥事实揉成一条。
+      if (hasCriticalDetailConflict(a.content, b.content)) return 0
       if (custom !== undefined) return clamp01(custom(a, b))
       const va = vectorOf(options.vectors, a.id)
       const vb = vectorOf(options.vectors, b.id)
