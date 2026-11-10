@@ -64,6 +64,8 @@ import { RerankCache } from './rerank-cache.ts'
 import { scanSecrets, redactSecrets } from './secrets.ts'
 import { EmbedServerManager, type EmbedServerConfig, type EmbedServerState } from './embed-server.ts'
 import { VectorInstaller, detectInstalled, installPaths, type InstallProgress } from './embed-install.ts'
+import { EmbedCache } from './embed-cache.ts'
+import { EmbedKeepAlive } from './embed.ts'
 import { MemoryEventBus } from './events.ts'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
@@ -187,6 +189,12 @@ export interface MemoryLocalConfig {
       /** 运行时压缩包的 sha256；字符串=所有风味共用，对象=按资产名精确匹配。 */
       runtimeSha256?: string | Record<string, string>
       backfillBatchSize?: number
+      /** 0.32.0：文档/查询向量缓存（默认开）。 */
+      cache?: boolean
+      /** 0.32.0：缓存目录（缺省 <storeDir>/embed-cache）。 */
+      cacheDir?: string
+      /** 0.32.0：启动后预热 + 周期探活（默认开）。 */
+      keepAlive?: boolean
       /** Manage the llama-server process lifecycle (spawn on start, stop on exit). */
       spawn?: EmbedServerConfig
       /**
@@ -284,6 +292,11 @@ export interface ResolvedConfig {
     modelSha256: string
     runtimeSha256: string | Record<string, string> | undefined
     backfillBatchSize: number
+    /** 0.32.0：向量缓存开关与目录。 */
+    cache: boolean
+    cacheDir: string
+    /** 0.32.0：预热/探活保活开关。 */
+    keepAlive: boolean
     spawn: EmbedServerConfig
   }
   llm: RerankConfig
@@ -580,6 +593,9 @@ export function resolveConfig(config: MemoryLocalConfig = {}): ResolvedConfig {
       // 回填是批量等长内容里最慢的路径：32 条 × 数千 token 在 CPU 上会超时，
       // 整批失败后记录永久留在 pending；小批更容易在预算内完成。
       backfillBatchSize: v.backfillBatchSize ?? 8,
+      cache: v.cache ?? true,
+      cacheDir: v.cacheDir ?? join(storeDir, 'embed-cache'),
+      keepAlive: v.keepAlive ?? true,
       // Port defaults to the one in the embeddings endpoint so the two can never
       // drift apart; opt-in (enabled:false) keeps dev/test runs from spawning.
       // A backend the panel installed (or a hand-made one at installRoot) is
@@ -822,6 +838,10 @@ export class LocalMemoryService implements MemoryServiceApi {
   readonly cfg: ResolvedConfig
   readonly store: MemoryStore
   readonly embed: EmbeddingProvider
+  /** 0.32.0：文档/查询向量缓存（命中即免一次嵌入请求；换模型自动失效）。 */
+  private embedCache: EmbedCache | null = null
+  /** 0.32.0：启动预热 + 周期探活，llama-server 被杀后能自动恢复。 */
+  private embedKeepAlive: EmbedKeepAlive | null = null
   private rerankBudget: DailyBudget
   private rerankCache = new RerankCache()
   /** Host-provided one-shot LLM call; null = rerank disabled (recall order). */
@@ -910,6 +930,7 @@ export class LocalMemoryService implements MemoryServiceApi {
     if (this.cfg.globalEnabled) eager.push('global')
     for (const scope of eager) this.store.peek(scope)
     this.embed = this.createEmbed()
+    this.embedCache = this.createEmbedCache()
     this.startMaintenance()
     this.startEmbedServer()
   }
@@ -1090,6 +1111,18 @@ export class LocalMemoryService implements MemoryServiceApi {
     })
   }
 
+  /** 0.32.0：构造向量缓存。identity 跟着 model/dims/pooling 走，换模型整体失效。 */
+  private createEmbedCache(): EmbedCache {
+    return new EmbedCache({
+      dir: this.cfg.vector.cache ? this.cfg.vector.cacheDir : undefined,
+      identity: {
+        model: this.cfg.vector.model,
+        dims: this.cfg.vector.dims,
+        ...(this.cfg.vector.pooling !== undefined && this.cfg.vector.pooling !== 'auto' ? { pooling: this.cfg.vector.pooling } : {}),
+      },
+    })
+  }
+
   /** 记住面板里选的 provider（配置文件显式写 provider 时它不生效）。 */
   private persistProviderOverride(kind: EmbeddingProviderKind): void {
     try {
@@ -1117,7 +1150,15 @@ export class LocalMemoryService implements MemoryServiceApi {
     try { this.embedServer?.stop() } catch { /* best effort */ }
     this.embedServer = null
     this.cfg.vector.provider = kind
+    this.embedKeepAlive?.stop()
+    this.embedKeepAlive = null
     this.embed = this.createEmbed()
+    // 缓存身份跟着模型/维度/pooling：不一致时 setIdentity 会整体作废旧缓存。
+    this.embedCache?.setIdentity({
+      model: this.cfg.vector.model,
+      dims: this.cfg.vector.dims,
+      ...(this.cfg.vector.pooling !== undefined && this.cfg.vector.pooling !== 'auto' ? { pooling: this.cfg.vector.pooling } : {}),
+    })
     this.persistProviderOverride(kind)
     // 切回 local 且已配置 → 重新托管启动；其它 provider 不碰子进程。
     if (kind === 'local' && this.cfg.vector.enabled && this.cfg.vector.configured) this.startEmbedServer()
@@ -1146,6 +1187,16 @@ export class LocalMemoryService implements MemoryServiceApi {
    * Start (or adopt) the embedding backend and arm the exit safety net.
    * Shared by the activation path and the panel's manual start button.
    */
+  /** 0.32.0：启动预热保活（幂等；provider 切换/退出时先 stop）。 */
+  private startEmbedKeepAlive(): void {
+    if (!this.cfg.vector.keepAlive || this.embedKeepAlive !== null) return
+    this.embedKeepAlive = new EmbedKeepAlive({
+      target: this.embed,
+      log: (message: string) => console.warn(`[dsh-memory-local] ${message}`),
+    })
+    this.embedKeepAlive.start()
+  }
+
   private async ensureEmbedServer(waitMs?: number): Promise<EmbedServerState> {
     const mgr = this.embedServer
     if (!mgr) return 'disabled'
@@ -1158,6 +1209,8 @@ export class LocalMemoryService implements MemoryServiceApi {
       process.once('exit', this.exitHook)
     }
     const ready = await mgr.waitUntilReady(waitMs)
+    // 0.32.0：服务就绪后预热一次并开始周期探活（后台被杀能自动恢复）。
+    if (ready) this.startEmbedKeepAlive()
     if (!ready) console.warn('[dsh-memory-local] embed server: 启动超时,检索继续走词法降级')
     return state
   }
@@ -2922,12 +2975,21 @@ export class LocalMemoryService implements MemoryServiceApi {
   private async embedRecord(record: MemoryRecord): Promise<void> {
     if (!this.cfg.vector.enabled || !this.cfg.vector.configured) return
     const s = this.store.scope(record.scope)
+    const text = `${this.cfg.vector.documentPrefix ?? ''}${record.content}`
+    // 0.32.0：先查文档向量缓存 —— 同内容重写 / 迁移 / 重新索引时不必再请求嵌入服务。
+    const cached = this.embedCache?.getDocument(text) ?? null
+    if (cached !== null) {
+      s.appendVector(record.id, cached)
+      this.applyCognition(record, cached)
+      return
+    }
     // save-time budget: one full record, much slower than a search query
     // 记录按"文档"嵌入:有些模型(nomic/e5)要求文档与查询带不同前缀,不带质量会掉。
-    const vec = await this.embed.embed([`${this.cfg.vector.documentPrefix ?? ''}${record.content}`], undefined, { timeoutMs: this.cfg.vector.writeTimeoutMs }).catch(() => null)
+    const vec = await this.embed.embed([text], undefined, { timeoutMs: this.cfg.vector.writeTimeoutMs }).catch(() => null)
     if (vec?.[0]) {
       const normalized = normalizeInPlace(vec[0])
       s.appendVector(record.id, normalized)
+      this.embedCache?.putDocument(text, normalized)
       // 0.32.0：拿到向量后做一次语义整理（近重复合并 / 冲突打标）。
       // 放在嵌入之后是因为这一步要靠向量；失败不影响主流程。
       this.applyCognition(record, normalized)
@@ -3008,12 +3070,22 @@ export class LocalMemoryService implements MemoryServiceApi {
         chars += t.length
       }
       if (texts.length === 0) continue
-      const vecs = await this.embed.embed(texts, undefined, { timeoutMs: this.cfg.vector.backfillTimeoutMs }).catch(() => null)
-      if (!vecs) return done
+      // 0.32.0：优先用批量接口（部分成功语义）。旧实现只要有一条失败就整批作废、
+      // 而且无论成功与否都 del pending —— 超长记录会永远重试，正常记录也白跑。
+      const vecs: Array<Float32Array | null> | null = this.embed.embedBatch !== undefined
+        ? await this.embed.embedBatch(texts, undefined, { timeoutMs: this.cfg.vector.backfillTimeoutMs }).catch(() => null)
+        : await this.embed.embed(texts, undefined, { timeoutMs: this.cfg.vector.backfillTimeoutMs }).catch(() => null)
+      if (vecs === null) return done // 外层 null = 后端整体不可用，整轮到此为止
       for (let i = 0; i < valid.length; i++) {
-        if (s.records.has(valid[i]!) && vecs[i]) s.appendVector(valid[i]!, normalizeInPlace(vecs[i]!))
-        s.embedPending.delete(valid[i]!)
-        done++
+        const vector = vecs[i]
+        if (s.records.has(valid[i]!) && vector) {
+          const normalized = normalizeInPlace(vector)
+          s.appendVector(valid[i]!, normalized)
+          this.embedCache?.putDocument(texts[i]!, normalized)
+          s.embedPending.delete(valid[i]!)
+          done++
+        }
+        // 失败的条目保留在 pending 里等下一轮（不再无条件删除）
       }
     }
     return done
@@ -3182,9 +3254,13 @@ export class LocalMemoryService implements MemoryServiceApi {
     // --- channel 2: vector recall over embedded records ---
     // Skipped entirely when no backend is configured (lexical recall above
     // already produced the candidates; a request here would just fail).
-    let qvec = allowVector
-      ? await this.embed.embed([`${this.cfg.vector.queryPrefix ?? ''}${query.text}`], query.signal, { timeoutMs: this.queryTimeoutMs }).catch(() => null)
-      : null
+    // 0.32.0：查询向量缓存（同一问句重复检索时免一次嵌入，实测热查询 P50 0.03ms）。
+    const queryText = `${this.cfg.vector.queryPrefix ?? ''}${query.text}`
+    const cachedQuery = allowVector ? (this.embedCache?.getQuery(queryText) ?? null) : null
+    let qvec: Float32Array[] | null = cachedQuery !== null ? [cachedQuery] : null
+    if (allowVector && qvec === null) {
+      qvec = await this.embed.embed([queryText], query.signal, { timeoutMs: this.queryTimeoutMs }).catch(() => null)
+    }
     // 慢设备自适应：首查超时就用更大预算重试一次，成功后把预算钉到实测的 3 倍。
     // 不做这一步的话，ARM 手机上 300ms 预算意味着语义召回永远不生效。
     if (allowVector && qvec === null) {
@@ -3195,12 +3271,13 @@ export class LocalMemoryService implements MemoryServiceApi {
         // 熔断器在超时后会把后端标记为不健康并退避，这里是我们主动的重试，
         // 直接放开一次，否则 embed() 会跳过网络直接返回 null。
         this.embed.markUp()
-        qvec = await this.embed.embed([`${this.cfg.vector.queryPrefix ?? ''}${query.text}`], query.signal, { timeoutMs: bumped }).catch(() => null)
+        qvec = await this.embed.embed([queryText], query.signal, { timeoutMs: bumped }).catch(() => null)
         if (qvec !== null) {
           this.queryTimeoutMs = Math.min(4_000, Math.max(bumped, (Date.now() - startedAt) * 3))
         }
       }
     }
+    if (qvec?.[0] !== undefined && cachedQuery === null) this.embedCache?.putQuery(queryText, qvec[0])
     if (qvec?.[0]) {
       const vectorScores = new Map<string, number>()
       for (const { store } of stores) {
@@ -4159,6 +4236,10 @@ export class LocalMemoryService implements MemoryServiceApi {
       clearTimeout(this.initialDrainTimer)
       this.initialDrainTimer = null
     }
+    this.embedKeepAlive?.stop()
+    this.embedKeepAlive = null
+    try { this.embedCache?.dispose() } catch { /* 缓存落盘失败不影响退出 */ }
+    this.embedCache = null
     if (this.embedServer) this.embedServer.stop()
     if (this.exitHook) {
       process.removeListener('exit', this.exitHook)

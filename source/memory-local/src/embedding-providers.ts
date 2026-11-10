@@ -31,6 +31,12 @@ export interface EmbeddingProvider {
   readonly identity: EmbeddingProviderIdentity
   readonly isHealthy: boolean
   embed(texts: string[], signal?: AbortSignal, opts?: { timeoutMs?: number }): Promise<Float32Array[] | null>
+  /**
+   * 批量嵌入（可选）：与 `embed()` 的区别是允许**部分成功** —— 返回与入参等长的
+   * 数组，单条失败为 `null`；外层 `null` 表示后端整体不可用（一条都没成）。
+   * 没有批量能力的 provider 可以不实现，调用方（回填队列）会回退到 `embed()`。
+   */
+  embedBatch?(texts: string[], signal?: AbortSignal, opts?: { timeoutMs?: number; maxBatchSize?: number; maxBatchChars?: number }): Promise<Array<Float32Array | null> | null>
   healthCheck(timeoutMs?: number): Promise<boolean>
   markUp(): void
   markDown(): void
@@ -138,6 +144,10 @@ class OpenAiCompatibleProvider implements EmbeddingProvider {
     return this.client.embed(texts, signal, opts)
   }
 
+  embedBatch(texts: string[], signal?: AbortSignal, opts?: { timeoutMs?: number; maxBatchSize?: number; maxBatchChars?: number }): Promise<Array<Float32Array | null> | null> {
+    return this.client.embedBatch(texts, signal, opts)
+  }
+
   /**
    * 真实探针（不是读缓存状态）：临时复位熔断再发一次最小嵌入，
    * 这样「后端已经恢复但熔断还开着」时 healthCheck 也能确认恢复。
@@ -231,6 +241,29 @@ class OllamaProvider implements EmbeddingProvider {
       out.push(value)
     }
     this.markUp()
+    return out
+  }
+
+  /**
+   * ollama 没有批量接口，这里逐条串行并保留"部分成功"语义：
+   * 单条失败只留 null，不牵连其它条（超长记录不会再毒死整批回填）。
+   */
+  async embedBatch(
+    texts: string[],
+    signal?: AbortSignal,
+    opts?: { timeoutMs?: number; maxBatchSize?: number; maxBatchChars?: number },
+  ): Promise<Array<Float32Array | null> | null> {
+    if (texts.length === 0) return []
+    if (!this.usable) return null
+    const timeoutMs = opts?.timeoutMs ?? this.timeoutMs
+    const out: Array<Float32Array | null> = []
+    let ok = 0
+    for (const text of texts) {
+      const value = await this.embedOne(text, signal, timeoutMs)
+      if (value !== null) ok += 1
+      out.push(value)
+    }
+    if (ok > 0) this.markUp()
     return out
   }
 
