@@ -3948,7 +3948,7 @@ export class LocalMemoryService                             {
    * 按 id 批量取记录(memory_get)。接受完整 id,也接受摘要里给出的前 8 位前缀
    * (前缀命中多条时全部返回,由调用方/模型自行判断)。取全文不需要再检索。
    */
-  getByIds(ids          )                 {
+  getByIds(ids          , opts                         = {})                 {
     this.discoverScopes()
     const scopes = this.store.allScopes()
     const archivedScopes = this.archivedSessionScopes()
@@ -3967,9 +3967,10 @@ export class LocalMemoryService                             {
         }
       }
     }
-    // 0.33.0：取用反馈闭环 —— memory_get 取到正文才算"真的用到了"，
-    // 用 FSRS 式 updateAfterUse 提升 stability / utility；召回本身不算（避免刷分）。
-    if (out.length > 0) {
+    // 0.33.0：取用反馈闭环 —— 只有**显式 memory_get** 取到正文才算"真的用到了"，
+    // 用 FSRS 式 updateAfterUse 提升 stability / utility；召回本身、以及注入层
+    // 做去重标记时的内部读取都不算（0.34.2 修：它们会让 utility/useCount 虚增）。
+    if (opts.trackUse === true && out.length > 0) {
       const now = Date.now()
       for (const rec of out) {
         // 历史查询（软删/失效/休眠）不产生"取用"信号，否则恢复出来的记忆会莫名高分。

@@ -269,6 +269,8 @@ cognitive:
 | G5 | **记忆树自由缩放（0.34.1）** | 20%~300%，−/%/+/100%/适应；Ctrl/⌘+滚轮锚定指针连续缩放；localStorage 记忆比例（0.34.0 误做在整个面板，已撤销） |
 | G6 | **容量淘汰跳过墓碑** | `enforceLimit` 不淘汰 tombstone，避免容量压力破坏"30 天可恢复"承诺；`wipeAllRecords` 同时丢弃 ANN 索引 |
 
+| G7 | **取用反馈污染（0.34.2）** | 注入层去重标记调用 `getByIds()` 被当成取用，导致 utility/useCount 虚增；改为 `trackUse` 显式开关，只有 memory_get 计分 |
+
 ## 三、如何从上游同步
 
 ```bash

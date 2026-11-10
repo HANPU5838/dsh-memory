@@ -225,8 +225,8 @@ export class CordisMemoryService extends Service {
   }
 
   /** memory_get:按 id 批量取记录。 */
-  getByIds(ids: string[]): MemoryRecord[] {
-    return this.impl.getByIds(ids)
+  getByIds(ids: string[], opts?: { trackUse?: boolean }): MemoryRecord[] {
+    return this.impl.getByIds(ids, opts ?? {})
   }
 
   /** 面板新建记忆 / 规则。 */

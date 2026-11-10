@@ -24,7 +24,7 @@ test('memory_get 触发取用反馈：utility / useCount / stability 都会增�
     const rec = await svc.save({ scope: SCOPE, kind: 'procedure', content: '发布前先跑回归测试。' })
     const before = svc.store.peek(SCOPE)!.records.get(rec.id) as { utility?: number; useCount?: number; stability?: number }
     assert.equal(before.useCount ?? 0, 0)
-    await svc.getByIds([rec.id])
+    await svc.getByIds([rec.id], { trackUse: true })
     const after = svc.store.peek(SCOPE)!.records.get(rec.id) as { utility?: number; useCount?: number; stability?: number }
     assert.equal(after.useCount, 1, '成功取用一次')
     assert.ok((after.utility ?? 0) > 0, 'utility 被 EWMA 提升')
@@ -42,7 +42,7 @@ test('强度排序：同等相关度下，被取用过的记忆排在未被取�
     const used = await svc.save({ scope: SCOPE, kind: 'note', content: 'alpha 常用记录' })
     await svc.save({ scope: SCOPE, kind: 'note', content: 'alpha 冷记录' })
     // 模拟"这条被反复取用"（相当于多轮 memory_get 的反馈）
-    for (let i = 0; i < 5; i++) await svc.getByIds([used.id])
+    for (let i = 0; i < 5; i++) await svc.getByIds([used.id], { trackUse: true })
     const hits = await svc.search({ text: 'alpha', scope: SCOPE, topK: 5 })
     assert.equal(hits.length, 2)
     assert.equal(hits[0]!.record.id, used.id, '被取用过的记忆应优先')
@@ -125,6 +125,27 @@ test('容量淘汰不会提前删掉墓碑记录（保留 30 天可恢复的承�
     svc.runHousekeeping()
     const raw = svc.store.peek(SCOPE)!.records.get(tomb.id)
     assert.ok(raw, '墓碑记录不应被容量淘汰提前物理删除')
+  } finally {
+    svc.flushSync()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('取用反馈只由显式 memory_get 触发：内部/注入读取不涨 utility', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-magic-trackuse-'))
+  const svc = makeService(dir)
+  try {
+    const rec = await svc.save({ scope: SCOPE, kind: 'note', content: '取用反馈口径测试' })
+    const read = () => svc.store.peek(SCOPE)!.records.get(rec.id) as { useCount?: number; utility?: number }
+    assert.equal(read().useCount ?? 0, 0, '刚保存不应有取用次数')
+    // 注入层/去重标记/删除校验这类内部读取：默认不计
+    svc.getByIds([rec.id])
+    assert.equal(read().useCount ?? 0, 0, '内部 getByIds 不计取用')
+    assert.equal(read().utility ?? 0, 0, '内部读取不提升 utility')
+    // memory_get 工具路径：显式 trackUse
+    svc.getByIds([rec.id], { trackUse: true })
+    assert.equal(read().useCount, 1, '只有显式取用才 +1')
+    assert.ok((read().utility ?? 0) > 0, '显式取用提升 utility')
   } finally {
     svc.flushSync()
     rmSync(dir, { recursive: true, force: true })

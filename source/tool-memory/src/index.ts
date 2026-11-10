@@ -242,7 +242,7 @@ export interface MemoryToolService {
    */
   requestOutOfScope?(agent: unknown, input: { tool: string; action?: 'read' | 'write' | 'delete'; query: string; description?: string; items: VisibilityApprovalItem[]; signal?: AbortSignal }): Promise<ApprovalAnswer>
   /** 按 id 批量取记录(召回摘要里带了 id,模型可直接取全文)。 */
-  getByIds?(ids: string[]): GetSourceRecord[]
+  getByIds?(ids: string[], opts?: { trackUse?: boolean }): GetSourceRecord[]
   /** 写路径默认 scope(省略 scope 时落到哪)。 */
   resolveWriteScope?(agent: unknown, requested?: string): MemoryScope
   /**
@@ -1858,7 +1858,8 @@ export function memoryGetTool(opts: MemoryToolsOptions): ToolSpec<GetArgs, GetRe
       const fields = resolveGetFields(args.fields)
       const chars = resolveSummaryChars(args.summaryChars)
       try {
-        const all = service.getByIds(ids)
+        // memory_get 是**模型真的取用了正文**：只有这一处触发取用反馈。
+        const all = service.getByIds(ids, { trackUse: true })
         // 可见域是白名单:即使知道 id,也不能直接读别的范围/别的类型的正文。
         const policy = visibilityPolicy(service, agent)
         const decide = decisionMaker(service, agent)

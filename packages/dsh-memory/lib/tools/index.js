@@ -242,7 +242,7 @@ import { canonicalWorkspacePath, defaultScopeDescription, isAbsoluteWorkspacePat
      
                                                                                                                                                                                                                         
                                          
-                                             
+                                                                            
                                     
                                                                      
      
@@ -1858,7 +1858,8 @@ export function memoryGetTool(opts                    )                         
       const fields = resolveGetFields(args.fields)
       const chars = resolveSummaryChars(args.summaryChars)
       try {
-        const all = service.getByIds(ids)
+        // memory_get 是**模型真的取用了正文**：只有这一处触发取用反馈。
+        const all = service.getByIds(ids, { trackUse: true })
         // 可见域是白名单:即使知道 id,也不能直接读别的范围/别的类型的正文。
         const policy = visibilityPolicy(service, agent)
         const decide = decisionMaker(service, agent)
