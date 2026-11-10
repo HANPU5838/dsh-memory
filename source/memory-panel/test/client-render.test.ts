@@ -3425,18 +3425,45 @@ test('审计详情能把 operationId 精确送到轨迹视图', async () => {
   hooks.resetAll()
 })
 
-test('面板缩放：提供 A− / A+ / 百分比控件，根节点应用 zoom', async () => {
-  const hooks = makeReact()
-  const current = await mountPanel(hooks, { scopes: [], embedServer: null })
-  const root = collect(current()).find((n) => String(n.props?.className ?? '') === 'memp')
-  assert.ok(root, '面板根节点存在')
-  assert.equal(Number(root!.props?.style?.zoom), 1, '默认 100%')
+test('记忆树缩放：− / % / + / 100% / 适应，恢复上次比例', async () => {
+  const { exports, hooks } = await loadBundle()
+  const MemoryTreeTab = (exports.__test as { MemoryTreeTab: (p: Record<string, unknown>) => unknown }).MemoryTreeTab
+  assert.equal(typeof MemoryTreeTab, 'function', '记忆树组件可在测试里直接渲染')
 
-  const plus = collect(current()).find((n) => n.tag === 'button' && textOf(n).trim() === 'A+')
-  const minus = collect(current()).find((n) => n.tag === 'button' && textOf(n).trim() === 'A−')
-  assert.ok(plus && minus, '有放大/缩小按钮（面板可随意缩大缩小）')
-  const pct = collect(current()).find((n) => n.tag === 'button' && /^\d+%$/.test(textOf(n).trim()))
-  assert.ok(pct, '有当前缩放百分比（点击重置为 100%）')
-  assert.equal(textOf(pct!).trim(), '100%')
-  hooks.resetAll()
+  const store = new Map<string, string>([['dsh-memory:tree-zoom', '1.3']])
+  const globals = globalThis as Record<string, unknown>
+  const savedWindow = globals.window
+  globals.window = Object.assign({}, savedWindow, {
+    localStorage: {
+      getItem: (k: string) => (store.has(k) ? store.get(k)! : null),
+      setItem: (k: string, v: string) => { store.set(k, v) },
+      removeItem: (k: string) => { store.delete(k) },
+    },
+  })
+  const now = Date.now()
+  const records = [
+    { id: 'r1', scope: 'global', kind: 'fact', content: '缩放测试记录一', updatedAt: now, createdAt: now, tags: [], importance: 0.8 },
+    { id: 'r2', scope: 'global', kind: 'note', content: '缩放测试记录二', updatedAt: now, createdAt: now, tags: [], importance: 0.5 },
+  ]
+  try {
+    const element = () => hooks.React.createElement(MemoryTreeTab, {
+      records, scopes: [], loading: false, error: '', onRefresh() {},
+    })
+    let current: RenderNode | null = render(element(), hooks)
+    hooks.setRerender(() => { current = render(element(), hooks) })
+    hooks.runEffects()
+    for (let i = 0; i < 8; i++) await Promise.resolve()
+
+    const buttons = collect(current).filter((n) => n.tag === 'button').map((n) => textOf(n).trim())
+    for (const label of ['−', '+', '100%', '适应']) {
+      assert.ok(buttons.includes(label), `记忆树缩放控件应有「${label}」（实际 ${buttons.join('|')}）`)
+    }
+    const zoomLabel = collect(current).find((n) => String(n.props?.className ?? '') === 'zoomval')
+    assert.ok(zoomLabel, '有缩放百分比显示')
+    assert.equal(textOf(zoomLabel!).trim(), '130%', '打开时恢复上次缩放比例')
+  } finally {
+    globals.window = savedWindow
+    hooks.resetAll()
+  }
 })
+

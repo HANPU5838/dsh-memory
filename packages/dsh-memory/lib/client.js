@@ -187,9 +187,6 @@ window.__ModuleLoader__.load({
       '.memp .warn{font-size:11.5px;color:var(--dsw-alias-label-secondary)}',
       // 面板内的标签栏:分段式按钮(参照宿主设置页的分段控件)
       '.memp .tabs{display:inline-flex;gap:2px;padding:2px;border-radius:9px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);margin-bottom:14px}',
-      '.memp .zoomctl{display:inline-flex;align-items:center;gap:2px;margin-left:10px;vertical-align:top}',
-      '.memp .zoomctl button{background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);border-radius:7px;padding:4px 8px;font-size:11.5px;line-height:1.2;color:var(--dsw-alias-label-secondary);cursor:pointer;font-variant-numeric:tabular-nums}',
-      '.memp .zoomctl button:hover{color:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary)}',
       '.memp .tab{background:none;border:0;border-radius:7px;padding:4px 14px;color:var(--dsw-alias-label-secondary);cursor:pointer;font-size:13px;line-height:1.6;transition:background .12s ease,color .12s ease}',
       '.memp .tab:hover{color:var(--dsw-alias-label-primary)}',
       '.memp .tab.on{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-brand-primary);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.10)}',
@@ -1433,6 +1430,20 @@ window.__ModuleLoader__.load({
      * 语义(kind)与内容;修正关系是跨记录的点对点关系,用金色虚线单独画在树的右侧,
      * 悬停/选中任意一端时两端与整条链一起点亮。
      */
+    /** 0.34.1：记忆树画布缩放（20%~300%，浏览器本地记忆）。 */
+    const TREE_ZOOM_KEY = 'dsh-memory:tree-zoom'
+    const TREE_ZOOM_MIN = 0.2
+    const TREE_ZOOM_MAX = 3
+    function loadTreeZoom() {
+      try {
+        const value = Number(window.localStorage.getItem(TREE_ZOOM_KEY))
+        return Number.isFinite(value) && value >= TREE_ZOOM_MIN && value <= TREE_ZOOM_MAX ? value : 1
+      } catch { return 1 }
+    }
+    function clampTreeZoom(value) {
+      return Math.max(TREE_ZOOM_MIN, Math.min(TREE_ZOOM_MAX, Math.round(value * 100) / 100))
+    }
+
     function MemoryTreeTab({ records, scopes, loading, error, onRefresh }) {
       const [query, setQuery] = React.useState('')
       const [scopeFilter, setScopeFilter] = React.useState('')
@@ -1441,7 +1452,7 @@ window.__ModuleLoader__.load({
       const [selectedId, setSelectedId] = React.useState(null)
       const [hoverId, setHoverId] = React.useState(null)
       const [showCorrections, setShowCorrections] = React.useState(true)
-      const [zoom, setZoom] = React.useState(1)
+      const [zoom, setZoom] = React.useState(loadTreeZoom())
       const [autoFitDone, setAutoFitDone] = React.useState(false)
       const wrapRef = React.useRef(null)
 
@@ -1577,7 +1588,7 @@ window.__ModuleLoader__.load({
         setShowCorrections(true)
       }
       const stepZoom = (delta) => {
-        setZoom((value) => Math.max(0.45, Math.min(1.6, Math.round((value + delta) * 100) / 100)))
+        setZoom((value) => clampTreeZoom(value + delta))
       }
       const fitView = () => {
         try {
@@ -1589,9 +1600,14 @@ window.__ModuleLoader__.load({
             Math.max((scroll.clientHeight - 28) / layout.height, 0.72),
             1.15,
           )
-          setZoom(Math.max(0.5, Math.min(1.6, Math.round(next * 100) / 100)))
+          setZoom(clampTreeZoom(next))
         } catch { setZoom(1) }
       }
+
+      // 0.34.1：缩放持久化 —— 下次打开记忆树保持上次的比例。
+      React.useEffect(() => {
+        try { window.localStorage.setItem(TREE_ZOOM_KEY, String(zoom)) } catch { /* 隐私模式忽略 */ }
+      }, [zoom])
 
       const selected = selectedId === null ? undefined : recordById.get(selectedId)
       const scopeItems = [{ value: '', label: '全部作用域' }]
@@ -1604,6 +1620,34 @@ window.__ModuleLoader__.load({
           ? '当前筛选下没有记忆。'
           : ''
       const showEmpty = emptyText !== '' || (Boolean(error) && records.length === 0)
+
+      // 0.34.1：Ctrl/⌘ + 滚轮**自由缩放**（锚定指针位置，不跳动）；普通滚轮仍是滚动。
+      // 按钮步进只到 0.1，滚轮可以连续缩到 20%~300%，满足"随意缩大缩小"。
+      React.useEffect(() => {
+        const wrap = wrapRef.current
+        const scroll = wrap && typeof wrap.querySelector === 'function' ? wrap.querySelector('.tree-scroll') : null
+        if (!scroll || typeof scroll.addEventListener !== 'function') return
+        const onWheel = (event) => {
+          if (!(event.ctrlKey || event.metaKey)) return
+          if (typeof event.preventDefault === 'function') event.preventDefault()
+          const rect = typeof scroll.getBoundingClientRect === 'function' ? scroll.getBoundingClientRect() : { left: 0, top: 0 }
+          const localX = Number(event.clientX) - rect.left
+          const localY = Number(event.clientY) - rect.top
+          setZoom((old) => {
+            const next = clampTreeZoom(old * Math.exp(-Number(event.deltaY) * 0.0015))
+            if (next === old) return old
+            const ratio = next / old
+            try {
+              scroll.scrollLeft = Math.max(0, (scroll.scrollLeft + localX) * ratio - localX)
+              scroll.scrollTop = Math.max(0, (scroll.scrollTop + localY) * ratio - localY)
+            } catch { /* 滚动位置校正失败不影响缩放 */ }
+            return next
+          })
+        }
+        scroll.addEventListener('wheel', onWheel, { passive: false })
+        return () => { try { scroll.removeEventListener('wheel', onWheel) } catch { /* 忽略 */ } }
+      }, [showEmpty, layout.width, layout.height])
+
 
       const stats = h('div', { className: 'tree-stats' },
         h('div', { className: 'stat' }, h('b', null, String(records.length)), h('span', null, '条记忆')),
@@ -1744,9 +1788,10 @@ window.__ModuleLoader__.load({
             )
           : null,
         showEmpty ? null : h('div', { className: 'tree-zoom' },
-          h('button', { title: '缩小', onClick: () => stepZoom(-0.1) }, '−'),
+          h('button', { title: '缩小（Ctrl/⌘ + 滚轮可连续缩放）', onClick: () => stepZoom(-0.1) }, '−'),
           h('span', { className: 'zoomval' }, `${Math.round(zoom * 100)}%`),
-          h('button', { title: '放大', onClick: () => stepZoom(0.1) }, '+'),
+          h('button', { title: '放大（Ctrl/⌘ + 滚轮可连续缩放）', onClick: () => stepZoom(0.1) }, '+'),
+          h('button', { title: '复位到 100%', onClick: () => setZoom(1) }, '100%'),
           h('button', { title: '适应画布', onClick: fitView }, '适应'),
         ),
         showCorrections && layout.corrections.length > 0 && !showEmpty
@@ -3658,17 +3703,6 @@ window.__ModuleLoader__.load({
     /** 待嵌入自动刷新:最多 300 次 × 1.5s(后端挂着时不无限轮询)。 */
     const PENDING_POLL_LIMIT = 300
 
-    /** 0.34.0：面板整体缩放（70%~160%，浏览器本地记忆）。记忆树另有自己的画布缩放。 */
-    const PANEL_ZOOM_KEY = 'dsh-memory:panel-zoom'
-    const PANEL_ZOOM_MIN = 0.7
-    const PANEL_ZOOM_MAX = 1.6
-    function loadPanelZoom() {
-      try {
-        const value = Number(window.localStorage.getItem(PANEL_ZOOM_KEY))
-        return Number.isFinite(value) && value >= PANEL_ZOOM_MIN && value <= PANEL_ZOOM_MAX ? value : 1
-      } catch { return 1 }
-    }
-
     function MemoryPanel({ openSession, sessionInfo, audience = 'panel', lockSession } = {}) {
       const [records, setRecords] = React.useState([])
       const [scopes, setScopes] = React.useState([])
@@ -3691,13 +3725,6 @@ window.__ModuleLoader__.load({
       const [loading, setLoading] = React.useState(true)
       const [error, setError] = React.useState('')
       const [tab, setTab] = React.useState('data')
-      // 0.34.0：面板缩放（随意放大缩小，持久化到 localStorage）
-      const [uiZoom, setUiZoom] = React.useState(loadPanelZoom())
-      React.useEffect(() => {
-        try { window.localStorage.setItem(PANEL_ZOOM_KEY, String(uiZoom)) } catch { /* 隐私模式忽略 */ }
-      }, [uiZoom])
-      const nudgeZoom = (delta) => setUiZoom((z) => Math.min(PANEL_ZOOM_MAX, Math.max(PANEL_ZOOM_MIN, Math.round((z + delta) * 20) / 20)))
-      const resetZoom = () => setUiZoom(1)
       // 「记录」页里的二级标签页(0.28.0)：记忆(列表) / 作用域(名称 + 用途 + 条数)。
       // 两个视图共用 /status 的那次拉取，切换不重新请求。
       const [dataView, setDataView] = React.useState('memories')
@@ -4394,7 +4421,7 @@ window.__ModuleLoader__.load({
         onRefresh: () => { setPendingTick(0); load('', '') },
       })
 
-      return h('div', { className: 'memp', style: { zoom: uiZoom } },
+      return h('div', { className: 'memp' },
         h('div', { className: 'tabs' },
           h('button', { className: 'tab' + (tab === 'records' ? ' on' : ''), onClick: () => setTab('records') }, '服务'),
           h('button', { className: 'tab' + (tab === 'data' ? ' on' : ''), onClick: () => { if (tab !== 'data') load(); setTab('data') } }, '记录'),
@@ -4404,11 +4431,6 @@ window.__ModuleLoader__.load({
           }, '记忆树'),
           h('button', { className: 'tab' + (tab === 'settings' ? ' on' : ''), onClick: () => setTab('settings') }, '设置'),
           h('button', { className: 'tab' + (tab === 'audit' ? ' on' : ''), onClick: () => setTab('audit') }, '审计'),
-        ),
-        h('span', { className: 'zoomctl', title: '面板缩放（记忆树画布另有独立缩放）' },
-          h('button', { onClick: () => nudgeZoom(-0.1), title: '缩小' }, 'A−'),
-          h('button', { onClick: resetZoom, title: '重置为 100%' }, `${Math.round(uiZoom * 100)}%`),
-          h('button', { onClick: () => nudgeZoom(0.1), title: '放大' }, 'A+'),
         ),
         tab === 'settings'
           ? h(SettingsTab, {})

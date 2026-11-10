@@ -1767,6 +1767,8 @@ export class LocalMemoryService implements MemoryServiceApi {
       removed += local
       scopes.push(scope.scope)
     }
+    // 清空后 ANN 索引与缓存里的条目都失效：直接丢弃索引，下次按需重建。
+    this.annIndexes.clear()
     try { this.store.flush() } catch { /* scheduled flush covers it */ }
     return { removed, scopes }
   }

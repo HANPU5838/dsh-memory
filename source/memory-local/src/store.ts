@@ -1290,6 +1290,10 @@ export class MemoryStore {
       if (skip?.(s.scope)) continue
       if (s.records.size <= maxPerScope) continue
       const ranked = [...s.records.values()]
+        // 软删（墓碑）记录不参与容量淘汰：它们的保留期与"可恢复"承诺是独立的，
+        // 超容量时应该淘汰活记录（或等 purgeTombstones 到期清理），不能提前把
+        // 用户还没恢复的东西删掉。
+        .filter((r) => !isTombstonedRecord(r))
         .map((r) => ({
           id: r.id,
           // 0.33.2：淘汰也要看"有没有用" —— 只看新鲜度 × 重要度会把经常被取用、

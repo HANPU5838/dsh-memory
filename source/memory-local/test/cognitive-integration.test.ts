@@ -112,3 +112,21 @@ test('休眠判定：memory_get 取用也算"被看见"，不会误判休眠', a
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('容量淘汰不会提前删掉墓碑记录（保留 30 天可恢复的承诺）', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-magic-evict-'))
+  const svc = new LocalMemoryService({ storeDir: dir, scopes: { global: true, project: true }, limits: { maxRecordsPerScope: 2 } })
+  svc.setProjectScope(SCOPE)
+  try {
+    const tomb = await svc.save({ scope: SCOPE, kind: 'note', content: '会被删除的记录 alpha' })
+    await svc.forget({ id: tomb.id })
+    // 再写 3 条活记录，触发容量淘汰
+    for (let i = 0; i < 3; i++) await svc.save({ scope: SCOPE, kind: 'note', content: `活记录 ${i} alpha` })
+    svc.runHousekeeping()
+    const raw = svc.store.peek(SCOPE)!.records.get(tomb.id)
+    assert.ok(raw, '墓碑记录不应被容量淘汰提前物理删除')
+  } finally {
+    svc.flushSync()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

@@ -1,6 +1,6 @@
 {
   "name": "@restregular/dsh-memory",
-  "version": "0.34.0",
+  "version": "0.34.1",
   "private": true,
   "description": "DeepSeek Harness 记忆系统(单包单入口):JSONL 存储 + 本地向量检索(BGE-M3)+ 六个模型工具 + 自动召回注入 + 管理面板。",
   "icon": "./packages/dsh-memory/icon.svg",
@@ -66,9 +66,9 @@
   },
   "license": "MIT",
   "scripts": {
-    "build": "node tools/build-single-package.mjs --scope @restregular --version 0.34.0 --repo https://github.com/HANPU5838/dsh-memory",
+    "build": "node tools/build-single-package.mjs --scope @restregular --version 0.34.1 --repo https://github.com/HANPU5838/dsh-memory",
     "build:split": "node tools/build-npm-packages.mjs --scope @restregular --version 0.1.0 --repo https://github.com/HANPU5838/dsh-memory --repo-dir packages/dsh-memory --out .build && node tools/place-built.mjs",
-    "verify": "node tools/build-single-package.mjs --scope @restregular --version 0.34.0 --out .verify --no-place",
+    "verify": "node tools/build-single-package.mjs --scope @restregular --version 0.34.1 --out .verify --no-place",
     "verify:split": "node tools/verify-installed-packages.mjs . --scope @restregular",
     "test": "node --experimental-strip-types --test source/*/test/*.test.ts"
   },
