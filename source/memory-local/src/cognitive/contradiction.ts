@@ -22,7 +22,7 @@
  * 等级：confidence >= 0.6 → high；>= 0.3 → medium；否则 low。
  */
 import { clamp01, normalizeContent, type MemoryRecord } from '../store.ts'
-import { hasCriticalDetailConflict } from './conflict.ts'
+import { hasCriticalDetailConflict, canonicalIdentifier } from './conflict.ts'
 
 /** 高/中矛盾阈值（含）。 */
 export const CONTRADICTION_HIGH = 0.6
@@ -122,7 +122,7 @@ export function extractClaims(content: string): ExtractedClaims {
   const identifiers: string[] = []
   const seenIds = new Set<string>()
   for (const m of content.toLowerCase().matchAll(/[a-z][a-z0-9_+.\-]{2,}/g)) {
-    const token = m[0]
+    const token = canonicalIdentifier(m[0])
     if (STOP_WORDS.has(token) || seenIds.has(token)) continue
     seenIds.add(token)
     identifiers.push(token)

@@ -59,7 +59,7 @@ import { buildBm25Docs, bm25Score, rankByBm25 } from './retrieval/bm25.ts'
 import { reciprocalRankFusion, normalizeScores } from './retrieval/fusion.ts'
 import { explainCandidate } from './retrieval/rank.ts'
 import { initialStrength, updateAfterUse } from './retrieval/retention.ts'
-import { temporalBoost, planValidityOnConflict, applyValidityPlan } from './cognitive/temporal.ts'
+import { temporalBoost } from './cognitive/temporal.ts'
 import { assessContradiction } from './cognitive/contradiction.ts'
 import { applyConsolidationPlan, clusterRecords, planConsolidation } from './cognitive/consolidate.ts'
 import { computeHealth, type HealthReport } from './cognitive/health.ts'
@@ -3336,46 +3336,40 @@ export class LocalMemoryService implements MemoryServiceApi {
           ? { conflicted: false, findings: [], marker: { conflictWith: [], conflictConfidence: 0 }, severity: 'none' as const }
           : assessConflicts({ content: record.content, candidates: [detailConflict] })
         if (detailConflict !== undefined) {
-          // 0.40.0：P2 冲突自动解决 —— 证据/来源/时间三信号 + 矛盾度决策。
-          // invalidate-old 直接让旧事实失效；merge 原地升级新记录；keep-both 时只打标。
-          try {
-            const decision = resolveConflict({ newer: record, older: detailConflict.record, evidence: { similarity: detailConflict.similarity } })
-            if (decision.action === 'invalidate-old' || decision.action === 'merge') {
-              const applied = applyConflictResolution(this.store, decision)
-              if (applied !== undefined) {
-                this.store.scheduleFlush()
-                return
+          const contradiction = assessContradiction(record.content, detailConflict.record.content, {
+            similarity: detailConflict.similarity,
+          })
+          // 0.41.4：**只有数值/路径真的变了才自动裁决**。
+          // 标识符差异（npm vs pnpm、task-1 vs task-2、带/不带 Android）一律保留双方并打标，
+          // 避免把"不同任务/不同详细程度"的记录误判成矛盾而失效。
+          const decisive = contradiction.comparison.numericDiffs.length > 0
+            || contradiction.comparison.pathsMissing.length > 0
+            || contradiction.comparison.pathsExtra.length > 0
+          if (decisive) {
+            try {
+              const decision = resolveConflict({
+                newer: record,
+                older: detailConflict.record,
+                evidence: { similarity: detailConflict.similarity, contradiction: contradiction.confidence },
+              })
+              if (decision.action === 'invalidate-old' || decision.action === 'merge') {
+                const applied = applyConflictResolution(this.store, decision)
+                if (applied.applied) {
+                  this.store.scheduleFlush()
+                  return
+                }
               }
-            }
-          } catch { /* 自动决策失败退回"只打标" */ }
-        }
-        if (detailConflict !== undefined) {
-          if (detailConflict !== undefined) {
-            // 0.33.0：矛盾置信度 = 相似度 ×（数值/标识符差异 + 关键细节冲突）。
-            // 它比"只看余弦"更能区分"换个说法"和"数字变了"。
-            const contradiction = assessContradiction(record.content, detailConflict.record.content, {
-              similarity: detailConflict.similarity,
-            })
-            applyConflictMarker(this.store, record.id, {
-              conflicted: true,
-              findings: [{ id: detailConflict.record.id, similarity: detailConflict.similarity }],
-              marker: {
-                // ConflictAssessment.marker.conflictWith 是 string[]（不是单个 id）。
-                conflictWith: [detailConflict.record.id],
-                conflictConfidence: Math.max(detailConflict.similarity, contradiction.confidence),
-              },
-              severity: contradiction.level,
-            })
-            // 0.33.0：事实被新证据推翻 → 旧记录标记失效窗口（validUntil=now），
-            // 而不是删掉或合并；历史仍可用 includeExpired / memory_get 查到。
-            const plan = planValidityOnConflict({
-              oldRecord: detailConflict.record,
-              newContent: record.content,
-              similarity: detailConflict.similarity,
-              now: Date.now(),
-            })
-            if (plan.invalidateOld) applyValidityPlan(this.store, detailConflict.record.id, plan)
+            } catch { /* 自动裁决失败退回"只打标" */ }
           }
+          applyConflictMarker(this.store, record.id, {
+            conflicted: true,
+            findings: [{ id: detailConflict.record.id, similarity: detailConflict.similarity }],
+            marker: {
+              conflictWith: [detailConflict.record.id],
+              conflictConfidence: Math.max(detailConflict.similarity, contradiction.confidence),
+            },
+            severity: contradiction.level,
+          })
           this.store.scheduleFlush()
         }
       }

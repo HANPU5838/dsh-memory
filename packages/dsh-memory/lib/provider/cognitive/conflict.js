@@ -177,6 +177,21 @@ export function applyConflictMarker(
  * 属于**事实冲突**，绝不能当成同义重复自动合并 —— 这是纯向量相似度的盲区：
  * 这种对的余弦往往 >0.95，比真正的同义改写还高。
  */
+/**
+ * 0.41.4：标识符同义归一化。
+ * `aarch64` / `arm64`、`x86_64` / `amd64` 是同一事实的不同写法；
+ * 若不归一，会被 criticalDetails 当成"关键标识符不一致"，把正常记忆误判成冲突。
+ */
+const IDENTIFIER_SYNONYMS = new Map                ([
+  ['aarch64', 'arm64'], ['arm64', 'arm64'],
+  ['x86_64', 'x86_64'], ['amd64', 'x86_64'], ['x64', 'x86_64'],
+  ['armv7', 'arm32'], ['armhf', 'arm32'],
+  ['nodejs', 'node'],
+])
+export function canonicalIdentifier(token        )         {
+  return IDENTIFIER_SYNONYMS.get(token) ?? token
+}
+
 export function criticalDetails(content        )              {
   const out = new Set        ()
   // 数字（含小数、千分位、百分比、单位前的数值）
@@ -185,7 +200,7 @@ export function criticalDetails(content        )              {
   for (const m of content.matchAll(/(?:\/[\w.\-]+){2,}|https?:\/\/\S+/g)) out.add(`p:${m[0]}`)
   // 拉丁标识符（单词长度 ≥3，排除常见英文停用词）
   for (const m of content.toLowerCase().matchAll(/[a-z][a-z0-9_+.\-]{2,}/g)) {
-    if (!STOP_WORDS.has(m[0])) out.add(`w:${m[0]}`)
+    if (!STOP_WORDS.has(m[0])) out.add(`w:${canonicalIdentifier(m[0])}`)
   }
   return out
 }
@@ -204,9 +219,17 @@ export function hasCriticalDetailConflict(a        , b        )          {
   const left = criticalDetails(a)
   const right = criticalDetails(b)
   if (left.size === 0 || right.size === 0) return false
-  if (left.size !== right.size) return true
-  for (const token of left) if (!right.has(token)) return true
-  return false
+  // 0.41.4：**子集不算冲突**。
+  // 旧逻辑只要集合大小或成员不同就判冲突，导致「设备是 arm64 Android」vs
+  // 「设备架构是 arm64」这种"一边多说了个细节"被当成矛盾，进而误失效旧记忆。
+  // 真正的冲突是"双方都给了同一类细节、但值互相排斥"（8080 vs 9090、npm vs pnpm），
+  // 这种集合互不为子集；子集关系只是详细程度不同。
+  const isSubset = (x             , y             )          => {
+    for (const token of x) if (!y.has(token)) return false
+    return true
+  }
+  if (isSubset(left, right) || isSubset(right, left)) return false
+  return true
 }
 
 

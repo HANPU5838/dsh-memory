@@ -10,7 +10,7 @@
 > | 项目 | 说明 |
 > | --- | --- |
 > | 原作者 | **RestRegular**（上游原项目 [RestRegular/dsh-memory](https://github.com/RestRegular/dsh-memory)，MIT）；本项目在其 v0.30.1 基础上维护 |
-> | 本仓库 | **v0.41.3** = 上游 v0.30.1 + 平台/可靠性改进 + 语义认知层（去重合并/冲突检测/谱系/生命周期）+ 检索整形（MMR/地板分/自适应阈值）+ 嵌入性能（批量/缓存/保活/ANN 索引）+ **记忆强度算法（FSRS 保持度/动态融合/时间有效性/周期巩固）**。完整清单见 [IMPROVEMENTS.md](IMPROVEMENTS.md)，架构见 [docs/architecture.md](docs/architecture.md) |
+> | 本仓库 | **v0.41.4** = 上游 v0.30.1 + 平台/可靠性改进 + 语义认知层（去重合并/冲突检测/谱系/生命周期）+ 检索整形（MMR/地板分/自适应阈值）+ 嵌入性能（批量/缓存/保活/ANN 索引）+ **记忆强度算法（FSRS 保持度/动态融合/时间有效性/周期巩固）**。完整清单见 [IMPROVEMENTS.md](IMPROVEMENTS.md)，架构见 [docs/architecture.md](docs/architecture.md) |
 > | 许可 | **MIT**，版权归原作者所有，见 [LICENSE](LICENSE)；转载、分发请保留原始版权声明 |
 > | 更新与反馈 | Issue / PR / 反馈请到 **[本仓库 Issues](https://github.com/HANPU5838/dsh-memory/issues)**；与上游的差异集中在 `IMPROVEMENTS.md` |
 >
@@ -25,7 +25,7 @@
 
 JSONL 落盘 · 本机向量检索 · 六个模型工具 · 自动召回 · 硬性规则 · 可视化管理面板
 
-[![version](https://img.shields.io/badge/version-v0.41.3-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![version](https://img.shields.io/badge/version-v0.41.4-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/HANPU5838/dsh-memory/blob/main/LICENSE)
 [![ci](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.13-5FA04E.svg)](https://nodejs.org/)
@@ -61,7 +61,7 @@ JSONL 落盘 · 本机向量检索 · 六个模型工具 · 自动召回 · 硬�
 | **会话授权（grants）** | Agent 申请、用户批准的例外单独存在 `<storeDir>/grants/<session>.json`，不并入可见域策略；只读 / 可写独立、可撤销、只在本会话（及子 Agent）生效；`absolute` 下授权不生效，作用域被删除重建后按创建代次自动失效 |
 | **双通道检索** | 词法（IDF + 中文 bigram）**+** 向量（本机 llama-server 的 OpenAI 兼容 `/v1/embeddings`）。向量缺席自动降级，不报错、不阻塞 |
 | **检索结果整形** | 双通道召回后先按**匹配强度**做地板分（不误杀"相关但久未访问"的旧记忆），再做**同义结果合并**（余弦 ≥0.85 只留分最高的一条），最后用 **MMR 多样性**挑选，避免同义记忆挤占名额、弱相关噪声混进 topK；阈值还会按查询长度自适应，global 与 project 的分数先校准再同槽排序 |
-| **语义整理（认知层）** | 写入后按向量做近重复检测：余弦 ≥0.92 且**关键细节一致**才自动合并（旧记录经 `supersedes` 保留、`generation` 递增）；0.75~0.92 或**数字/路径/标识符不一致**先打冲突标记，**0.40.0 起再按「矛盾度 + 证据计数 + 来源可信度 + 时间」自动裁决**（失效旧事实 / 合并 / 保留并行），面板冲突中心可逐条复核（例如「占用 10.4GB」和「占用 20GB」不会被当成同义合并） |
+| **语义整理（认知层）** | 写入后按向量做近重复检测：余弦 ≥0.92 且**关键细节一致**才自动合并（旧记录经 `supersedes` 保留、`generation` 递增）；0.75~0.92 或**数字/路径/标识符不一致**先打冲突标记，**0.40.0 起再按「矛盾度 + 证据计数 + 来源可信度 + 时间」自动裁决**（0.41.4 收敛为：仅数值/路径差异才失效旧事实，标识符差异保留双方并打标），面板冲突中心可逐条复核（例如「占用 10.4GB」和「占用 20GB」不会被当成同义合并） |
 | **生命周期** | `dormant` 休眠（长期未访问且不重要 → 不进摘要/召回，命中即唤醒）、`tombstone` 软删（`memory_forget` 默认 30 天内可 `restore`，到期由维护任务物理清理）、`snapshot/restore`（gzip JSONL 快照，可整库备份/迁移/回滚） |
 | **性能** | 文档/查询向量缓存（同内容重写、重复问句免嵌入；实测热查询 ~0.03ms）、批量嵌入（部分失败只留单条 null，超长记录不再毒死整批回填）、llama-server 预热 + 周期探活保活、可选纯 JS HNSW 索引模块（2 万条查询 P50 1.73ms vs 全量 25.2ms）、本地 chat 模型重排（可选，失败静默回退） |
 | **记忆强度（0.33.0）** | 每条记忆带 **FSRS 式保持度**：`stability`（越用越牢）、`difficulty`（长文/易变类型更难）、`utility`（被取用才涨）；检索排序 = 相关度 × 保持度 × 效用 × 重要度，且带可解释 breakdown。老记录无需迁移（由内容/类型/访问次数推导） |

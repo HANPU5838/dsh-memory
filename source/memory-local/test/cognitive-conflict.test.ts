@@ -20,6 +20,8 @@ import {
   markConflict,
 } from '../src/cognitive/conflict.ts'
 import { tombstone } from '../src/cognitive/lifecycle.ts'
+import { hasCriticalDetailConflict } from '../src/cognitive/conflict.ts'
+import { assessContradiction } from '../src/cognitive/contradiction.ts'
 
 const dirs: string[] = []
 afterEach(() => {
@@ -208,4 +210,26 @@ test('applyConflictMarker:标记能落盘重开可读,无冲突时清除旧标�
   assert.equal(applyConflictMarker(second, old.id, none), true)
   assert.equal(isConflicted(second.findById(old.id)!), false)
   second.close()
+})
+
+test('0.41.4 同义/子集细节不误判冲突（aarch64 vs arm64、多一个 Android）', () => {
+  assert.equal(hasCriticalDetailConflict('设备架构是 aarch64，Termux 环境', '设备是 arm64 Android，Termux'), false)
+  assert.equal(hasCriticalDetailConflict('设备是 arm64 Android', '设备架构是 arm64'), false)
+  // 真冲突仍然要抓到
+  assert.equal(hasCriticalDetailConflict('构建端口是 8080', '构建端口是 9090'), true)
+  assert.equal(hasCriticalDetailConflict('使用 npm 构建', '使用 pnpm 构建'), true)
+  assert.equal(hasCriticalDetailConflict('占用 10.4GB', '占用 20GB'), true)
+})
+
+test('0.41.4 自动裁决只在数值/路径差异时触发（标识符差异保留双方）', () => {
+  const npm = assessContradiction('项目使用 npm 构建', '项目使用 pnpm 构建', { similarity: 0.93 })
+  assert.equal(npm.signals.criticalDetailConflict, true)
+  assert.equal(npm.comparison.numericDiffs.length, 0)
+  assert.equal(npm.comparison.pathsMissing.length + npm.comparison.pathsExtra.length, 0)
+
+  const port = assessContradiction('服务端口是 8080', '服务端口是 9090', { similarity: 0.93 })
+  assert.ok(port.comparison.numericDiffs.length > 0, '端口数值差异应触发自动裁决')
+
+  const path = assessContradiction('配置文件在 /etc/app/a.conf', '配置文件在 /etc/app/b.conf', { similarity: 0.93 })
+  assert.ok(path.comparison.pathsMissing.length + path.comparison.pathsExtra.length > 0, '路径差异应触发自动裁决')
 })

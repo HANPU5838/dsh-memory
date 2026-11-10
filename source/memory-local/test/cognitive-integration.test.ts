@@ -201,3 +201,5 @@ test('维护/健康度覆盖磁盘上所有作用域（未加载的旧 scope 不
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+
