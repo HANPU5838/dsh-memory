@@ -2,6 +2,23 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.34.0 — 全链路不变量 · 单一可见性判定 · 面板缩放（本仓库维护，2026-11-10）
+
+**架构收敛（根治"修一处断一处"）**
+- 新增**单一可见性判定** `recordInvisibility / isRecordVisible`（cognitive/lifecycle.ts）：
+  tombstoned / dormant / expired / invalid 四种原因集中判定；检索、列表、注入（listSync）、
+  巩固、取用反馈、面板全部改走这一处，禁止各消费点再各写一套。
+- 新增**全链路不变量测试** `test/pipeline-invariants.test.ts`：
+  ① 四类不可见状态各归其位；② list / listSync / search 默认返回同一批记录；
+  ③ 工具/面板/导入三种写路径落同一规范 scope；④ 删除→恢复→再删除往返一致；
+  ⑤ 配置矩阵（强度排序/时间权重/整形/巩固 开与关）不崩且可见性一致。
+
+**面板 UI**
+- 面板整体缩放：A− / 百分比（点击重置 100%）/ A+，范围 70%~160%，
+  记忆在浏览器 localStorage（`dsh-memory:panel-zoom`），记忆树画布仍有独立缩放。
+
+**测试**：906 例 / 905 pass / 1 skip / 0 fail（新增：不变量 5 + 面板缩放 1）。
+
 ## 0.33.2 — 选择压力对齐：休眠与容量淘汰计入取用信号（本仓库维护，2026-11-10）
 
 - 休眠判定 `lastSeenAt` 纳入 `lastUsedAt`：天天被 `memory_get` 取用、但没被检索命中的记忆

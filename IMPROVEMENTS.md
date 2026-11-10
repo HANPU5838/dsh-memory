@@ -255,6 +255,17 @@ cognitive:
 | F7 | `cognitive/lifecycle.ts` | dormant 只看 lastAccessedAt，天天 `memory_get` 的记忆会被误判休眠 | `lastSeenAt` 纳入 `lastUsedAt` |
 | F8 | `store.enforceLimit` | 容量淘汰只看新鲜度×重要度，会把常被使用的记忆淘汰 | 适应度加入效用 `(1+0.3·utility)`，与排序口径一致 |
 
+## 二之六、0.34.0 —— 全链路不变量 · 单一可见性判定 · 面板缩放（2026-11-10）
+
+| # | 改进 | 说明 |
+|---|---|---|
+| G1 | **单一可见性判定** | `recordInvisibility(record, {includeDormant, includeTombstoned, includeExpired, now})` 返回 `tombstoned / dormant / expired / invalid / undefined`；所有消费路径（search / list / listSync / 巩固 / 取用反馈 / 面板）统一调用，杜绝"修了 search、漏了 listSync" |
+| G2 | **全链路不变量测试** | `pipeline-invariants.test.ts` 锁住：四状态各归其位、三读路径一致、三写路径同 scope、删→恢复→删往返、配置矩阵不崩。任何一条路径再被改坏，测试会直接指出 |
+| G3 | **面板整体缩放** | A− / 100% / A+（70%~160%），localStorage 持久化；记忆树画布保留独立缩放 |
+| G4 | 清理 | 移除 index.ts 里已不再需要的 isActiveNow/shouldSkipRecord 直接调用，避免再出现"第二套判定" |
+
+**测试**：906 例 / 905 pass / 1 skip / 0 fail。
+
 ## 三、如何从上游同步
 
 ```bash

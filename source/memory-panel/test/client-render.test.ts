@@ -3424,3 +3424,19 @@ test('审计详情能把 operationId 精确送到轨迹视图', async () => {
   assert.ok(textOf(current).includes('已定位到轨迹'))
   hooks.resetAll()
 })
+
+test('面板缩放：提供 A− / A+ / 百分比控件，根节点应用 zoom', async () => {
+  const hooks = makeReact()
+  const current = await mountPanel(hooks, { scopes: [], embedServer: null })
+  const root = collect(current()).find((n) => String(n.props?.className ?? '') === 'memp')
+  assert.ok(root, '面板根节点存在')
+  assert.equal(Number(root!.props?.style?.zoom), 1, '默认 100%')
+
+  const plus = collect(current()).find((n) => n.tag === 'button' && textOf(n).trim() === 'A+')
+  const minus = collect(current()).find((n) => n.tag === 'button' && textOf(n).trim() === 'A−')
+  assert.ok(plus && minus, '有放大/缩小按钮（面板可随意缩大缩小）')
+  const pct = collect(current()).find((n) => n.tag === 'button' && /^\d+%$/.test(textOf(n).trim()))
+  assert.ok(pct, '有当前缩放百分比（点击重置为 100%）')
+  assert.equal(textOf(pct!).trim(), '100%')
+  hooks.resetAll()
+})

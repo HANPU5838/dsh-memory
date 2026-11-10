@@ -49,6 +49,45 @@ export function shouldSkipRecord(
   return false
 }
 
+/**
+ * 0.34.0：**唯一可见性判定**（单一事实来源）。
+ *
+ * 检索 / 列表 / 注入 / 巩固 / 取用反馈 / 面板都必须走这里，禁止各自再写
+ * `if (tombstoned) … if (dormant) … if (validUntil < now) …` —— 之前就是因为
+ * 每个消费点各写一套，修好 `search` 却没修 `listSync`，导致"删掉的规则还会注入"。
+ *
+ * 返回不可见原因（undefined = 可见），便于日志/面板解释"为什么看不到"。
+ * 注意：`retired`（被 supersedes 的旧版本）不在本函数内判定 —— 它依赖"同 scope
+ * 是否存在新版"，属于集合级判定，由调用方用 retiredIds 处理。
+ */
+                                                                                 
+
+                                    
+                          
+                             
+                          
+              
+ 
+
+export function recordInvisibility(
+  record              ,
+  options                    = {},
+)                                 {
+  const now = options.now ?? Date.now()
+  if (options.includeTombstoned !== true && isTombstonedRecord(record)) return 'tombstoned'
+  if (options.includeDormant !== true && isDormantRecord(record)) return 'dormant'
+  if (options.includeExpired === true) return undefined
+  if (record.expiredAt !== undefined && record.expiredAt < now) return 'expired'
+  const validUntil = (record                   ).validUntil
+  if (typeof validUntil === 'number' && validUntil <= now) return 'invalid'
+  return undefined
+}
+
+/** 统一可见性判定的布尔版本（绝大多数调用点只需要这个）。 */
+export function isRecordVisible(record              , options                    = {})          {
+  return recordInvisibility(record, options) === undefined
+}
+
 /** 记录最近一次"被看见"的时间（访问 / 恢复），dormant 判定按它算年龄。 */
 function lastSeenAt(record              )         {
   const cognitive = record                   

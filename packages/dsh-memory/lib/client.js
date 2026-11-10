@@ -187,6 +187,9 @@ window.__ModuleLoader__.load({
       '.memp .warn{font-size:11.5px;color:var(--dsw-alias-label-secondary)}',
       // 面板内的标签栏:分段式按钮(参照宿主设置页的分段控件)
       '.memp .tabs{display:inline-flex;gap:2px;padding:2px;border-radius:9px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);margin-bottom:14px}',
+      '.memp .zoomctl{display:inline-flex;align-items:center;gap:2px;margin-left:10px;vertical-align:top}',
+      '.memp .zoomctl button{background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);border-radius:7px;padding:4px 8px;font-size:11.5px;line-height:1.2;color:var(--dsw-alias-label-secondary);cursor:pointer;font-variant-numeric:tabular-nums}',
+      '.memp .zoomctl button:hover{color:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary)}',
       '.memp .tab{background:none;border:0;border-radius:7px;padding:4px 14px;color:var(--dsw-alias-label-secondary);cursor:pointer;font-size:13px;line-height:1.6;transition:background .12s ease,color .12s ease}',
       '.memp .tab:hover{color:var(--dsw-alias-label-primary)}',
       '.memp .tab.on{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-brand-primary);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.10)}',
@@ -3655,6 +3658,17 @@ window.__ModuleLoader__.load({
     /** 待嵌入自动刷新:最多 300 次 × 1.5s(后端挂着时不无限轮询)。 */
     const PENDING_POLL_LIMIT = 300
 
+    /** 0.34.0：面板整体缩放（70%~160%，浏览器本地记忆）。记忆树另有自己的画布缩放。 */
+    const PANEL_ZOOM_KEY = 'dsh-memory:panel-zoom'
+    const PANEL_ZOOM_MIN = 0.7
+    const PANEL_ZOOM_MAX = 1.6
+    function loadPanelZoom() {
+      try {
+        const value = Number(window.localStorage.getItem(PANEL_ZOOM_KEY))
+        return Number.isFinite(value) && value >= PANEL_ZOOM_MIN && value <= PANEL_ZOOM_MAX ? value : 1
+      } catch { return 1 }
+    }
+
     function MemoryPanel({ openSession, sessionInfo, audience = 'panel', lockSession } = {}) {
       const [records, setRecords] = React.useState([])
       const [scopes, setScopes] = React.useState([])
@@ -3677,6 +3691,13 @@ window.__ModuleLoader__.load({
       const [loading, setLoading] = React.useState(true)
       const [error, setError] = React.useState('')
       const [tab, setTab] = React.useState('data')
+      // 0.34.0：面板缩放（随意放大缩小，持久化到 localStorage）
+      const [uiZoom, setUiZoom] = React.useState(loadPanelZoom())
+      React.useEffect(() => {
+        try { window.localStorage.setItem(PANEL_ZOOM_KEY, String(uiZoom)) } catch { /* 隐私模式忽略 */ }
+      }, [uiZoom])
+      const nudgeZoom = (delta) => setUiZoom((z) => Math.min(PANEL_ZOOM_MAX, Math.max(PANEL_ZOOM_MIN, Math.round((z + delta) * 20) / 20)))
+      const resetZoom = () => setUiZoom(1)
       // 「记录」页里的二级标签页(0.28.0)：记忆(列表) / 作用域(名称 + 用途 + 条数)。
       // 两个视图共用 /status 的那次拉取，切换不重新请求。
       const [dataView, setDataView] = React.useState('memories')
@@ -4373,7 +4394,7 @@ window.__ModuleLoader__.load({
         onRefresh: () => { setPendingTick(0); load('', '') },
       })
 
-      return h('div', { className: 'memp' },
+      return h('div', { className: 'memp', style: { zoom: uiZoom } },
         h('div', { className: 'tabs' },
           h('button', { className: 'tab' + (tab === 'records' ? ' on' : ''), onClick: () => setTab('records') }, '服务'),
           h('button', { className: 'tab' + (tab === 'data' ? ' on' : ''), onClick: () => { if (tab !== 'data') load(); setTab('data') } }, '记录'),
@@ -4383,6 +4404,11 @@ window.__ModuleLoader__.load({
           }, '记忆树'),
           h('button', { className: 'tab' + (tab === 'settings' ? ' on' : ''), onClick: () => setTab('settings') }, '设置'),
           h('button', { className: 'tab' + (tab === 'audit' ? ' on' : ''), onClick: () => setTab('audit') }, '审计'),
+        ),
+        h('span', { className: 'zoomctl', title: '面板缩放（记忆树画布另有独立缩放）' },
+          h('button', { onClick: () => nudgeZoom(-0.1), title: '缩小' }, 'A−'),
+          h('button', { onClick: resetZoom, title: '重置为 100%' }, `${Math.round(uiZoom * 100)}%`),
+          h('button', { onClick: () => nudgeZoom(0.1), title: '放大' }, 'A+'),
         ),
         tab === 'settings'
           ? h(SettingsTab, {})

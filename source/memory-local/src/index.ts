@@ -57,12 +57,12 @@ import { adaptiveScopeThreshold, calibrateScore } from './retrieval/adapt.ts'
 import { blendHybrid, expandQuery, hybridWeights, queryProfile } from './retrieval/expand.ts'
 import { explainCandidate } from './retrieval/rank.ts'
 import { initialStrength, updateAfterUse } from './retrieval/retention.ts'
-import { isActiveNow, temporalBoost, planValidityOnConflict, applyValidityPlan } from './cognitive/temporal.ts'
+import { temporalBoost, planValidityOnConflict, applyValidityPlan } from './cognitive/temporal.ts'
 import { assessContradiction } from './cognitive/contradiction.ts'
 import { applyConsolidationPlan, clusterRecords, planConsolidation } from './cognitive/consolidate.ts'
 import { MERGE_THRESHOLD, planNearDuplicateMerge } from './cognitive/merge.ts'
 import { assessConflicts, applyConflictMarker, hasCriticalDetailConflict } from './cognitive/conflict.ts'
-import { shouldSkipRecord, revive, tombstone, purgeTombstones, markDormant, restore as restoreTombstoned, snapshot as writeSnapshot, restoreSnapshot as readSnapshotFile } from './cognitive/lifecycle.ts'
+import { isRecordVisible, revive, tombstone, purgeTombstones, markDormant, restore as restoreTombstoned, snapshot as writeSnapshot, restoreSnapshot as readSnapshotFile } from './cognitive/lifecycle.ts'
 import { createEmbeddingProvider, type EmbeddingProvider, type EmbeddingProviderKind } from './embedding-providers.ts'
 import { canExecute, describePlatform, detectPlatform, freeDiskBytes } from './platform.ts'
 import { DailyBudget, blendScores, rerank, type LlmInvoke, type RerankConfig } from './rerank.ts'
@@ -1159,10 +1159,9 @@ export class LocalMemoryService implements MemoryServiceApi {
         if (retired.has(rec.id)) continue
         // 过期 state 默认不参与任何自动注入/规则渲染;memory_get(id) 与面板仍可取。
         if (!input.includeExpired && rec.expiredAt !== undefined && rec.expiredAt < now) continue
-        // 0.33.0：注入/规则/流程索引共用这条路径 —— 休眠、软删、失效事实
-        // 必须和检索同口径剔除，否则"删掉的规则"还会继续进系统提示。
-        if (shouldSkipRecord(rec, {})) continue
-        if (input.includeExpired !== true && !isActiveNow(rec, now)) continue
+        // 0.34.0：统一可见性判定（单一事实来源）—— 注入/规则/流程索引与检索同口径，
+        // 休眠、软删、过期、失效事实一律不进系统提示。
+        if (!isRecordVisible(rec, { includeExpired: input.includeExpired === true, now })) continue
         if (input.kind !== undefined && rec.kind !== input.kind) continue
         if (visibleFilter !== undefined && !visibleFilter(rec.scope, rec.kind)) continue
         out.push(rec)
@@ -1831,8 +1830,7 @@ export class LocalMemoryService implements MemoryServiceApi {
       }
       const candidates = [...scopeStore.records.values()].filter((rec) => {
         if (retired.has(rec.id)) return false
-        if (shouldSkipRecord(rec, {})) return false
-        if (!isActiveNow(rec, now)) return false
+        if (!isRecordVisible(rec, { now })) return false
         const extra = rec as { conflictWith?: string[]; validUntil?: number }
         if (Array.isArray(extra.conflictWith) && extra.conflictWith.length > 0) return false
         if (extra.validUntil !== undefined) return false
@@ -3474,10 +3472,8 @@ export class LocalMemoryService implements MemoryServiceApi {
         if (!includeExpired && rec.expiredAt && rec.expiredAt < now) continue
         if (!includeSuperseded && retired.has(rec.id)) continue
         // 0.32.0：休眠/墓碑记录不进召回（forget 变软删后，靠这里立即不可见）。
-        if (shouldSkipRecord(rec, { includeDormant, includeTombstoned })) continue
-        // 0.33.0：事实有效期过滤 —— 被推翻的旧结论（validUntil 已过）默认不返回，
-        // 面板历史浏览（includeExpired）仍可见。
-        if (!includeExpired && !isActiveNow(rec, now)) continue
+        // 0.34.0：统一可见性（休眠/软删/过期/失效），面板历史浏览时 include 全开。
+        if (!isRecordVisible(rec, { includeDormant, includeTombstoned, includeExpired, now })) continue
         if (kindFilter !== undefined && !kindFilter(rec.scope, rec.kind)) continue
         const lex = lexicalScore(queryTokens, tokenSets[i]!, stats)
         if (lex <= 0) continue
@@ -3559,8 +3555,7 @@ export class LocalMemoryService implements MemoryServiceApi {
         const rec = this.findById(id)
         if (!rec) continue
         if (!includeExpired && rec.expiredAt !== undefined && rec.expiredAt < now) continue
-        if (shouldSkipRecord(rec, { includeDormant, includeTombstoned })) continue
-        if (!includeExpired && !isActiveNow(rec, now)) continue
+        if (!isRecordVisible(rec, { includeDormant, includeTombstoned, includeExpired, now })) continue
         if (kindFilter !== undefined && !kindFilter(rec.scope, rec.kind)) continue
         if (!(rec.scope === 'global' && sim < this.cfg.globalThreshold)) {
           const store = stores.find((s) => s.scope === rec.scope)?.store
@@ -3583,8 +3578,7 @@ export class LocalMemoryService implements MemoryServiceApi {
           for (const [id, vec] of store.vectors) {
             if (!store.records.has(id)) continue
             const record = store.records.get(id)!
-            if (!includeExpired && !isActiveNow(record, now)) continue
-            if (shouldSkipRecord(record, { includeDormant, includeTombstoned })) continue
+            if (!isRecordVisible(record, { includeDormant, includeTombstoned, includeExpired, now })) continue
             const sim = cosine(expanded, vec)
             if (sim < this.cfg.vector.minScore) continue
             const existing = candidates.get(id)
@@ -3937,8 +3931,8 @@ export class LocalMemoryService implements MemoryServiceApi {
       for (const rec of store.records.values()) {
         if (retired.has(rec.id)) continue
         if (internal.includeExpired !== true && rec.expiredAt !== undefined && rec.expiredAt < now) continue
-        // 0.32.0：休眠/墓碑记录默认不出现在列表里（面板历史浏览显式打开）。
-        if (shouldSkipRecord(rec, { includeDormant, includeTombstoned })) continue
+        // 0.34.0：统一可见性（休眠/软删/过期/失效），历史浏览显式打开。
+        if (!isRecordVisible(rec, { includeDormant, includeTombstoned, includeExpired: internal.includeExpired === true, now })) continue
         records.push(rec)
       }
     }
@@ -3977,7 +3971,7 @@ export class LocalMemoryService implements MemoryServiceApi {
       const now = Date.now()
       for (const rec of out) {
         // 历史查询（软删/失效/休眠）不产生"取用"信号，否则恢复出来的记忆会莫名高分。
-        if (shouldSkipRecord(rec, {}) || !isActiveNow(rec, now)) continue
+        if (!isRecordVisible(rec, { now })) continue
         try {
           const next = updateAfterUse({
             stability: (rec as { stability?: number }).stability,
