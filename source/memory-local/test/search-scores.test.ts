@@ -17,11 +17,17 @@ import { LocalMemoryService } from '../src/index.ts'
 
 const SCOPE = 'project:/w'
 
-function makeService(dir: string, llm = false) {
+function makeService(dir: string, opts: { llm?: boolean; strengthRanking?: boolean } = {}) {
   const svc = new LocalMemoryService({
     storeDir: dir,
     scopes: { global: true, project: true },
-    ...(llm ? { retrieval: { llm: { enabled: true, provider: 'fake', model: 'fake' } } } : {}),
+    retrieval: {
+      // 这两个用例锁定的是"分数/重排管线"的语义（每条命中带自己的分、候选 id 真实），
+      // 所以显式关掉 0.33.0 的强度排序，用 0.32 的 recordScore 做基准。
+      ...(opts.strengthRanking === false ? { strengthRanking: false } : {}),
+      temporalWeighting: false,
+      ...(opts.llm ? { llm: { enabled: true, provider: 'fake', model: 'fake' } } : {}),
+    },
   })
   svc.setProjectScope(SCOPE)
   return svc
@@ -39,7 +45,7 @@ function pinAccess(svc: LocalMemoryService, now: number) {
 
 test('search:每条命中带自己的排序分,而不是所有命中共用最后一个分数', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-memory-search-score-'))
-  const svc = makeService(dir)
+  const svc = makeService(dir, { strengthRanking: false })
   try {
     // 同一个查询词都能命中,词法召回相同;只有重要度不同 → 分数必须不同。
     const low = await svc.save({ scope: SCOPE, kind: 'note', content: 'alpha low', importance: 0.2 })
@@ -63,7 +69,7 @@ test('search:每条命中带自己的排序分,而不是所有命中共用最后
 
 test('search:重排候选带真实 id,且重排结果能改变顺序', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-memory-search-rerank-'))
-  const svc = makeService(dir, true)
+  const svc = makeService(dir, { llm: true, strengthRanking: false })
   try {
     const low = await svc.save({ scope: SCOPE, kind: 'note', content: 'alpha low', importance: 0.2 })
     const high = await svc.save({ scope: SCOPE, kind: 'note', content: 'alpha high', importance: 0.9 })
