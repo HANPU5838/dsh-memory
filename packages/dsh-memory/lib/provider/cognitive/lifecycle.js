@@ -51,8 +51,14 @@ export function shouldSkipRecord(
 
 /** 记录最近一次"被看见"的时间（访问 / 恢复），dormant 判定按它算年龄。 */
 function lastSeenAt(record              )         {
-  const restoredAt = (record                   ).restoredAt
-  return Math.max(record.lastAccessedAt, typeof restoredAt === 'number' ? restoredAt : 0)
+  const cognitive = record                   
+  // 0.33.2：取用（memory_get）也算"被看见" —— 否则一条天天被取用、但没被检索命中的
+  // 记忆会被误判休眠（检索命中更新 lastAccessedAt，取用更新 lastUsedAt，两者都要看）。
+  return Math.max(
+    record.lastAccessedAt,
+    typeof cognitive.restoredAt === 'number' ? cognitive.restoredAt : 0,
+    typeof cognitive.lastUsedAt === 'number' ? cognitive.lastUsedAt : 0,
+  )
 }
 
 // ---------------------------------------------------------------- dormant 休眠

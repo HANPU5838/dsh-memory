@@ -43,4 +43,4 @@ jobs:
       # 单包产物构建验证：不发布、不落包，只确认 source/ 能完整转译成 packages/ 形态。
       # 产物与源码不同步是本项目最容易犯的错（DSH 实际加载的是 packages/lib/**）。
       - name: 构建验证
-        run: node tools/build-single-package.mjs --scope @restregular --version 0.33.1 --repo https://github.com/HANPU5838/dsh-memory --out .verify --no-place
+        run: node tools/build-single-package.mjs --scope @restregular --version 0.33.2 --repo https://github.com/HANPU5838/dsh-memory --out .verify --no-place

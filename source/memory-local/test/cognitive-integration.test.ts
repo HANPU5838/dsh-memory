@@ -95,3 +95,20 @@ test('注入/规则路径（listSync）与检索同口径：软删、休眠、�
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('休眠判定：memory_get 取用也算"被看见"，不会误判休眠', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-magic-dormant-'))
+  const svc = makeService(dir)
+  try {
+    const rec = await svc.save({ scope: SCOPE, kind: 'note', content: '经常被取用的笔记' })
+    // 很久以前检索过（lastAccessedAt 老），但刚刚被 memory_get 取用（lastUsedAt 新）
+    const raw = svc.store.peek(SCOPE)!.records.get(rec.id) as { lastAccessedAt: number }
+    raw.lastAccessedAt = Date.now() - 90 * 86_400_000
+    await svc.getByIds([rec.id])
+    const result = svc.runHousekeeping()
+    assert.ok(!result.dormant.includes(rec.id), '刚被取用的记忆不该休眠')
+  } finally {
+    svc.flushSync()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

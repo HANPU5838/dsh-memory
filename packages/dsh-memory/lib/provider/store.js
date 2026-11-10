@@ -1292,7 +1292,11 @@ export class MemoryStore {
       const ranked = [...s.records.values()]
         .map((r) => ({
           id: r.id,
-          rank: Math.pow(0.5, Math.max(0, now - r.updatedAt) / 86_400_000 / 30) * (0.1 + r.importance),
+          // 0.33.2：淘汰也要看"有没有用" —— 只看新鲜度 × 重要度会把经常被取用、
+          // 但很久没改写的记忆淘汰掉。效用提升与排序里的权重保持一致（0.3）。
+          rank: Math.pow(0.5, Math.max(0, now - r.updatedAt) / 86_400_000 / 30)
+            * (0.1 + r.importance)
+            * (1 + 0.3 * clamp01((r                   ).utility ?? 0)),
         }))
         .sort((a, b) => b.rank - a.rank)
       for (const r of ranked.slice(maxPerScope)) {

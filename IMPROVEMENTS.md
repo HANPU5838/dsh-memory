@@ -252,6 +252,9 @@ cognitive:
   `dsh --profile web --dump-config` 能正确组合 `dsh-memory` entry
 - 生效方式：重启 `dsh web`；记忆数据 `~/.dsh-memory` 零迁移（老版本可读新字段）
 
+| F7 | `cognitive/lifecycle.ts` | dormant 只看 lastAccessedAt，天天 `memory_get` 的记忆会被误判休眠 | `lastSeenAt` 纳入 `lastUsedAt` |
+| F8 | `store.enforceLimit` | 容量淘汰只看新鲜度×重要度，会把常被使用的记忆淘汰 | 适应度加入效用 `(1+0.3·utility)`，与排序口径一致 |
+
 ## 三、如何从上游同步
 
 ```bash
