@@ -2,20 +2,21 @@
   <img src="https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/preview/icon-128.png" width="84" alt="记忆系统">
 </p>
 
-> ### 📦 这是镜像仓库，不是原作者仓库
+> ### 📦 本仓库在上游基础上深度维护（v0.32.0）
 >
-> 本仓库是 **DSH 记忆系统**（npm 包 `@restregular/dsh-memory`）的**完整克隆镜像**：
-> 代码、文档、提交历史与 tag 均同步自上游，供国内网络环境克隆 / 查阅 / 备份使用。
+> 本项目是 **DSH 记忆系统**（npm 包 `@restregular/dsh-memory`，MIT）的分支维护版：
+> 在上游 v0.30.1 之上做了平台适配、插件化、可靠性加固，以及 **0.32.0 的语义认知层与检索/嵌入性能优化**。
 >
 > | 项目 | 说明 |
 > | --- | --- |
-> | 上游原仓库 | **[RestRegular/dsh-memory](https://github.com/RestRegular/dsh-memory)**（作者 **RestRegular**）|
-> | 本镜像 | **v0.31.0**（上游 v0.30.1 + 平台适配 / 插件化 / 可靠性改进）（安装器软链/校验/磁盘预检、Termux glibc 自动包装、端口预检与自愈、默认 batch、存储写入与向量校验、检索超时自适应等，清单见 [IMPROVEMENTS.md](IMPROVEMENTS.md)、架构见 [docs/architecture.md](docs/architecture.md)）；文档里的图片 / 链接指向本仓库 |
+> | 原作者 | **RestRegular**（上游原项目 [RestRegular/dsh-memory](https://github.com/RestRegular/dsh-memory)，MIT）；本项目在其 v0.30.1 基础上维护 |
+> | 本仓库 | **v0.32.0** = 上游 v0.30.1 + 平台/可靠性改进 + 语义认知层（去重合并/冲突检测/谱系/生命周期）+ 检索整形（MMR/地板分/自适应阈值）+ 嵌入性能（批量/缓存/保活/ANN 模块/基准）。完整清单见 [IMPROVEMENTS.md](IMPROVEMENTS.md)，架构见 [docs/architecture.md](docs/architecture.md) |
 > | 许可 | **MIT**，版权归原作者所有，见 [LICENSE](LICENSE)；转载、分发请保留原始版权声明 |
-> | 更新与反馈 | 更新、Issue、PR 请到**上游原仓库**；本镜像不接收 Issue，同步靠手动从上游拉取 |
+> | 更新与反馈 | Issue / PR / 反馈请到 **[本仓库 Issues](https://github.com/HANPU5838/dsh-memory/issues)**；与上游的差异集中在 `IMPROVEMENTS.md` |
 >
 > 它解决什么问题：把「长期记忆」落到本机——JSONL 存储 + 本地向量检索（BGE-M3）+ 六个记忆工具
-> + 自动召回注入 + 硬性规则 + 可视化管理面板，让模型在该记的时候记住、该用的时候用上，默认不联网。
+> + 自动召回注入 + 硬性规则 + **语义整理与生命周期** + 可视化管理面板，让模型在该记的时候记住、
+> 该用的时候用上、该忘的时候忘掉，默认不联网。
 
 
 # 记忆系统
@@ -24,14 +25,12 @@
 
 JSONL 落盘 · 本机向量检索 · 六个模型工具 · 自动召回 · 硬性规则 · 可视化管理面板
 
-[![npm version](https://img.shields.io/npm/v/@restregular/dsh-memory.svg)](https://www.npmjs.com/package/@restregular/dsh-memory)
-[![npm downloads](https://img.shields.io/npm/dm/@restregular/dsh-memory.svg)](https://www.npmjs.com/package/@restregular/dsh-memory)
-[![license](https://img.shields.io/npm/l/@restregular/dsh-memory.svg)](https://github.com/HANPU5838/dsh-memory/blob/main/LICENSE)
+[![version](https://img.shields.io/badge/version-v0.32.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![license](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/HANPU5838/dsh-memory/blob/main/LICENSE)
 [![ci](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.13-5FA04E.svg)](https://nodejs.org/)
-[![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/plugins/restregular/dsh-memory)
 
-[npm 包](https://www.npmjs.com/package/@restregular/dsh-memory) · [问题反馈](https://github.com/RestRegular/dsh-memory/issues) · [更新日志](https://github.com/HANPU5838/dsh-memory/blob/main/CHANGELOG.md)
+[本仓库](https://github.com/HANPU5838/dsh-memory) · [问题反馈](https://github.com/HANPU5838/dsh-memory/issues) · [改进清单](https://github.com/HANPU5838/dsh-memory/blob/main/IMPROVEMENTS.md) · [更新日志](https://github.com/HANPU5838/dsh-memory/blob/main/CHANGELOG.md)
 
 > **它解决的不是「存一段文本」，而是「让模型在该记的时候记住、该用的时候用上」。**
 > 记忆默认只落在本机；没有向量服务也能工作——检索自动退化为词法，不产生任何网络请求。
@@ -61,6 +60,10 @@ JSONL 落盘 · 本机向量检索 · 六个模型工具 · 自动召回 · 硬�
 | **作用域目录与绝对隔离** | `memory_scopes` 列出范围内 / 范围外的名字与用途（`action="edit"` 可改用途与别名）；normal / none 下还带**初始化记录正文**（每个作用域最多 3 条，方便 Agent 直接读到“这个作用域主要放什么”）。绝对限制下范围外作用域**仍可发现**，但正文（含初始记录）永不可读、不可写、不可申请（没有任何审批放行路径）；普通限制下范围外条目可申请，`memory_scopes request` 走审批后写入**本会话**授权（默认只读，写权限必须单独申请），子 Agent 沿父会话继承 |
 | **会话授权（grants）** | Agent 申请、用户批准的例外单独存在 `<storeDir>/grants/<session>.json`，不并入可见域策略；只读 / 可写独立、可撤销、只在本会话（及子 Agent）生效；`absolute` 下授权不生效，作用域被删除重建后按创建代次自动失效 |
 | **双通道检索** | 词法（IDF + 中文 bigram）**+** 向量（本机 llama-server 的 OpenAI 兼容 `/v1/embeddings`）。向量缺席自动降级，不报错、不阻塞 |
+| **检索结果整形** | 双通道召回后先按**匹配强度**做地板分（不误杀"相关但久未访问"的旧记忆），再做**同义结果合并**（余弦 ≥0.85 只留分最高的一条），最后用 **MMR 多样性**挑选，避免同义记忆挤占名额、弱相关噪声混进 topK；阈值还会按查询长度自适应，global 与 project 的分数先校准再同槽排序 |
+| **语义整理（认知层）** | 写入后按向量做近重复检测：余弦 ≥0.92 且**关键细节一致**才自动合并（旧记录经 `supersedes` 保留、`generation` 递增）；0.75~0.92 或**数字/路径/标识符不一致**只打冲突标记，绝不自动改内容（例如「占用 10.4GB」和「占用 20GB」不会被合并） |
+| **生命周期** | `dormant` 休眠（长期未访问且不重要 → 不进摘要/召回，命中即唤醒）、`tombstone` 软删（`memory_forget` 默认 30 天内可 `restore`，到期由维护任务物理清理）、`snapshot/restore`（gzip JSONL 快照，可整库备份/迁移/回滚） |
+| **性能** | 文档/查询向量缓存（同内容重写、重复问句免嵌入；实测热查询 ~0.03ms）、批量嵌入（部分失败只留单条 null，超长记录不再毒死整批回填）、llama-server 预热 + 周期探活保活、可选纯 JS HNSW 索引模块（2 万条查询 P50 1.73ms vs 全量 25.2ms）、本地 chat 模型重排（可选，失败静默回退） |
 | **自动召回** | 每轮按用户问题召回；新会话第一步注入项目 / global 摘要；发布、部署、工具失败等行为按标签触发定向召回 |
 | **印象形态** | 每轮只给每条记忆的短摘要；模型判断相关但需要细节时再 `memory_get` 取全文，省 token 也不丢信息 |
 | **硬性规则** | `kind: rule` 进系统提示常驻段；行首带 8 位 id，注入的是摘要，需要全文时用 `memory_get`；旧会话会收到新增 / 编辑提醒；超预算有明确警告，不静默丢弃 |
@@ -76,6 +79,45 @@ JSONL 落盘 · 本机向量检索 · 六个模型工具 · 自动召回 · 硬�
 | **平台自检** | 面板「向量服务 → 环境自检」一次探测 平台 / glibc loader / 后端 / 磁盘 / 目录权限，Termux 与普通 Linux 都是自包含的（不改宿主、不需要环境变量） |
 | **插件事件** | 对外发 `memory/record-saved` / `memory/recalled` / `memory/record-forgotten` 事件（只含元数据，不含正文），其他插件可 `ctx.on(...)` 订阅 |
 | **跨进程安全** | 每个作用域一把写锁，锁内重新读盘再合并；多个 DSH 实例或 MCP server 共用一个 store 不丢数据 |
+
+## 和同类方案怎么比
+
+> 定位不同：本项目是 **DSH 插件**（深度绑定 DSH 的工具/注入/面板），不是通用记忆框架；
+> 下表只比较"记忆系统"这一层的能力，不比较生态、托管服务与 SDK。
+
+| 维度 | 本项目 | Mem0 | Zep / Graphiti | Letta (MemGPT) | Hindsight | LangMem |
+| --- | --- | --- | --- | --- | --- | --- |
+| 部署形态 | **本地零依赖插件**（JSONL + 可选本地 llama.cpp） | 云 / 自托管，向量库+图 | 云 / Graphiti + 图数据库 | Agent 运行时 | 自托管（内嵌 Postgres） | LangGraph 生态 |
+| 默认是否联网 | **不联网**（本地嵌入，断网可退化为纯词法） | 需嵌入服务 | 需图库+LLM | 需 LLM 运行时 | 需 LLM（可本地） | 需嵌入服务 |
+| 检索方式 | **词法 IDF + 向量 + 可选题材重排**，带地板分/去重/MMR | 向量+图 | 向量+时序图 | 向量+分层上下文 | 四路并行（语义/BM25/图/时序）+ cross-encoder | 向量 |
+| 语义去重 / 合并 | **✅ 余弦+关键细节双条件**（0.32.0） | 部分（依赖 LLM 抽取） | 实体消解 | 由 Agent 自己决定 | ✅ 抽取+实体消解 | 后台 manager（可选） |
+| 冲突检测 | **✅ 只打标不自动改**（数字/路径/标识符不一致） | 依赖 LLM | 时序有效期 | 依赖 Agent | 依赖 LLM | ❌ |
+| 生命周期 | **✅ 休眠 / 软删可恢复 / 快照回滚** | 部分 | 时序窗口 | 分层+归档 | 抽取式 | ❌ |
+| 谱系 / 修正链 | **✅ supersedes + generation + lineage()** | 有限 | 时序边 | ❌ | 有限 | ❌ |
+| 注入机制（进上下文） | **✅ 四层：摘要/召回/规则/流程索引 + 预算 + 去重** | ❌（只提供 API） | ❌ | ✅（运行时管理上下文） | ❌ | ❌（库） |
+| 作用域隔离 / 权限 | **✅ 会话/项目/global/自定义 + 审批 + 只读授权** | 命名空间 | 命名空间 | ❌ | bank | namespace |
+| 规模 | 单机 JSONL（单 scope 上限可配，默认 2000；ANN 模块最高实测 2 万） | 大规模（向量库） | 大规模 | 大规模 | 中等 | 中等 |
+| 成本 | **0（本地）** | 云按量 | 云按量 | 需 LLM 调用 | 自托管资源 | LLM 调用 |
+
+**一句话**：同类方案多在解决"通用记忆 API"，本项目解决"**插件在会话里怎么真的用上记忆**"——
+注入链路、作用域审批、规则常驻、流程索引这些是它的差异点；0.32.0 补上了语义整理与生命周期，
+把"档案"升级成了"会整理、会遗忘、可回滚"的记忆系统。
+
+## 性能基准
+
+本机实测（Qualcomm Pineapple MTP / 8 核 / 15GB RAM / Android-Termux aarch64 / Node v26.13.0，
+bge-m3 1024 维，llama-server CPU 6 线程，2026-11-10）：
+
+| 指标 | 数据 |
+| --- | --- |
+| 文档向量缓存 | 冷 2.11s（8 条）→ 热 **0.34ms**（命中率 100%，≈6200×） |
+| 查询延迟（嵌入 + 全量余弦） | 冷 P50 **212ms** / P95 264ms；查询 LRU 热 **P50 0.03ms** |
+| 批量嵌入（batch=8 vs 1） | 3.8 rec/s vs 2.8 rec/s（≈1.4×，CPU 上省的是调度） |
+| 回填 | batch=8 3.2 rec/s；单条失败只留 null，不拖垮整批 |
+| ANN（纯 JS HNSW，合成 128 维） | 2k：P50 1.3ms/召回 100%；10k：1.15ms/98%（10.4×）；20k：1.73ms/94%（14.6×） |
+| 测试 | **771 例 / 770 pass / 1 skip / 0 fail** |
+
+复现：`node tools/bench/run.mjs`（live 模式需本地嵌入服务；无服务时自动合成数据）。
 
 ## 界面
 
@@ -143,18 +185,25 @@ JSONL 落盘 · 本机向量检索 · 六个模型工具 · 自动召回 · 硬�
 
 ## 安装
 
-一条命令装进 Web profile：
+> **安装来源提醒**：npm 上的 `@restregular/dsh-memory` 是**上游 0.30.1**（本项目基于它改进，
+> 但尚未发布到 npm）。要使用本仓库的 0.32.0，请从本仓库安装：
 
 ```bash
-dsh plugin --profile web add @restregular/dsh-memory
+# 方式一：直接从本仓库装（仓库内已包含构建产物 packages/）
+dsh plugin --profile web add "github:HANPU5838/dsh-memory#main"
+
+# 方式二：克隆后本地构建再装（改了源码时用这个）
+git clone https://github.com/HANPU5838/dsh-memory && cd dsh-memory
+npm run build
+dsh plugin --profile web add "file:$PWD"
 ```
 
 也可以手动加进 profile 的依赖（桌面端 `~/.dsh/profiles/desktop`，Web 端 `~/.dsh/profiles/web`）：
 
 ```bash
-pnpm add @restregular/dsh-memory
-# 或
-npm i @restregular/dsh-memory
+pnpm add "github:HANPU5838/dsh-memory#main"
+# 或本地路径
+pnpm add "file:/path/to/dsh-memory"
 ```
 
 装进任意 DSH profile（桌面端 `~/.dsh/profiles/desktop`，Web 端 `~/.dsh/profiles/web`）。
@@ -451,6 +500,8 @@ retrieval:
         writeTimeoutMs: 10000              # 保存时嵌整条记录
         backfillTimeoutMs: 30000
         backfillMaxChars: 8000
+        cache: true                        # 0.32.0 文档/查询向量缓存（<storeDir>/embed-cache）
+        keepAlive: true                    # 0.32.0 启动预热 + 周期探活
         spawn:
           enabled: true
           exe: '/path/to/llama-server.exe'
@@ -458,6 +509,14 @@ retrieval:
           cwd: '/path/to/llamacpp'         # 目录里要有 llama-server-impl.dll
           logFile: '/path/to/llama-server.log'
       llm: { enabled: false }
+      finalFloor: 0.2                      # 0.32.0 匹配强度地板分（0 = 关闭）
+      dedupeThreshold: 0.85                # 0.32.0 同义结果合并阈值（0 = 关闭）
+      mmr: true                            # 0.32.0 MMR 多样性
+      mmrLambda: 0.7
+    cognitive:                             # 0.32.0 认知层（全部可单独关闭）
+      merge: { enabled: true, threshold: 0.92 }
+      conflict: { enabled: true, minSimilarity: 0.75 }
+      lifecycle: { dormantAfterDays: 30, dormantMaxImportance: 0.3, tombstoneDays: 30 }
     limits: { maxRecordsPerScope: 2000, maxRecordChars: 4000 }
     secrets: { enabled: true, mode: refuse }   # refuse | redact
     tools: { defaultScope: session }            # session / project / global

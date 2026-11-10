@@ -4176,9 +4176,9 @@ window.__ModuleLoader__.load({
       // 服务页底部:一句号召 + 两个外链(Star / issue)。放在内容最后,不打扰上面的状态卡。
       const footer = h('div', { className: 'footer' },
         '觉得好用？',
-        h('a', { href: 'https://github.com/RestRegular/dsh-memory', target: '_blank', rel: 'noreferrer' }, '⭐ 去 GitHub 点个 Star'),
+        h('a', { href: 'https://github.com/HANPU5838/dsh-memory', target: '_blank', rel: 'noreferrer' }, '⭐ 去 GitHub 点个 Star'),
         ' · ',
-        h('a', { href: 'https://github.com/RestRegular/dsh-memory/issues/new', target: '_blank', rel: 'noreferrer' }, '💬 反馈建议 / 提 issue'),
+        h('a', { href: 'https://github.com/HANPU5838/dsh-memory/issues/new', target: '_blank', rel: 'noreferrer' }, '💬 反馈建议 / 提 issue'),
       )
       const overviewBody = h('div', { className: 'memp-body' }, serverCard, maintenanceCard, footer)
 

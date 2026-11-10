@@ -1,8 +1,8 @@
 # 本仓库相对上游的改进
 
-本仓库是 [RestRegular/dsh-memory](https://github.com/RestRegular/dsh-memory) 的镜像，
-在上游 **v0.30.1** 基础上做了一批**平台适配与健壮性改进**（有源码改动 + 回归测试，不是临时补丁）。
-上游 npm 包 `@restregular/dsh-memory@0.30.1` 不含这些改动。
+> 原作者：**RestRegular**（上游原项目 [RestRegular/dsh-memory](https://github.com/RestRegular/dsh-memory)，MIT）。
+> 本项目 [HANPU5838/dsh-memory](https://github.com/HANPU5838/dsh-memory) 在其 **v0.30.1** 基础上持续维护，
+> 以下是相对上游的完整改进清单（有源码改动 + 回归测试，不是临时补丁）。
 
 ## 一、改进清单
 
@@ -137,6 +137,64 @@ node tools/build-single-package.mjs --scope @restregular --version 0.30.1 \
 
 > DSH 实际加载的是 `packages/dsh-memory/lib/**`，只改 `source/` 不构建不生效。
 
+## 二之三、0.32.0 —— 语义认知层 · 检索整形 · 嵌入性能（2026-11-10）
+
+> 目标：把「档案」升级成「真正的记忆系统」——会语义整理、会冲突告警、会遗忘与恢复、可回滚；
+> 同时把本地嵌入模型的吞吐/延迟/成本压到实际可用。
+
+### 1. 认知层（写侧）
+
+| # | 能力 | 说明 | 解决的真实问题 |
+|---|---|---|---|
+| C1 | **语义近重复合并** | 写后再嵌入向量与同 scope 已有向量比对；余弦 ≥ `merge.threshold`（默认 0.92）且**关键细节一致**时，新记录接管旧记录（`supersedes` 指向旧 id、`generation+1`、tags 并集、importance 取大），旧记录保留为已修正 | 同义记忆并存互相挤占召回名额；只按 `contentHash` 去重挡不住"换个说法" |
+| C2 | **冲突检测（只打标）** | 0.75~0.92 相似度，或**数字/路径/标识符不一致**（`hasCriticalDetailConflict`）→ 打 `conflictWith/conflictConfidence`，绝不自动改内容 | 纯余弦会把"措辞几乎一样但事实矛盾"的两条合并（实测 10.4GB vs 20GB 余弦高于同义改写） |
+| C3 | **谱系** | 记录级 `generation`、`supersedes` 链、`lineage(id)` 前驱/后继遍历（防环） | 只知道"被修正过"，查不到"从哪一版演进而来" |
+| C4 | **生命周期** | `dormant`（30 天未访问且 importance ≤0.3 → 不进摘要/召回，命中唤醒）、`tombstone`（forget 软删，30 天可 restore）、`purgeTombstones`（到期物理删）、`snapshot/restore`（gzip JSONL 快照） | 只增不减、误删不可恢复、没有备份/迁移手段 |
+| C5 | **维护任务** | 每小时：过期清理 + 容量淘汰 + dormant 标记 + 墓碑清理；归档会话作用域全部冻结 | 生命周期逻辑散落、没有统一周期 |
+
+### 2. 检索整形（读侧）
+
+| # | 能力 | 说明 | 解决的真实问题 |
+|---|---|---|---|
+| R1 | **地板分** | 作用于**匹配强度**（词法校准分/余弦），不是衰减后的终态分 | 弱相关噪声进 topK；直接作用在终态分又会误杀"相关但久未访问"的旧记忆 |
+| R2 | **同义结果合并** | 余弦 ≥0.85 的命中只留分最高的一条，被合并 id 进事件 | 两条同义记忆同时占位（实测余弦 0.865） |
+| R3 | **MMR 多样性** | `λ·rel − (1−λ)·max sim`，无向量时退化分数去重 | 结果高度重复、覆盖不了不同侧面 |
+| R4 | **自适应阈值 + 跨 scope 校准** | 短查询放宽、长查询收紧；global 与 project 词法分先校准再同槽排序 | 两档固定阈值 + 分数域不可比 |
+| R5 | **离线评测** | `recall@k / MRR / nDCG@k` + CSV 导出（`retrieval/eval.ts`） | 改检索参数只能"感觉变好了"，无法量化 |
+
+### 3. 嵌入性能
+
+| # | 能力 | 说明 | 实测 |
+|---|---|---|---|
+| E1 | **批量嵌入** | `embedBatch` 按条数+字符分组；**部分成功语义**（单条失败为 null）；外层 null = 后端不可用 | 回填 batch=8 3.2 rec/s；超长记录不再毒死整批 |
+| E2 | **单条回退** | llama-server 对超长输入返回 **HTTP 500 + "input too large"**（不是 400），按 body 识别后拆单重试 | 3 条里 2 条正常、超长那条单独失败，后端保持 healthy |
+| E3 | **向量缓存** | 文档缓存持久化（identity+contentHash，换模型整体失效）+ 查询 LRU | 文档热命中 **0.34ms**（≈6200×）；查询热 **P50 0.03ms** |
+| E4 | **预热保活** | 启动 warmup + 周期探活退避；后端恢复自动结束熔断 | 避免首问吃冷启动；后台被杀可自愈 |
+| E5 | **ANN 模块** | 纯 JS HNSW（零依赖）+ 可选 `hnswlib-node` 动态加载，缺失自动退化全量扫描 | 20k 条 P50 1.73ms vs 全量 25.2ms（14.6×），召回 94% |
+| E6 | **本地重排** | 用第二个 llama-server chat 模型做 rerank，失败静默回退，`asInvoke()` 直接替换宿主 LLM | 无外部 LLM 也能重排 |
+
+> ANN 模块（E5）已交付并测试，**尚未接进 `search()`**（默认走全量扫描，2000 条内更快）；
+> 接线方式是 `shouldUseAnn(size)` + 增量 insert，留待下一版在真实大库上验证后默认开启。
+
+### 4. 配置新增
+
+```yaml
+retrieval:
+  finalFloor: 0.2            # 匹配强度地板分（0 关闭）
+  dedupeThreshold: 0.85      # 同义结果合并（0 关闭）
+  mmr: true                  # MMR 多样性
+  mmrLambda: 0.7
+  vector:
+    cache: true              # 向量缓存（<storeDir>/embed-cache）
+    keepAlive: true          # 预热 + 探活
+cognitive:
+  merge: { enabled: true, threshold: 0.92 }
+  conflict: { enabled: true, minSimilarity: 0.75 }
+  lifecycle: { dormantAfterDays: 30, dormantMaxImportance: 0.3, tombstoneDays: 30 }
+```
+
+**测试**：771 例 / 770 pass / 1 skip / 0 fail（新增 137 例：认知层 36、检索 28、性能 73）。
+
 ## 三、如何从上游同步
 
 ```bash
@@ -153,3 +211,6 @@ node --test source/*/test/*.test.ts
 
 1. 冒烟探测是阻塞的 spawnSync（≤4s，用户点按钮才会触发），阻塞期间不响应取消（可改为异步 spawn）。
 2. 10k 条以上时向量仍常驻内存（增量索引已解决「每 60s 全量读文件」，内存占用本身未做分层/淘汰）。
+3. ANN 模块已交付但**未接进检索热路径**；默认全量扫描，规模上限仍受 `maxRecordsPerScope` 约束。
+4. 语义合并只在**写入时**触发；存量近重复需要显式调用 `nearDuplicates()` 维护（未做成自动巡检）。
+5. 面板尚未暴露 restore / snapshot / 冲突提示 UI（服务层 API 已就绪）。

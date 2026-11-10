@@ -76,6 +76,140 @@ export function newId()         {
   return randomUUID()
 }
 
+// ---------------------------------------------------------------- 认知层基础类型
+//
+// 语义去重 / 冲突检测 / 生命周期都是**可选附加字段**：老记录缺省即可，不需要
+// 迁移；读取侧一律走 generationOf() 之类的帮助函数拿缺省值，别直接读裸字段。
+// 这些字段跟着记录一起进 JSONL —— 落盘/读盘对未知字段本就是透明的（readRecords
+// 只校验 id/content/scope），所以老版本进程写回时也不会丢。
+
+                                  
+                                              
+                     
+                                          
+                         
+                            
+                             
+                                        
+                    
+                                                
+                       
+                                    
+                             
+                                         
+                     
+ 
+
+                                                            
+
+/** 记录版本号；老记录没有该字段 = 1。 */
+export function generationOf(record              )         {
+  const value = (record                   ).generation
+  return typeof value === 'number' && Number.isFinite(value) && value >= 1 ? Math.floor(value) : 1
+}
+
+/** 是否处于休眠状态（缺省 false：老记录不受影响）。 */
+export function isDormantRecord(record              )          {
+  return (record                   ).dormantAt !== undefined
+}
+
+/** 是否已被软删（tombstone）。被软删的记录一律不参与检索/注入，等 restore 或 purge。 */
+export function isTombstonedRecord(record              )          {
+  return (record                   ).tombstonedAt !== undefined
+}
+
+/** 夹到 0..1；非数值 → 0（相似度/置信度这类字段的唯一边界处理）。 */
+export function clamp01(value         )         {
+  const n = typeof value === 'number' && Number.isFinite(value) ? value : 0
+  return Math.min(1, Math.max(0, n))
+}
+
+/**
+ * 余弦相似度。防御性归一化：空向量 / 零向量返回 0，维度不同时按较短者算。
+ * 与 scoring.cosine 同口径；认知层刻意用本地实现，避免跟检索侧的改动耦合。
+ */
+export function cosineSimilarity(a                   , b                   )         {
+  const n = Math.min(a.length, b.length)
+  let dot = 0
+  let na = 0
+  let nb = 0
+  for (let i = 0; i < n; i++) {
+    const x = a[i] 
+    const y = b[i] 
+    dot += x * y
+    na += x * x
+    nb += y * y
+  }
+  if (na === 0 || nb === 0) return 0
+  return dot / (Math.sqrt(na) * Math.sqrt(nb))
+}
+
+/** 一条相似命中（findSimilar 的返回项；record 自带 scope）。 */
+                             
+                      
+                    
+ 
+
+                                 
+                      
+                
+                       
+                   
+                               
+                               
+                                                     
+                          
+                                         
+                             
+ 
+
+/** 一对近重复记录。keepId 建议保留，mergeId 建议被它 supersede。 */
+                                
+           
+           
+                    
+                
+                 
+ 
+
+                                       
+                       
+                
+     
+                                                    
+                                                    
+     
+                     
+                                       
+                          
+ 
+
+/** 谱系里的一版。 */
+                               
+            
+                    
+                                     
+                           
+                                    
+                        
+                 
+                   
+                   
+                    
+ 
+
+/** 一条记忆的完整版本谱系（由旧到新）。 */
+                          
+            
+                    
+                      
+                
+                                                     
+                         
+                                     
+                   
+ 
+
 // ---------------------------------------------------------------- 跨进程写锁
 
 /** 等锁的上限:超过就告警并"不带锁照写"(宁可少一次合并,也不要丢掉这次写入)。 */
@@ -526,6 +660,94 @@ export class ScopeStore {
       this.events.onWarn?.(`vec: load failed: ${(err         ).message}`)
     }
   }
+
+  // ------------------------------------------------------------ 认知层:相似度
+
+  /** 本 scope 里被别的记录 supersedes 指向的 id（=历史版本）。读路径，不落盘。 */
+  retiredIds()              {
+    const ids = new Set        ()
+    for (const rec of this.records.values()) {
+      if (typeof rec.supersedes === 'string' && rec.supersedes) ids.add(rec.supersedes)
+    }
+    return ids
+  }
+
+  /**
+   * 在**本 scope** 内按向量找相似记录（只搜有向量的记录）。
+   *
+   * 读路径：不读盘、不落盘。默认排除已退役的历史版本和 tombstone 软删记录，
+   * 因为合并/冲突决策只应该发生在"当前有效版本"之间。
+   */
+  findSimilar(vec              , opts                 = {})               {
+    const limit = Math.max(0, Math.floor(opts.limit ?? 10))
+    const minScore = opts.minScore ?? 0
+    const excluded = new Set(opts.excludeIds ?? [])
+    const retired = opts.includeRetired === true ? null : this.retiredIds()
+    const out               = []
+    for (const [id, other] of this.vectors) {
+      if (excluded.has(id)) continue
+      const rec = this.records.get(id)
+      if (rec === undefined) continue
+      if (retired?.has(id) === true) continue
+      if (opts.includeTombstoned !== true && isTombstonedRecord(rec)) continue
+      const similarity = cosineSimilarity(vec, other)
+      if (similarity < minScore) continue
+      out.push({ record: rec, similarity })
+    }
+    out.sort((a, b) => b.similarity - a.similarity || a.record.id.localeCompare(b.record.id))
+    return out.slice(0, limit)
+  }
+
+  /**
+   * 本 scope 内的近重复对（两两比较余弦相似度，>= threshold 才算）。
+   *
+   * 只比较有向量、未退役、未软删的记录。`maxRecords` 防止大 scope 的 O(n²) 把
+   * 维护线程卡死（默认 2000；超过时保留最近更新的那批）。
+   */
+  nearDuplicates(threshold = 0.92, opts                       = {})                  {
+    const limit = Math.max(0, Math.floor(opts.limit ?? 100))
+    const maxRecords = Math.max(2, Math.floor(opts.maxRecords ?? 2000))
+    const retired = opts.includeRetired === true ? null : this.retiredIds()
+    const candidates                                                              = []
+    for (const [id, vec] of this.vectors) {
+      const rec = this.records.get(id)
+      if (rec === undefined) continue
+      if (retired?.has(id) === true) continue
+      if (isTombstonedRecord(rec)) continue
+      candidates.push({ id, rec, vec })
+    }
+    candidates.sort((a, b) => b.rec.updatedAt - a.rec.updatedAt || a.id.localeCompare(b.id))
+    const chosen = candidates.slice(0, maxRecords)
+    const pairs                  = []
+    for (let i = 0; i < chosen.length; i++) {
+      for (let j = i + 1; j < chosen.length; j++) {
+        const similarity = cosineSimilarity(chosen[i] .vec, chosen[j] .vec)
+        if (similarity < threshold) continue
+        const preferred = preferredVersion(chosen[i] .rec, chosen[j] .rec)
+        pairs.push({
+          a: chosen[i] .id,
+          b: chosen[j] .id,
+          similarity,
+          keepId: preferred.keepId,
+          mergeId: preferred.mergeId,
+        })
+      }
+    }
+    pairs.sort((a, b) => b.similarity - a.similarity || a.keepId.localeCompare(b.keepId) || a.mergeId.localeCompare(b.mergeId))
+    return pairs.slice(0, limit)
+  }
+}
+
+/**
+ * 两条近重复记录里该保留哪条：版本号大 > 更新得更晚 > 更重要 > id 字典序（稳定）。
+ * 合并计划就按这个顺序决定"谁被 supersede"。
+ */
+export function preferredVersion(a              , b              )                                      {
+  const byGeneration = generationOf(a) - generationOf(b)
+  if (byGeneration !== 0) return byGeneration > 0 ? { keepId: a.id, mergeId: b.id } : { keepId: b.id, mergeId: a.id }
+  if (a.updatedAt !== b.updatedAt) return a.updatedAt > b.updatedAt ? { keepId: a.id, mergeId: b.id } : { keepId: b.id, mergeId: a.id }
+  if (a.importance !== b.importance) return a.importance > b.importance ? { keepId: a.id, mergeId: b.id } : { keepId: b.id, mergeId: a.id }
+  return a.id.localeCompare(b.id) <= 0 ? { keepId: a.id, mergeId: b.id } : { keepId: b.id, mergeId: a.id }
 }
 
 // --- base64 vector codec (4 bytes per float, bit-exact) ---
@@ -907,11 +1129,23 @@ export class MemoryStore {
     const s = this.scope(input.scope)
     const hash = contentHash(input.scope, input.content)
     for (const rec of s.records.values()) {
+      // 软删记录不能被"同内容重写"复活：否则 forget 之后一句重述就绕过了 tombstone。
+      // 要恢复必须显式走 lifecycle.restore()（或重新写入并产生新 id）。
+      if (isTombstonedRecord(rec)) continue
       if (contentHash(rec.scope, rec.content) === hash) {
         rec.updatedAt = Date.now()
         rec.accessCount += 1
         rec.importance = Math.max(rec.importance, input.importance ?? defaults.importance)
-        if (input.supersedes) rec.supersedes = input.supersedes
+        // 同内容重写 = 一次访问：休眠标记顺手清掉（低价值记忆被再次确认就该醒）。
+        delete (rec                   ).dormantAt
+        if (input.supersedes) {
+          rec.supersedes = input.supersedes
+          const target = s.records.get(input.supersedes)
+          if (target !== undefined && target.id !== rec.id) {
+            // 谱系版本号只增不减：重写同一内容时也要接上被取代版本的后一位。
+            rec.generation = Math.max(generationOf(rec), generationOf(target) + 1)
+          }
+        }
         // 同一内容重写 = 刷新状态:TLL 重新计时;显式去掉过期时间时一并清掉。
         if (input.expiredAt !== undefined) rec.expiredAt = input.expiredAt
         else delete rec.expiredAt
@@ -927,6 +1161,13 @@ export class MemoryStore {
       }
     }
     const now = Date.now()
+    const cognitive = input                                     
+    const explicitGeneration = typeof cognitive.generation === 'number' && Number.isFinite(cognitive.generation) && cognitive.generation >= 1
+      ? Math.floor(cognitive.generation)
+      : undefined
+    const supersededTarget = input.supersedes !== undefined ? s.records.get(input.supersedes) : undefined
+    // 版本号：显式给的优先；否则「取代某条」= 被取代者 +1；普通新记录 = 1（不落盘）。
+    const generation = explicitGeneration ?? (supersededTarget !== undefined ? generationOf(supersededTarget) + 1 : 1)
     const record               = {
       id: newId(),
       scope: input.scope,
@@ -940,6 +1181,15 @@ export class MemoryStore {
       accessCount: 0,
       importance: input.importance ?? defaults.importance,
       ...(input.supersedes ? { supersedes: input.supersedes } : {}),
+      ...(generation > 1 ? { generation } : {}),
+      // 冲突标记由上层（cognitive/conflict）算好后带进来；这里只负责持久化，
+      // 绝不在 store 里自动判定"谁跟谁冲突"。
+      ...(Array.isArray(cognitive.conflictWith) && cognitive.conflictWith.length > 0
+        ? {
+            conflictWith: cognitive.conflictWith.map(String),
+            conflictConfidence: clamp01(cognitive.conflictConfidence ?? 0),
+          }
+        : {}),
       ...(input.expiredAt ? { expiredAt: input.expiredAt } : {}),
       ...(Array.isArray((input                                            ).triggers)
         ? { triggers: ((input                                            ).triggers             ).map(String) }
@@ -1023,6 +1273,123 @@ export class MemoryStore {
       }
     }
     return removed
+  }
+
+  // ------------------------------------------------------------ 认知层:相似检索
+
+  /** 按 id 在本进程已加载的 scope 里找记录（读路径：不发现、不创建、不读盘）。 */
+  findById(id        )                           {
+    return this.scopeOf(id)?.record
+  }
+
+  /** 按 id 定位记录所在的 ScopeStore（lineage / lifecycle 需要拿到可写的 scope）。 */
+  scopeOf(id        )                                                          {
+    for (const store of this.scopes.values()) {
+      const record = store.records.get(id)
+      if (record !== undefined) return { store, record }
+    }
+    return undefined
+  }
+
+  /** 某个 scope 内的近重复对（scope 不存在/未加载 → 空；读路径不建 scope）。 */
+  nearDuplicates(scope             , threshold = 0.92, opts                       = {})                  {
+    const store = this.peek(scope)
+    return store === undefined ? [] : store.nearDuplicates(threshold, opts)
+  }
+
+  /**
+   * 按向量找相似记录。`opts.scope` 缺省时扫**全部已加载** scope（需要全量时先
+   * loadDiscovered()）；传单个 scope 或数组可限定作用域。结果按相似度降序。
+   *
+   * 只搜有向量的记录 —— 向量由嵌入层写入，没嵌入成功的记录肉眼不可比。
+   */
+  findSimilar(
+    vec              ,
+    opts                                                                              = {},
+  )               {
+    const limit = Math.max(0, Math.floor(opts.limit ?? 10))
+    const perScope = Math.max(limit, Math.floor(opts.perScope ?? limit))
+    const scopes               = []
+    if (opts.scope === undefined) {
+      scopes.push(...this.scopes.values())
+    } else {
+      for (const scope of Array.isArray(opts.scope) ? opts.scope : [opts.scope]) {
+        const store = this.peek(scope) // 读路径:不存在就跳过,不创建
+        if (store !== undefined) scopes.push(store)
+      }
+    }
+    const out               = []
+    for (const store of scopes) out.push(...store.findSimilar(vec, { ...opts, limit: perScope }))
+    out.sort((a, b) => b.similarity - a.similarity || a.record.id.localeCompare(b.record.id))
+    return out.slice(0, limit)
+  }
+
+  /**
+   * 版本谱系：沿 `supersedes` 往前回溯链根，再沿"谁 supersede 了它"收集全部后代，
+   * 按 generation → createdAt 由旧到新排列。历史数据成环/断链都不会死循环。
+   *
+   * 找不到 id（或所在 scope 未加载）→ null。
+   */
+  lineage(id        )                 {
+    const located = this.scopeOf(id)
+    if (located === undefined) return null
+    const { store, record } = located
+    // 反向索引：被取代 id → 取代它的记录 id（同一 scope；supersedes 本就只在 scope 内）。
+    const children = new Map                  ()
+    for (const rec of store.records.values()) {
+      const parent = typeof rec.supersedes === 'string' && rec.supersedes ? rec.supersedes : null
+      if (parent === null) continue
+      const list = children.get(parent)
+      if (list === undefined) children.set(parent, [rec.id])
+      else list.push(rec.id)
+    }
+    // 1) 往前找链根（visited 防环）
+    const visited = new Set        ()
+    let rootId = record.id
+    let cursor                           = record
+    while (cursor !== undefined && !visited.has(cursor.id)) {
+      visited.add(cursor.id)
+      rootId = cursor.id
+      const parentId = typeof cursor.supersedes === 'string' ? cursor.supersedes : undefined
+      cursor = parentId !== undefined ? store.records.get(parentId) : undefined
+    }
+    // 2) 从链根 BFS 收集整个连通分量（含分叉）
+    const component                 = []
+    const seen = new Set        ()
+    const queue           = [rootId]
+    while (queue.length > 0) {
+      const nextId = queue.shift() 
+      if (seen.has(nextId)) continue
+      seen.add(nextId)
+      const rec = store.records.get(nextId)
+      if (rec === undefined) continue
+      component.push(rec)
+      for (const childId of children.get(nextId) ?? []) queue.push(childId)
+    }
+    if (!seen.has(id)) return null
+    component.sort(
+      (a, b) =>
+        generationOf(a) - generationOf(b) ||
+        a.createdAt - b.createdAt ||
+        a.id.localeCompare(b.id),
+    )
+    const entries                 = component.map((rec) => ({
+      id: rec.id,
+      generation: generationOf(rec),
+      supersedes: typeof rec.supersedes === 'string' && rec.supersedes ? rec.supersedes : null,
+      supersededBy: [...(children.get(rec.id) ?? [])],
+      content: rec.content,
+      createdAt: rec.createdAt,
+      updatedAt: rec.updatedAt,
+      importance: rec.importance,
+    }))
+    return {
+      id,
+      scope: store.scope,
+      rootId,
+      entries,
+      currentId: entries[entries.length - 1] .id,
+    }
   }
 }
 

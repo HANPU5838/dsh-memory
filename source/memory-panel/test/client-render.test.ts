@@ -1493,8 +1493,8 @@ test('服务页底部:Star 与 issue 链接', async () => {
   assert.ok(text.includes('去 GitHub 点个 Star'), `底部有 Star 文案(${text.slice(-80)})`)
   assert.ok(text.includes('反馈建议 / 提 issue'), '底部有 issue 文案')
   const links = collect(tree()).filter((n) => n.tag === 'a').map((n) => String(n.props?.href))
-  assert.ok(links.includes('https://github.com/RestRegular/dsh-memory'), `Star 链接正确(${JSON.stringify(links)})`)
-  assert.ok(links.includes('https://github.com/RestRegular/dsh-memory/issues/new'), 'issue 链接正确')
+  assert.ok(links.includes('https://github.com/HANPU5838/dsh-memory'), `Star 链接正确(${JSON.stringify(links)})`)
+  assert.ok(links.includes('https://github.com/HANPU5838/dsh-memory/issues/new'), 'issue 链接正确')
 })
 
 test('侧栏图标是单色线稿:16 网格、1.3 描边、currentColor,不带渐变', async () => {

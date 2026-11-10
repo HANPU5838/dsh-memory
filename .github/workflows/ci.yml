@@ -39,3 +39,8 @@ jobs:
       # 跳过不等于失败，这里只要求退出码为 0。
       - name: 运行测试
         run: node --test source/*/test/*.test.ts
+
+      # 单包产物构建验证：不发布、不落包，只确认 source/ 能完整转译成 packages/ 形态。
+      # 产物与源码不同步是本项目最容易犯的错（DSH 实际加载的是 packages/lib/**）。
+      - name: 构建验证
+        run: node tools/build-single-package.mjs --scope @restregular --version 0.32.0 --repo https://github.com/HANPU5838/dsh-memory --out .verify --no-place

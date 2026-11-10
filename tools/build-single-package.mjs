@@ -247,8 +247,15 @@ writeJson(join(OUT, 'package.json'), {
     '@deepseek-ai/dsh-llm': { optional: true },
   },
   ...(REPO_URL
-    ? { repository: { type: 'git', url: REPO_URL.startsWith('git+') ? REPO_URL : `git+${REPO_URL}`, directory: 'packages/dsh-memory' } }
+    ? {
+        repository: { type: 'git', url: REPO_URL.startsWith('git+') ? REPO_URL : `git+${REPO_URL}`, directory: 'packages/dsh-memory' },
+        homepage: `${REPO_URL.replace(/^git\+/, '').replace(/\.git$/, '')}#readme`,
+        bugs: { url: `${REPO_URL.replace(/^git\+/, '').replace(/\.git$/, '')}/issues` },
+      }
     : {}),
+  // 原作者署名：MIT 要求保留原始版权声明；维护者信息放在 contributors。
+  author: 'RestRegular (original author)',
+  contributors: [{ name: 'HANPU5838', url: 'https://github.com/HANPU5838' }],
   // 作用域包默认是私有可见性,发 npm 必须显式 public —— 写进包里,`npm publish` 不加参数也不会错。
   publishConfig: { access: 'public' },
   keywords: ['dsh-plugin', 'deepseek-harness', 'memory', 'bge-m3', 'embeddings', 'recall', 'panel'],

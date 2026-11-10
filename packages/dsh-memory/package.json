@@ -1,6 +1,6 @@
 {
   "name": "@restregular/dsh-memory",
-  "version": "0.31.0",
+  "version": "0.32.0",
   "description": "DeepSeek Harness 记忆系统(单包单入口):JSONL 存储 + 本地向量检索(BGE-M3)+ 五个模型工具 + 自动召回注入 + 管理面板。",
   "icon": "./icon.svg",
   "type": "module",
@@ -52,6 +52,17 @@
     "url": "git+https://github.com/HANPU5838/dsh-memory",
     "directory": "packages/dsh-memory"
   },
+  "homepage": "https://github.com/HANPU5838/dsh-memory#readme",
+  "bugs": {
+    "url": "https://github.com/HANPU5838/dsh-memory/issues"
+  },
+  "author": "RestRegular (original author)",
+  "contributors": [
+    {
+      "name": "HANPU5838",
+      "url": "https://github.com/HANPU5838"
+    }
+  ],
   "publishConfig": {
     "access": "public"
   },
