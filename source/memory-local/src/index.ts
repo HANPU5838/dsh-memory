@@ -639,7 +639,7 @@ export function resolveConfig(config: MemoryLocalConfig = {}): ResolvedConfig {
       endpoint: v.endpoint ?? 'http://127.0.0.1:8078/v1/embeddings',
       model: v.model ?? selection.modelName,
       dims: v.dims ?? selection.dims,
-      timeoutMs: v.timeoutMs ?? 300,
+      timeoutMs: v.timeoutMs ?? 1_000,
       // Full contents are orders of magnitude slower than a short query on CPU
       // (measured 3143ms for three ~600-char records), so write/backfill paths
       // get their own generous budgets instead of the interactive 300ms.
@@ -950,6 +950,13 @@ export class LocalMemoryService implements MemoryServiceApi {
   /** 0.40.1：本地嵌入服务是否已就绪（模型加载完成）。冷启动期间跳过语义召回，避免超时刷屏。 */
   private embedServerReady = false
   private warmSkipLogged = false
+  /**
+   * 0.40.2：查询嵌入串行链。
+   * llama-server 只有 n_slots=4 个槽位，插件一次注入/召回若并发发多个查询嵌入，
+   * 会互相排队（实测 8 路短请求最慢 1.55s）→ 交互预算必超时。这里把**查询**嵌入串起来，
+   * 让每个查询等前一个完成（热路径单条 ~130ms），避免自己打自己。
+   */
+  private queryEmbedChain: Promise<void> = Promise.resolve()
   /** 0.33.0：每个 scope 的 ANN 索引（size 与 store.vectors 不一致即视为过期，回退全量扫描）。 */
   private annIndexes = new Map<string, { index: AnnIndex; size: number }>()
   private annBuilding = new Set<string>()
@@ -3576,22 +3583,28 @@ export class LocalMemoryService implements MemoryServiceApi {
     const queryText = `${this.cfg.vector.queryPrefix ?? ''}${query.text}`
     const cachedQuery = allowVector && !vectorWarming ? (this.embedCache?.getQuery(queryText) ?? null) : null
     let qvec: Float32Array[] | null = cachedQuery !== null ? [cachedQuery] : null
+    const embedQuerySerially = async (timeoutMs: number): Promise<Float32Array[] | null> => {
+      // 串行链：前一次查询嵌入结束后再发下一个，避免并发占满 llama-server 的 slot。
+      const next = this.queryEmbedChain.then(() => this.embed.embed([queryText], query.signal, { timeoutMs }).catch(() => null))
+      this.queryEmbedChain = next.then(() => undefined, () => undefined)
+      return next
+    }
     if (allowVector && !vectorWarming && qvec === null) {
-      qvec = await this.embed.embed([queryText], query.signal, { timeoutMs: this.queryTimeoutMs }).catch(() => null)
+      qvec = await embedQuerySerially(this.queryTimeoutMs)
     }
     // 慢设备自适应：首查超时就用更大预算重试一次，成功后把预算钉到实测的 3 倍。
     // 不做这一步的话，ARM 手机上 300ms 预算意味着语义召回永远不生效。
     if (allowVector && !vectorWarming && qvec === null) {
-      const bumped = Math.min(4_000, Math.max(1_000, this.queryTimeoutMs * 4))
+      const bumped = Math.min(8_000, Math.max(1_500, this.queryTimeoutMs * 4))
       if (bumped > this.queryTimeoutMs) {
         const startedAt = Date.now()
         this.queryTimeoutMs = bumped
         // 熔断器在超时后会把后端标记为不健康并退避，这里是我们主动的重试，
         // 直接放开一次，否则 embed() 会跳过网络直接返回 null。
         this.embed.markUp()
-        qvec = await this.embed.embed([queryText], query.signal, { timeoutMs: bumped }).catch(() => null)
+        qvec = await embedQuerySerially(bumped)
         if (qvec !== null) {
-          this.queryTimeoutMs = Math.min(4_000, Math.max(bumped, (Date.now() - startedAt) * 3))
+          this.queryTimeoutMs = Math.min(8_000, Math.max(bumped, (Date.now() - startedAt) * 3))
         }
       }
     }
