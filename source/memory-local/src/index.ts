@@ -947,6 +947,9 @@ export class LocalMemoryService implements MemoryServiceApi {
   private embedCache: EmbedCache | null = null
   /** 0.32.0：启动预热 + 周期探活，llama-server 被杀后能自动恢复。 */
   private embedKeepAlive: EmbedKeepAlive | null = null
+  /** 0.40.1：本地嵌入服务是否已就绪（模型加载完成）。冷启动期间跳过语义召回，避免超时刷屏。 */
+  private embedServerReady = false
+  private warmSkipLogged = false
   /** 0.33.0：每个 scope 的 ANN 索引（size 与 store.vectors 不一致即视为过期，回退全量扫描）。 */
   private annIndexes = new Map<string, { index: AnnIndex; size: number }>()
   private annBuilding = new Set<string>()
@@ -1278,6 +1281,8 @@ export class LocalMemoryService implements MemoryServiceApi {
     this.cfg.vector.provider = kind
     this.embedKeepAlive?.stop()
     this.embedKeepAlive = null
+    this.embedServerReady = false
+    this.warmSkipLogged = false
     this.embed = this.createEmbed()
     // 缓存身份跟着模型/维度/pooling：不一致时 setIdentity 会整体作废旧缓存。
     this.embedCache?.setIdentity({
@@ -1298,6 +1303,8 @@ export class LocalMemoryService implements MemoryServiceApi {
   }
 
   /** Own the embedding backend's lifetime: spawn on activation, stop on dispose. */  private startEmbedServer(): void {
+    // 新的一轮托管：等 waitUntilReady 成功后才把就绪标记置 true。
+    this.embedServerReady = false
     // Nothing configured and retrieval switched off → do not even build the
     // manager, so no probe, no spawn attempt, no misleading panel state.
     if (!this.cfg.vector.enabled || !this.cfg.vector.configured) return
@@ -1335,6 +1342,8 @@ export class LocalMemoryService implements MemoryServiceApi {
       process.once('exit', this.exitHook)
     }
     const ready = await mgr.waitUntilReady(waitMs)
+    this.embedServerReady = ready
+    if (ready) this.warmSkipLogged = false
     // 0.32.0：服务就绪后预热一次并开始周期探活（后台被杀能自动恢复）。
     if (ready) this.startEmbedKeepAlive()
     if (!ready) console.warn('[dsh-memory-local] embed server: 启动超时,检索继续走词法降级')
@@ -3554,16 +3563,25 @@ export class LocalMemoryService implements MemoryServiceApi {
     // --- channel 2: vector recall over embedded records ---
     // Skipped entirely when no backend is configured (lexical recall above
     // already produced the candidates; a request here would just fail).
-    // 0.32.0：查询向量缓存（同一问句重复检索时免一次嵌入，实测热查询 P50 0.03ms）。
+    // 0.40.1：本地服务冷启动（模型还在加载）时**不**发查询嵌入 —— 300ms 预算必然超时，
+    // 只会刷一屏"嵌入请求超时"并白等。本轮先走词法，模型就绪后自动恢复语义召回。
+    // 只对**本地托管**的服务做冷启动跳闸：外部 endpoint（openai/ollama/自建服务）没有
+    // 模型加载阶段，不能套用这个判断，否则会一直跳过语义召回。
+    const vectorWarming = this.cfg.vector.enabled && this.cfg.vector.configured && this.cfg.vector.spawnConfigured
+      && this.embedServer !== null && !this.embedServerReady && !this.embedServer.unavailable
+    if (vectorWarming && !this.warmSkipLogged) {
+      this.warmSkipLogged = true
+      console.warn('[dsh-memory-local] 嵌入模型加载中：本轮语义召回先跳过，就绪后自动恢复（避免启动期超时刷屏）')
+    }
     const queryText = `${this.cfg.vector.queryPrefix ?? ''}${query.text}`
-    const cachedQuery = allowVector ? (this.embedCache?.getQuery(queryText) ?? null) : null
+    const cachedQuery = allowVector && !vectorWarming ? (this.embedCache?.getQuery(queryText) ?? null) : null
     let qvec: Float32Array[] | null = cachedQuery !== null ? [cachedQuery] : null
-    if (allowVector && qvec === null) {
+    if (allowVector && !vectorWarming && qvec === null) {
       qvec = await this.embed.embed([queryText], query.signal, { timeoutMs: this.queryTimeoutMs }).catch(() => null)
     }
     // 慢设备自适应：首查超时就用更大预算重试一次，成功后把预算钉到实测的 3 倍。
     // 不做这一步的话，ARM 手机上 300ms 预算意味着语义召回永远不生效。
-    if (allowVector && qvec === null) {
+    if (allowVector && !vectorWarming && qvec === null) {
       const bumped = Math.min(4_000, Math.max(1_000, this.queryTimeoutMs * 4))
       if (bumped > this.queryTimeoutMs) {
         const startedAt = Date.now()
