@@ -70,3 +70,28 @@ test('事实有效期：失效记录默认不返回，includeExpired 时作为�
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('注入/规则路径（listSync）与检索同口径：软删、休眠、失效的记录不再进入系统提示', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-magic-listsync-'))
+  const svc = makeService(dir)
+  try {
+    const rule = await svc.save({ scope: SCOPE, kind: 'rule', content: '旧规则：所有提交必须带 issue 号。' })
+    const fact = await svc.save({ scope: SCOPE, kind: 'fact', content: '服务端口是 8080。' })
+    assert.equal(svc.listSync({ scopes: [SCOPE], kind: 'rule' }).length, 1)
+    // 软删规则 → 不再进系统提示
+    await svc.forget({ id: rule.id })
+    assert.equal(svc.listSync({ scopes: [SCOPE], kind: 'rule' }).length, 0, '软删的规则不能继续注入')
+    // 失效事实 → 默认 listSync 不返回，历史浏览（includeExpired）能查到
+    svc.store.updateMetrics(fact.id, { validUntil: Date.now() - 1000 })
+    assert.equal(svc.listSync({ scopes: [SCOPE] }).some((r) => r.id === fact.id), false, '失效事实不进注入')
+    assert.equal(svc.listSync({ scopes: [SCOPE], includeExpired: true }).some((r) => r.id === fact.id), true, '历史浏览仍可查')
+    // 休眠 → 不进注入
+    const dormant = await svc.save({ scope: SCOPE, kind: 'note', content: '很久没用的笔记。' })
+    svc.store.updateMetrics(dormant.id, {})
+    ;(svc.store.peek(SCOPE)!.records.get(dormant.id) as { dormantAt?: number }).dormantAt = Date.now()
+    assert.equal(svc.listSync({ scopes: [SCOPE] }).some((r) => r.id === dormant.id), false, '休眠记录不进注入')
+  } finally {
+    svc.flushSync()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

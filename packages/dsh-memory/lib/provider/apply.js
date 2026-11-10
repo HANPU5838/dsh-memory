@@ -187,6 +187,26 @@ export class CordisMemoryService extends Service {
     return this.impl.wipeAllRecords()
   }
 
+  /** 面板：撤销软删（墓碑恢复）。 */
+  restoreRecord(id        , opts                      )                                                  {
+    return this.impl.restoreRecord(id, opts ?? {})
+  }
+
+  /** 面板：手动触发一次记忆巩固。 */
+  consolidateNow()                                                   {
+    return this.impl.consolidateNow()
+  }
+
+  /** 面板/运维：导出快照（gzip JSONL，不含向量）。 */
+  snapshotStore(file        , opts                                                     )                                                  {
+    return this.impl.snapshotStore(file, opts ?? {})
+  }
+
+  /** 面板/运维：从快照恢复。 */
+  restoreStore(file        , opts                                                    )                                                 {
+    return this.impl.restoreStore(file, opts ?? {})
+  }
+
   search(query             )                       {
     return this.impl.search(query)
   }

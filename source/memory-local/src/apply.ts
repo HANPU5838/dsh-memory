@@ -187,6 +187,26 @@ export class CordisMemoryService extends Service {
     return this.impl.wipeAllRecords()
   }
 
+  /** 面板：撤销软删（墓碑恢复）。 */
+  restoreRecord(id: string, opts?: { force?: boolean }): ReturnType<LocalMemoryService['restoreRecord']> {
+    return this.impl.restoreRecord(id, opts ?? {})
+  }
+
+  /** 面板：手动触发一次记忆巩固。 */
+  consolidateNow(): ReturnType<LocalMemoryService['consolidateNow']> {
+    return this.impl.consolidateNow()
+  }
+
+  /** 面板/运维：导出快照（gzip JSONL，不含向量）。 */
+  snapshotStore(file: string, opts?: Parameters<LocalMemoryService['snapshotStore']>[1]): ReturnType<LocalMemoryService['snapshotStore']> {
+    return this.impl.snapshotStore(file, opts ?? {})
+  }
+
+  /** 面板/运维：从快照恢复。 */
+  restoreStore(file: string, opts?: Parameters<LocalMemoryService['restoreStore']>[1]): ReturnType<LocalMemoryService['restoreStore']> {
+    return this.impl.restoreStore(file, opts ?? {})
+  }
+
   search(query: MemoryQuery): Promise<MemoryHit[]> {
     return this.impl.search(query)
   }

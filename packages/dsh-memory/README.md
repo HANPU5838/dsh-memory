@@ -10,7 +10,7 @@
 > | 项目 | 说明 |
 > | --- | --- |
 > | 原作者 | **RestRegular**（上游原项目 [RestRegular/dsh-memory](https://github.com/RestRegular/dsh-memory)，MIT）；本项目在其 v0.30.1 基础上维护 |
-> | 本仓库 | **v0.33.0** = 上游 v0.30.1 + 平台/可靠性改进 + 语义认知层（去重合并/冲突检测/谱系/生命周期）+ 检索整形（MMR/地板分/自适应阈值）+ 嵌入性能（批量/缓存/保活/ANN 索引）+ **记忆强度算法（FSRS 保持度/动态融合/时间有效性/周期巩固）**。完整清单见 [IMPROVEMENTS.md](IMPROVEMENTS.md)，架构见 [docs/architecture.md](docs/architecture.md) |
+> | 本仓库 | **v0.33.1** = 上游 v0.30.1 + 平台/可靠性改进 + 语义认知层（去重合并/冲突检测/谱系/生命周期）+ 检索整形（MMR/地板分/自适应阈值）+ 嵌入性能（批量/缓存/保活/ANN 索引）+ **记忆强度算法（FSRS 保持度/动态融合/时间有效性/周期巩固）**。完整清单见 [IMPROVEMENTS.md](IMPROVEMENTS.md)，架构见 [docs/architecture.md](docs/architecture.md) |
 > | 许可 | **MIT**，版权归原作者所有，见 [LICENSE](LICENSE)；转载、分发请保留原始版权声明 |
 > | 更新与反馈 | Issue / PR / 反馈请到 **[本仓库 Issues](https://github.com/HANPU5838/dsh-memory/issues)**；与上游的差异集中在 `IMPROVEMENTS.md` |
 >
@@ -25,7 +25,7 @@
 
 JSONL 落盘 · 本机向量检索 · 六个模型工具 · 自动召回 · 硬性规则 · 可视化管理面板
 
-[![version](https://img.shields.io/badge/version-v0.33.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![version](https://img.shields.io/badge/version-v0.33.1-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/HANPU5838/dsh-memory/blob/main/LICENSE)
 [![ci](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.13-5FA04E.svg)](https://nodejs.org/)
@@ -67,6 +67,7 @@ JSONL 落盘 · 本机向量检索 · 六个模型工具 · 自动召回 · 硬�
 | **记忆强度（0.33.0）** | 每条记忆带 **FSRS 式保持度**：`stability`（越用越牢）、`difficulty`（长文/易变类型更难）、`utility`（被取用才涨）；检索排序 = 相关度 × 保持度 × 效用 × 重要度，且带可解释 breakdown。老记录无需迁移（由内容/类型/访问次数推导） |
 | **记忆巩固（0.33.0）** | 周期维护对同 scope、同簇（余弦 ≥0.9）的活跃记忆做**抽取式合并**：基底正文 + 簇内独有要点，`supersedes` 基底、`consolidatedFrom` 全簇、`generation` 递增；冲突记录与退役/休眠/失效记录一律不参与 |
 | **事实有效期（0.33.0）** | 新证据推翻旧事实时，旧记录置 `validUntil=now` **失效但保留**（历史可查），并用矛盾置信度（数值/标识符差异 + 相似度）分级；默认检索只看有效事实 |
+| **软删与恢复（0.33.0/0.33.1）** | `memory_forget` 与面板删除都是**软删（墓碑）**：立即从检索/注入消失，30 天内可在面板一键恢复或 `restoreRecord`；到期由维护任务物理清理。面板记录卡显示「已删除（可恢复）/ 已失效 / 休眠 / 冲突 / 第 N 版」徽章与强度（稳定天数/效用/取用次数）。 |
 | **ANN 索引（0.33.0）** | 可选纯 JS HNSW：库规模 ≥ minSize 时后台建图，未就绪/过期自动回退全量扫描；检索热路径按图查询（2 万条实测 14.6×），配置 `retrieval.vector.ann.enabled` |
 | **自动召回** | 每轮按用户问题召回；新会话第一步注入项目 / global 摘要；发布、部署、工具失败等行为按标签触发定向召回 |
 | **印象形态** | 每轮只给每条记忆的短摘要；模型判断相关但需要细节时再 `memory_get` 取全文，省 token 也不丢信息 |

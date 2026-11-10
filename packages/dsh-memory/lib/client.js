@@ -1099,9 +1099,14 @@ window.__ModuleLoader__.load({
       }
 
       const del = async () => {
-        if (!window.confirm('删除这条记忆?')) return
+        if (!window.confirm('删除这条记忆？\n0.33.0 起删除是软删（墓碑），30 天内可在面板恢复；到期才物理清理。')) return
         setBusy(true); setError('')
         try { await api('delete', { id: rec.id }); onDeleted() } catch (e) { setError(String(e.message || e)) } finally { setBusy(false) }
+      }
+
+      const restore = async () => {
+        setBusy(true); setError('')
+        try { await api('restore', { id: rec.id }); onSaved && onSaved() } catch (e) { setError(String(e.message || e)) } finally { setBusy(false) }
       }
 
       const cancelEdit = () => {
@@ -1195,6 +1200,19 @@ window.__ModuleLoader__.load({
                       h('code', { className: 'meta-id', title: '点击复制完整 id', onClick: copyId }, rec.id),
                       copied ? h('span', { className: 'meta-done' }, '已复制') : null,
                     ),
+                    h('div', { className: 'tags' },
+                      rec.tombstoned ? h('span', { className: 'tag', key: 'tombstoned', title: rec.tombstoneExpiresAt ? `恢复截止 ${fmtTime(rec.tombstoneExpiresAt)}` : '可恢复' }, '已删除（可恢复）') : null,
+                      rec.invalidated ? h('span', { className: 'tag', key: 'invalidated', title: rec.validUntil ? `失效于 ${fmtTime(rec.validUntil)}` : '已失效' }, '已失效') : null,
+                      rec.dormant ? h('span', { className: 'tag', key: 'dormant' }, '休眠') : null,
+                      rec.conflictWith && rec.conflictWith.length > 0 ? h('span', { className: 'tag', key: 'conflict', title: `与 ${rec.conflictWith.length} 条记忆冲突（置信度 ${(Number(rec.conflictConfidence) || 0).toFixed(2)}）` }, '冲突') : null,
+                      rec.generation > 1 ? h('span', { className: 'tag', key: 'gen' }, `第 ${rec.generation} 版`) : null,
+                    ),
+                    (rec.stability !== null && rec.stability !== undefined) || (rec.utility !== null && rec.utility !== undefined)
+                      ? h('div', { className: 'meta' },
+                          h('span', { className: 'meta-label' }, '强度'),
+                          h('span', null, `稳定 ${rec.stability !== null && rec.stability !== undefined ? Number(rec.stability).toFixed(1) : '-'} 天 · 效用 ${rec.utility !== null && rec.utility !== undefined ? Number(rec.utility).toFixed(2) : '-'} · 取用 ${rec.useCount ?? 0} 次`),
+                        )
+                      : null,
                     rec.tags && rec.tags.length > 0
                       ? h('div', { className: 'tags' }, rec.tags.map((tag) => h('span', { className: 'tag', key: tag }, tag)))
                       : null,
@@ -1216,8 +1234,12 @@ window.__ModuleLoader__.load({
         error ? h('div', { className: 'err' }, error) : null,
         open && !editing
           ? h('div', { className: 'acts' },
-              h('button', { onClick: () => setEditing(true) }, '编辑'),
-              h('button', { disabled: busy, onClick: del }, busy ? '…' : '删除'),
+              rec.tombstoned
+                ? h('button', { disabled: busy, onClick: restore }, busy ? '…' : '恢复这条记忆')
+                : h('button', { onClick: () => setEditing(true) }, '编辑'),
+              rec.tombstoned
+                ? null
+                : h('button', { disabled: busy, onClick: del }, busy ? '…' : '删除'),
             )
           : null,
       )
@@ -4021,6 +4043,17 @@ window.__ModuleLoader__.load({
       const canReindex = Boolean(embedServer && embedServer.enabled && (embedServer.configured === undefined ? Boolean(embedServer.baseUrl) : embedServer.configured))
       // 维护区：DSH 卸载插件时不会给插件任何提问机会（就是 pnpm remove + 去掉
       // bundles），所以"要不要留向量服务 / 要不要留记忆数据"只能在这里、卸载之前问。
+      const [maintMsg, setMaintMsg] = React.useState('')
+      const runConsolidate = async () => {
+        setMaintMsg('巩固中…')
+        try {
+          const out = await api('consolidate', {})
+          setMaintMsg(`巩固完成：新增 ${Array.isArray(out.created) ? out.created.length : 0} 条，合并 ${out.merged ?? 0} 条`)
+          setTimeout(() => setMaintMsg(''), 4000)
+        } catch (e) {
+          setMaintMsg(`巩固失败：${String(e.message || e)}`)
+        }
+      }
       const maintenanceCard = maintenance
         ? h('div', { className: 'maint' },
           h('div', { className: 'maint-row' },
@@ -4046,6 +4079,10 @@ window.__ModuleLoader__.load({
                   : h('button', { key: 'ask', disabled: embedBusy, onClick: () => maintenanceAction('reindex') }, '重建全部向量'))
                 : h('span', { className: 'muted' }, '无'))
               : h('span', { className: 'muted' }, '向量未启用'),
+          ),
+          h('div', { className: 'maint-row' },
+            h('span', { className: 'grow' }, `记忆巩固：${maintMsg || '把同簇的零散记忆合并成一条稳定结论'}`),
+            h('button', { onClick: runConsolidate }, '立即巩固'),
           ),
           h('div', { className: 'maint-row' },
             h('span', { className: 'grow' }, `记忆数据：${maintenance.records} 条`),

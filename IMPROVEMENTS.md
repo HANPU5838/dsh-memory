@@ -235,6 +235,23 @@ cognitive:
 
 **测试**：896 例 / 895 pass / 1 skip / 0 fail（新增 122 例：retention 22 / expand 17 / rank 16 / temporal 21 / contradiction 19 / consolidate 24 / 集成 3）。
 
+## 二之五、0.33.1 —— 全链路一致性修复（2026-11-10）
+
+| # | 位置 | 问题 | 修法 |
+|---|---|---|---|
+| F1 | `listSync`（memory-inject 的规则/流程/摘要） | 不过滤 dormant / tombstone / 失效事实 → **删掉的规则还会注入系统提示** | 与 `search` 同口径加 `shouldSkipRecord` + `isActiveNow`，有回归测试 |
+| F2 | `getByIds`（memory_get） | 给软删/失效记录也加 utility/stability | 只对 `isActiveNow && !dormant && !tombstoned` 的记录反馈 |
+| F3 | `save` | `initialStrength()` 覆盖导入/快照显式带的强度字段 | 只合并显式强度字段（`explicitStrengthFields`），且不再整份展开 saveInput（曾导致 scope 分叉回归） |
+| F4 | 面板 `POST /delete` | 物理删除，与工具 `forget` 软删语义不一致，删了不可恢复 | 统一走 `memory.forget`（墓碑），新增 `POST /restore` |
+| F5 | 面板记录卡 | 看不到墓碑/失效/冲突/强度，也无法恢复 | 徽章 + 强度行 + 「恢复这条记忆」按钮 + 删除文案提示 30 天可恢复 |
+| F6 | 面板维护区 | 没有手动巩固入口 | 新增「立即巩固」按钮（`POST /consolidate`） |
+
+**真机安装验证**（本机 profile web，原地升级 0.30.1 → 0.33.1 构建产物）：
+- 备份：`~/dsh-plugin-backup-20261110-222436/`（回滚：拷回即可）
+- 验证：安装位置 `import lib/provider/index.js` OK；save/search/软删/恢复/规则注入链路 OK；
+  `dsh --profile web --dump-config` 能正确组合 `dsh-memory` entry
+- 生效方式：重启 `dsh web`；记忆数据 `~/.dsh-memory` 零迁移（老版本可读新字段）
+
 ## 三、如何从上游同步
 
 ```bash

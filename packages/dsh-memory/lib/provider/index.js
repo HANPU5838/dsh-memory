@@ -533,6 +533,20 @@ export function inferProviderKind(endpoint                    )                 
   }
 }
 
+/**
+ * 0.33.0：只挑出调用方**显式给的**记忆强度字段（导入 / 快照恢复会带）。
+ * 用来覆盖 initialStrength() 的默认值，同时避免把整份 saveInput 再展开一次
+ * （那份里含未规范化的 scope/content，会覆盖已经归一好的值）。
+ */
+function explicitStrengthFields(input                         )                         {
+  const out                         = {}
+  for (const key of ['stability', 'difficulty', 'utility', 'useCount', 'lastUsedAt']         ) {
+    const value = input[key]
+    if (typeof value === 'number' && Number.isFinite(value)) out[key] = value
+  }
+  return out
+}
+
 export function resolveConfig(config                    = {})                 {
   const v = config.retrieval?.vector ?? {}
   // Do not touch an embedding backend the user never asked for: pointing at the
@@ -1145,6 +1159,10 @@ export class LocalMemoryService                             {
         if (retired.has(rec.id)) continue
         // 过期 state 默认不参与任何自动注入/规则渲染;memory_get(id) 与面板仍可取。
         if (!input.includeExpired && rec.expiredAt !== undefined && rec.expiredAt < now) continue
+        // 0.33.0：注入/规则/流程索引共用这条路径 —— 休眠、软删、失效事实
+        // 必须和检索同口径剔除，否则"删掉的规则"还会继续进系统提示。
+        if (shouldSkipRecord(rec, {})) continue
+        if (input.includeExpired !== true && !isActiveNow(rec, now)) continue
         if (input.kind !== undefined && rec.kind !== input.kind) continue
         if (visibleFilter !== undefined && !visibleFilter(rec.scope, rec.kind)) continue
         out.push(rec)
@@ -3123,7 +3141,10 @@ export class LocalMemoryService                             {
           content,
           // 0.33.0：新记录初始化"记忆强度"（FSRS 式 stability/difficulty + 效用计数），
           // 排序与遗忘曲线都基于它；老记录缺省时由 stabilityOf() 兼容推导。
+          // 注意：这里只合并**强度字段**，不能整份 ...saveInput —— 那会用未规范化的
+          // scope/content 覆盖掉上面已经算好的规范值（回归：project: 路径写法分叉）。
           ...initialStrength(content, String(input.kind ?? 'fact')),
+          ...explicitStrengthFields(saveInput),
           ...(initialized || carryInitial ? { initial: true } : {}),
         },
         { importance: input.source?.origin === 'auto' ? 0.4 : 0.8, source: { origin: 'explicit' } },
@@ -3955,6 +3976,8 @@ export class LocalMemoryService                             {
     if (out.length > 0) {
       const now = Date.now()
       for (const rec of out) {
+        // 历史查询（软删/失效/休眠）不产生"取用"信号，否则恢复出来的记忆会莫名高分。
+        if (shouldSkipRecord(rec, {}) || !isActiveNow(rec, now)) continue
         try {
           const next = updateAfterUse({
             stability: (rec                          ).stability,

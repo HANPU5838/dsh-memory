@@ -219,6 +219,20 @@ function wireRecord(rec, scopeStore, supersededBy = null) {
     expiredAt: rec.expiredAt ?? null,
     expired: rec.expiredAt !== undefined && rec.expiredAt < Date.now(),
     embedded: !scopeStore.embedPending.has(rec.id) && scopeStore.vectors.has(rec.id),
+    // 0.33.0：认知层状态（面板据此显示徽章 / 恢复按钮 / 强度）
+    tombstoned: rec.tombstonedAt !== undefined,
+    tombstoneExpiresAt: rec.tombstoneExpiresAt ?? null,
+    dormant: rec.dormantAt !== undefined,
+    validUntil: rec.validUntil ?? null,
+    invalidated: typeof rec.validUntil === 'number' && rec.validUntil <= Date.now(),
+    conflictWith: rec.conflictWith ?? [],
+    conflictConfidence: rec.conflictConfidence ?? null,
+    generation: rec.generation ?? 1,
+    consolidatedFrom: rec.consolidatedFrom ?? [],
+    stability: rec.stability ?? null,
+    difficulty: rec.difficulty ?? null,
+    utility: rec.utility ?? null,
+    useCount: rec.useCount ?? 0,
   }
 }
 
@@ -1314,13 +1328,32 @@ async function handle(ctx, routePath, req, res) {
     }
     if (method === 'POST' && path === '/delete') {
       const body = await readJsonBody(req)
-      let removed = false
-      for (const s of store.allScopes()) {
-        if (s.records.has(String(body.id))) { removed = s.remove(String(body.id)); break }
-      }
-      if (!removed) throw new ApiError(404, 'RECORD_NOT_FOUND', `no record ${body.id}`)
+      const id = String(body.id ?? '')
+      if (id === '') throw new ApiError(400, 'RECORD_NOT_FOUND', '缺少 id')
+      // 0.33.0：面板删除与 memory_forget 同语义 = **软删**（墓碑）。
+      // 原来这里直接 s.remove() 是物理删除，用户点一下就没法恢复，和工具侧不一致。
+      const out = await memory.forget({ id })
+      if (!out || out.removed === 0) throw new ApiError(404, 'RECORD_NOT_FOUND', `no record ${id}`)
       store.scheduleFlush()
-      writeJson(res, { ok: true, value: { removed: 1 } })
+      writeJson(res, { ok: true, value: { removed: out.removed, restorable: true, restoreDays: 30 } })
+      return
+    }
+    if (method === 'POST' && path === '/restore') {
+      if (typeof memory.restoreRecord !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供恢复接口（请升级 @restregular/dsh-memory）')
+      const body = await readJsonBody(req)
+      const id = String(body.id ?? '')
+      if (id === '') throw new ApiError(400, 'RECORD_NOT_FOUND', '缺少 id')
+      const result = memory.restoreRecord(id, { force: body.force === true })
+      if (!result.restored) throw new ApiError(409, 'RESTORE_FAILED', `无法恢复：${result.reason ?? 'unknown'}`)
+      store.scheduleFlush()
+      writeJson(res, { ok: true, value: result })
+      return
+    }
+    if (method === 'POST' && path === '/consolidate') {
+      if (typeof memory.consolidateNow !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供巩固接口（请升级 @restregular/dsh-memory）')
+      const out = memory.consolidateNow()
+      store.scheduleFlush()
+      writeJson(res, { ok: true, value: out })
       return
     }
     throw new ApiError(404, 'not_found', `unknown endpoint ${method} ${path}`)
