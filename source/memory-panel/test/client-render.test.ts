@@ -3467,3 +3467,39 @@ test('记忆树缩放：− / % / + / 100% / 适应，恢复上次比例', async
   }
 })
 
+
+test('记忆树状态可视化：删除/失效/休眠/冲突徽章 + 强度条 + 只看问题过滤', async () => {
+  const { exports, hooks } = await loadBundle()
+  const MemoryTreeTab = (exports.__test as { MemoryTreeTab: (p: Record<string, unknown>) => unknown }).MemoryTreeTab
+  const now = Date.now()
+  const records = [
+    { id: 'ok', scope: 'global', kind: 'fact', content: '正常记录内容', updatedAt: now, createdAt: now, tags: [], importance: 0.8, stability: 40, utility: 0.3, useCount: 2, tombstoned: false, invalidated: false, dormant: false, conflictWith: [] },
+    { id: 'tomb', scope: 'global', kind: 'note', content: '被删除的记录', updatedAt: now, createdAt: now, tags: [], importance: 0.5, tombstoned: true, tombstoneExpiresAt: now + 86400000 },
+    { id: 'inv', scope: 'global', kind: 'fact', content: '失效的记录', updatedAt: now, createdAt: now, tags: [], importance: 0.5, invalidated: true, validUntil: now - 1000 },
+    { id: 'dorm', scope: 'global', kind: 'note', content: '休眠的记录', updatedAt: now, createdAt: now, tags: [], importance: 0.2, dormant: true },
+    { id: 'conf', scope: 'global', kind: 'fact', content: '冲突的记录', updatedAt: now, createdAt: now, tags: [], importance: 0.5, conflictWith: ['other'], conflictConfidence: 0.8 },
+  ]
+  const element = () => hooks.React.createElement(MemoryTreeTab, {
+    records, scopes: [], loading: false, error: '', onRefresh() {},
+  })
+  let current: RenderNode | null = render(element(), hooks)
+  hooks.setRerender(() => { current = render(element(), hooks) })
+  hooks.runEffects()
+  for (let i = 0; i < 8; i++) await Promise.resolve()
+
+  const text = textOf(current)
+  for (const badge of ['已删除', '已失效', '休眠', '冲突']) {
+    assert.ok(text.includes(badge), `树节点应显示「${badge}」徽章（实际文本片段：${text.slice(0, 400)}）`)
+  }
+  assert.ok(collect(current).some((n) => String(n.props?.className ?? '').includes('tn-strength')), '有强度条')
+  const issueButton = collect(current).find((n) => n.tag === 'button' && textOf(n).includes('只看问题'))
+  assert.ok(issueButton, '有「只看问题」过滤按钮')
+
+  ;(issueButton!.props!.onClick as () => void)()
+  hooks.runEffects()
+  for (let i = 0; i < 8; i++) await Promise.resolve()
+  const filteredText = textOf(current)
+  assert.ok(!filteredText.includes('正常记录内容'), '只看问题时应隐藏正常记录')
+  assert.ok(filteredText.includes('被删除的记录'), '问题记录仍在')
+  hooks.resetAll()
+})

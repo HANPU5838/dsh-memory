@@ -351,6 +351,20 @@ window.__ModuleLoader__.load({
       '.memp .tree-node.record.miss{opacity:.28}',
       '.memp .tree-node.record.match{border-color:var(--dsw-alias-brand-primary);box-shadow:0 0 0 1px color-mix(in srgb,var(--dsw-alias-brand-primary) 32%,transparent)}',
       '.memp .tree-canvas.focused .tree-node.record:not(.related){opacity:.55}',
+      '.memp .tree-node.record.st-tombstoned{border-style:dashed;opacity:.62;background:color-mix(in srgb,var(--dsw-alias-bg-layer-2) 72%,transparent)}',
+      '.memp .tree-node.record.st-invalid{box-shadow:0 0 0 1px #d97706 inset,0 1px 2px rgba(0,0,0,.04);border-color:#d97706}',
+      '.memp .tree-node.record.st-dormant{opacity:.74}',
+      '.memp .tree-node.record.st-conflict{border-color:#dc2626;box-shadow:0 0 0 1px rgba(220,38,38,.38),0 6px 16px rgba(220,38,38,.12)}',
+      '.memp .tn-badge.st-tomb{background:color-mix(in srgb,#6b7280 18%,transparent);color:#6b7280}',
+      '.memp .tn-badge.st-invalid{background:color-mix(in srgb,#d97706 16%,transparent);color:#b45309}',
+      '.memp .tn-badge.st-dormant{background:color-mix(in srgb,#3b82f6 14%,transparent);color:#2563eb}',
+      '.memp .tn-badge.st-conflict{background:color-mix(in srgb,#dc2626 15%,transparent);color:#b91c1c}',
+      '.memp .tn-strength{display:inline-flex;align-items:flex-end;gap:2px;height:9px;flex:none;margin-left:auto;color:var(--dsw-alias-label-secondary)}',
+      '.memp .tn-strength i{display:block;width:3px;border-radius:1px;background:currentColor;opacity:.28}',
+      '.memp .tn-strength i.on{opacity:.95;background:var(--k,var(--dsw-alias-brand-primary))}',
+      '.memp .tree-status-legend{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:10.5px;color:var(--dsw-alias-label-secondary);padding:4px 2px 0}',
+      '.memp .tree-status-legend i{width:8px;height:8px;border-radius:2px;display:inline-block;margin-right:3px;vertical-align:-1px}',
+
       '.memp .tn-head{display:flex;align-items:center;gap:5px;min-width:0;font-size:10.5px;color:var(--dsw-alias-label-secondary)}',
       '.memp .tn-head .tdot{width:6px;height:6px;border-radius:50%;background:var(--k);flex:none}',
       '.memp .tn-kind{font-weight:600;color:var(--dsw-alias-label-primary);letter-spacing:.02em;flex:none}',
@@ -1254,6 +1268,11 @@ window.__ModuleLoader__.load({
       if (related) classes.push('related')
       if (miss) classes.push('miss')
       if (match) classes.push('match')
+      // 0.35.0：状态直接体现在节点样式上（删除虚线/失效橙框/休眠淡出/冲突红框）。
+      if (rec.tombstoned) classes.push('st-tombstoned')
+      if (rec.invalidated) classes.push('st-invalid')
+      if (rec.dormant) classes.push('st-dormant')
+      if (Array.isArray(rec.conflictWith) && rec.conflictWith.length > 0) classes.push('st-conflict')
       const pick = () => onSelect(rec.id)
       return h('div', {
         className: classes.join(' '),
@@ -1283,6 +1302,33 @@ window.__ModuleLoader__.load({
           isExpired(rec)
             ? h('span', { className: 'tn-badge expired', title: `过期于 ${fmtTime(rec.expiredAt)}` }, '已过期')
             : null,
+          // 0.35.0：认知层状态徽章（软删 / 失效 / 休眠 / 冲突）
+          rec.tombstoned
+            ? h('span', { className: 'tn-badge st-tomb', title: rec.tombstoneExpiresAt ? `恢复截止 ${fmtTime(rec.tombstoneExpiresAt)}` : '可恢复' }, '已删除')
+            : null,
+          rec.invalidated
+            ? h('span', { className: 'tn-badge st-invalid', title: rec.validUntil ? `失效于 ${fmtTime(rec.validUntil)}` : '已失效' }, '已失效')
+            : null,
+          rec.dormant
+            ? h('span', { className: 'tn-badge st-dormant', title: '长期未访问，默认不进摘要/召回' }, '休眠')
+            : null,
+          Array.isArray(rec.conflictWith) && rec.conflictWith.length > 0
+            ? h('span', { className: 'tn-badge st-conflict', title: `与 ${rec.conflictWith.length} 条记忆冲突，置信度 ${(Number(rec.conflictConfidence) || 0).toFixed(2)}` }, '冲突')
+            : null,
+          // 强度条：stability 映射 1~3 格；utility>0 时加一个取用点。
+          (() => {
+            const level = strengthLevel(rec)
+            if (level === 0 && !(Number(rec.utility) > 0)) return null
+            return h('span', {
+              className: 'tn-strength',
+              title: `稳定 ${Number.isFinite(Number(rec.stability)) ? Number(rec.stability).toFixed(1) : '-'} 天 · 效用 ${Number.isFinite(Number(rec.utility)) ? Number(rec.utility).toFixed(2) : '-'} · 取用 ${rec.useCount ?? 0} 次`,
+            },
+              h('i', { className: level >= 1 ? 'on' : '' }),
+              h('i', { className: level >= 2 ? 'on' : '' }),
+              h('i', { className: level >= 3 ? 'on' : '' }),
+              Number(rec.utility) > 0 ? h('i', { className: 'on', style: { background: '#059669', opacity: 1 } }) : null,
+            )
+          })(),
           h('span', { className: 'tn-time' }, shortTime(rec.updatedAt)),
         ),
         h('div', { className: 'tn-content' }, rec.content),
@@ -1430,6 +1476,20 @@ window.__ModuleLoader__.load({
      * 语义(kind)与内容;修正关系是跨记录的点对点关系,用金色虚线单独画在树的右侧,
      * 悬停/选中任意一端时两端与整条链一起点亮。
      */
+    /** 0.35.0：树上的"问题记忆"判定（删除/失效/休眠/冲突之一）。 */
+    function isIssueRecord(rec) {
+      return Boolean(rec && (rec.tombstoned || rec.invalidated || rec.dormant || (Array.isArray(rec.conflictWith) && rec.conflictWith.length > 0)))
+    }
+
+    /** 0.35.0：把 stability（天）映射成 1~3 格强度条。 */
+    function strengthLevel(rec) {
+      const stability = Number(rec && rec.stability)
+      if (!Number.isFinite(stability) || stability <= 0) return 0
+      if (stability >= 30) return 3
+      if (stability >= 7) return 2
+      return 1
+    }
+
     /** 0.34.1：记忆树画布缩放（20%~300%，浏览器本地记忆）。 */
     const TREE_ZOOM_KEY = 'dsh-memory:tree-zoom'
     const TREE_ZOOM_MIN = 0.2
@@ -1452,6 +1512,8 @@ window.__ModuleLoader__.load({
       const [selectedId, setSelectedId] = React.useState(null)
       const [hoverId, setHoverId] = React.useState(null)
       const [showCorrections, setShowCorrections] = React.useState(true)
+      // 0.35.0：只看问题记忆（删除/失效/休眠/冲突）
+      const [onlyIssues, setOnlyIssues] = React.useState(false)
       const [zoom, setZoom] = React.useState(loadTreeZoom())
       const [autoFitDone, setAutoFitDone] = React.useState(false)
       const wrapRef = React.useRef(null)
@@ -1478,7 +1540,10 @@ window.__ModuleLoader__.load({
         ? allKinds
         : new Set(presentKinds.filter((kind) => kindFilter.has(kind)))
 
-      const layout = buildMemoryTree(records, {
+      // 0.35.0：状态过滤只影响画布布局，统计仍显示全量。
+      const treeRecords = onlyIssues ? records.filter(isIssueRecord) : records
+      const issueTotal = records.filter(isIssueRecord).length
+      const layout = buildMemoryTree(treeRecords, {
         labels, collapsed, activeKinds, scopeFilter, query,
       })
 
@@ -1674,6 +1739,11 @@ window.__ModuleLoader__.load({
           title: '显示 / 隐藏修正关系连线',
           onClick: () => setShowCorrections((value) => !value),
         }, h('span', { className: 'corr-swatch' }), '修正连线'),
+        h('button', {
+          className: 'kchip' + (onlyIssues ? ' on' : ' off'),
+          title: '只看需要处理的记忆：已删除 / 已失效 / 休眠 / 冲突',
+          onClick: () => setOnlyIssues((value) => !value),
+        }, '只看问题', h('b', null, String(issueTotal))),
         query.trim() !== ''
           ? h('span', { className: 'tree-matchinfo' }, `匹配 ${layout.matches.size} 条`)
           : null,
@@ -1771,6 +1841,15 @@ window.__ModuleLoader__.load({
         nodes,
       )
 
+      // 0.35.0：状态图例 —— 颜色与徽章含义一眼可读（只在有对应记录时显示）。
+      const statusLegend = h('div', { className: 'tree-status-legend' },
+        records.some((r) => r.conflictWith && r.conflictWith.length > 0) ? h('span', null, h('i', { style: { background: '#dc2626' } }), '冲突') : null,
+        records.some((r) => r.invalidated) ? h('span', null, h('i', { style: { background: '#d97706' } }), '已失效') : null,
+        records.some((r) => r.tombstoned) ? h('span', null, h('i', { style: { background: '#6b7280' } }), '已删除（可恢复）') : null,
+        records.some((r) => r.dormant) ? h('span', null, h('i', { style: { background: '#3b82f6' } }), '休眠') : null,
+        h('span', null, h('i', { style: { background: 'var(--dsw-alias-brand-primary)' } }), '强度条：越高越稳（1~3 格）'),
+      )
+
       const treeWrap = h('div', { className: 'tree-wrap', ref: wrapRef },
         h('div', { className: 'tree-scroll' },
           h('div', {
@@ -1812,6 +1891,7 @@ window.__ModuleLoader__.load({
         stats,
         toolbar,
         kindbar,
+        statusLegend,
         error && records.length > 0 ? h('div', { className: 'err' }, error) : null,
         treeWrap,
       )
