@@ -197,6 +197,40 @@ export class CordisMemoryService extends Service {
     return this.impl.consolidateNow()
   }
 
+  /** 0.40.0（P1）：健康度报告。 */
+  healthReport()                                                 {
+    return this.impl.healthReport()
+  }
+
+  listConflicts()                                                  {
+    return this.impl.listConflicts()
+  }
+
+  resolveConflictRecord(id        )                                                          {
+    return this.impl.resolveConflictRecord(id)
+  }
+
+  releaseQuarantine(id        )                                                      {
+    return this.impl.releaseQuarantine(id)
+  }
+
+  /** 0.40.0：本地备份目录（固定 <storeDir>/backups）。 */
+  get backupDir()         {
+    return this.impl.backupDir
+  }
+
+  listBackups()                                                {
+    return this.impl.listBackups()
+  }
+
+  createBackup()                                                 {
+    return this.impl.createBackup()
+  }
+
+  restoreBackup(name        )                                                  {
+    return this.impl.restoreBackup(name)
+  }
+
   /** 面板/运维：导出快照（gzip JSONL，不含向量）。 */
   snapshotStore(file        , opts                                                     )                                                  {
     return this.impl.snapshotStore(file, opts ?? {})

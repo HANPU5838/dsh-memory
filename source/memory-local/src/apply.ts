@@ -197,6 +197,40 @@ export class CordisMemoryService extends Service {
     return this.impl.consolidateNow()
   }
 
+  /** 0.40.0（P1）：健康度报告。 */
+  healthReport(): ReturnType<LocalMemoryService['healthReport']> {
+    return this.impl.healthReport()
+  }
+
+  listConflicts(): ReturnType<LocalMemoryService['listConflicts']> {
+    return this.impl.listConflicts()
+  }
+
+  resolveConflictRecord(id: string): ReturnType<LocalMemoryService['resolveConflictRecord']> {
+    return this.impl.resolveConflictRecord(id)
+  }
+
+  releaseQuarantine(id: string): ReturnType<LocalMemoryService['releaseQuarantine']> {
+    return this.impl.releaseQuarantine(id)
+  }
+
+  /** 0.40.0：本地备份目录（固定 <storeDir>/backups）。 */
+  get backupDir(): string {
+    return this.impl.backupDir
+  }
+
+  listBackups(): ReturnType<LocalMemoryService['listBackups']> {
+    return this.impl.listBackups()
+  }
+
+  createBackup(): ReturnType<LocalMemoryService['createBackup']> {
+    return this.impl.createBackup()
+  }
+
+  restoreBackup(name: string): ReturnType<LocalMemoryService['restoreBackup']> {
+    return this.impl.restoreBackup(name)
+  }
+
   /** 面板/运维：导出快照（gzip JSONL，不含向量）。 */
   snapshotStore(file: string, opts?: Parameters<LocalMemoryService['snapshotStore']>[1]): ReturnType<LocalMemoryService['snapshotStore']> {
     return this.impl.snapshotStore(file, opts ?? {})

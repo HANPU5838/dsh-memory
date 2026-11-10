@@ -272,6 +272,21 @@ cognitive:
 | G7 | **取用反馈污染（0.34.2）** | 注入层去重标记调用 `getByIds()` 被当成取用，导致 utility/useCount 虚增；改为 `trackUse` 显式开关，只有 memory_get 计分 |
 
 | G8 | **记忆树 v2（0.35.0）** | 删除/失效/休眠/冲突状态可视化（样式 + 徽章 + 图例）、记忆强度条（stability 分档 + 效用点）、「只看问题」过滤 |
+## 二之七、0.40.0 —— P0–P4 全面完善（2026-11-10）
+
+| 项 | 内容 |
+|---|---|
+| **P0 检索核心** | `retrieval/bm25.ts`（正式 BM25 + 字段加权）、`retrieval/fusion.ts`（RRF，可解释来源）、`expandQueries`（4 个确定性查询变体）；index.ts 接入 BM25 词法路 + RRF 加成（默认不注入新候选，防污染召回） |
+| **P1 健康度** | `cognitive/health.ts`：互斥分类 + 抽样余弦重复率 + 7 项扣分公式（0–100 分）；provider `healthReport()`；面板健康卡片；`/health` API |
+| **P2 冲突自动解决** | `cognitive/resolve.ts`：矛盾度 0.6 + 优势 0.4（证据/来源/时间三信号）→ invalidate-old / merge / keep-both；`applyCognition` 接入；面板冲突中心 + `/conflicts`、`/conflicts/resolve` |
+| **P3 评测证据** | `tools/eval/`（合成集 94 条/48 查询/16 组开关）+ `docs/benchmark.md`（真实 bge-m3 数字与复现命令）+ `docs/comparison.md`（9 竞品 × 9 维度 + 来源链接） |
+| **P4 安全/运维** | `cognitive/guard.ts`：指令注入/凭据/零宽字符扫描 + 自动隔离（agent/auto 高风险）+ 面板解除；本地备份 API/面板按钮（固定 backups 目录、防路径穿越）；记忆树隔离徽章 |
+
+**关键评测数字（真实 bge-m3，k=5，合成集）**：base recall@5 `0.7708`；+强度排序 `0.9167`；
+产品默认（全开）`0.9167 / MRR 0.7483 / nDCG 0.7912`。
+
+**测试**：1009 例 / 1008 pass / 1 skip / 0 fail。
+
 ## 三、如何从上游同步
 
 ```bash

@@ -16,6 +16,7 @@ import { gzipSync, gunzipSync } from 'node:zlib'
 import {
   contentHash,
   isDormantRecord,
+  isQuarantinedRecord,
   isTombstonedRecord,
   type CognitiveRecord,
   type MemoryRecord,
@@ -60,12 +61,14 @@ export function shouldSkipRecord(
  * 注意：`retired`（被 supersedes 的旧版本）不在本函数内判定 —— 它依赖"同 scope
  * 是否存在新版"，属于集合级判定，由调用方用 retiredIds 处理。
  */
-export type RecordInvisibility = 'tombstoned' | 'dormant' | 'expired' | 'invalid'
+export type RecordInvisibility = 'tombstoned' | 'dormant' | 'expired' | 'invalid' | 'quarantined'
 
 export interface VisibilityOptions {
   includeDormant?: boolean
   includeTombstoned?: boolean
   includeExpired?: boolean
+  /** 0.40.0：面板/复核需要看到隔离记录；检索与注入默认看不到。 */
+  includeQuarantined?: boolean
   now?: number
 }
 
@@ -74,6 +77,7 @@ export function recordInvisibility(
   options: VisibilityOptions = {},
 ): RecordInvisibility | undefined {
   const now = options.now ?? Date.now()
+  if (options.includeQuarantined !== true && isQuarantinedRecord(record)) return 'quarantined'
   if (options.includeTombstoned !== true && isTombstonedRecord(record)) return 'tombstoned'
   if (options.includeDormant !== true && isDormantRecord(record)) return 'dormant'
   if (options.includeExpired === true) return undefined

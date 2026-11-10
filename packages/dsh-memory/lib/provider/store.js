@@ -115,6 +115,10 @@ export function newId()         {
                      
                                                               
                              
+                                                      
+                        
+                                    
+                              
  
 
                                                             
@@ -131,6 +135,11 @@ export function isDormantRecord(record              )          {
 }
 
 /** 是否已被软删（tombstone）。被软删的记录一律不参与检索/注入，等 restore 或 purge。 */
+/** 0.40.0：可疑写入隔离（P4 投毒防护）。隔离记录默认不进检索/注入，但面板可见。 */
+export function isQuarantinedRecord(record              )          {
+  return (record                   ).quarantinedAt !== undefined
+}
+
 export function isTombstonedRecord(record              )          {
   return (record                   ).tombstonedAt !== undefined
 }
@@ -1224,6 +1233,14 @@ export class MemoryStore {
       ...(Array.isArray(cognitive.consolidatedFrom) && cognitive.consolidatedFrom.length > 0
         ? { consolidatedFrom: cognitive.consolidatedFrom.map(String) }
         : {}),
+      ...(typeof cognitive.quarantinedAt === 'number' && Number.isFinite(cognitive.quarantinedAt)
+        ? {
+            quarantinedAt: cognitive.quarantinedAt,
+            ...(Array.isArray(cognitive.quarantineReasons) && cognitive.quarantineReasons.length > 0
+              ? { quarantineReasons: cognitive.quarantineReasons.map(String) }
+              : {}),
+          }
+        : {}),
     }
     if (record.kind === 'state' && record.expiredAt === undefined) {
       // provider 已经按默认 TTL 算出 expiredAt;这里只兜底直接调 store 的调用方。
@@ -1326,7 +1343,7 @@ export class MemoryStore {
    */
   updateMetrics(
     id        ,
-    patch                                                                                                                                                      ,
+    patch                                                                                                                                                                                              ,
   )                           {
     const located = this.scopeOf(id)
     if (located === undefined) return undefined
@@ -1340,6 +1357,8 @@ export class MemoryStore {
     if (typeof patch.validFrom === 'number' && Number.isFinite(patch.validFrom)) next.validFrom = patch.validFrom
     if (typeof patch.validUntil === 'number' && Number.isFinite(patch.validUntil)) next.validUntil = patch.validUntil
     if (Array.isArray(patch.consolidatedFrom)) next.consolidatedFrom = patch.consolidatedFrom.map(String)
+    if (typeof patch.quarantinedAt === 'number' && Number.isFinite(patch.quarantinedAt)) next.quarantinedAt = patch.quarantinedAt
+    if (Array.isArray(patch.quarantineReasons)) next.quarantineReasons = patch.quarantineReasons.map(String)
     located.store.insert(next)
     return next
   }

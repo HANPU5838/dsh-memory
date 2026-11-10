@@ -221,6 +221,8 @@ function wireRecord(rec, scopeStore, supersededBy = null) {
     embedded: !scopeStore.embedPending.has(rec.id) && scopeStore.vectors.has(rec.id),
     // 0.33.0：认知层状态（面板据此显示徽章 / 恢复按钮 / 强度）
     tombstoned: rec.tombstonedAt !== undefined,
+    quarantined: rec.quarantinedAt !== undefined,
+    quarantineReasons: rec.quarantineReasons ?? [],
     tombstoneExpiresAt: rec.tombstoneExpiresAt ?? null,
     dormant: rec.dormantAt !== undefined,
     validUntil: rec.validUntil ?? null,
@@ -1159,6 +1161,62 @@ async function handle(ctx, routePath, req, res) {
       const out = memory.wipeAllRecords()
       console.log(`[dsh-memory-panel] 清空记忆数据 -> ${out.removed} 条 / ${out.scopes.length} 个作用域`)
       writeJson(res, { ok: true, value: { ...out, ...(await memory.embedServerStatus()) } })
+      return
+    }
+    if (method === 'GET' && path === '/health') {
+      if (typeof memory.healthReport !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供健康度接口（请升级 @restregular/dsh-memory）')
+      writeJson(res, { ok: true, value: memory.healthReport() })
+      return
+    }
+    if (method === 'GET' && path === '/conflicts') {
+      if (typeof memory.listConflicts !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供冲突接口（请升级 @restregular/dsh-memory）')
+      writeJson(res, { ok: true, value: { conflicts: memory.listConflicts() } })
+      return
+    }
+    if (method === 'POST' && path === '/conflicts/resolve') {
+      if (typeof memory.resolveConflictRecord !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供冲突解决接口（请升级 @restregular/dsh-memory）')
+      const body = await readJsonBody(req)
+      const id = String(body.id ?? '')
+      if (id === '') throw new ApiError(400, 'RECORD_NOT_FOUND', '缺少 id')
+      const result = memory.resolveConflictRecord(id)
+      store.scheduleFlush()
+      writeJson(res, { ok: true, value: result })
+      return
+    }
+    if (method === 'POST' && path === '/quarantine/release') {
+      if (typeof memory.releaseQuarantine !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供隔离接口（请升级 @restregular/dsh-memory）')
+      const body = await readJsonBody(req)
+      const id = String(body.id ?? '')
+      if (id === '') throw new ApiError(400, 'RECORD_NOT_FOUND', '缺少 id')
+      const result = memory.releaseQuarantine(id)
+      store.scheduleFlush()
+      writeJson(res, { ok: true, value: result })
+      return
+    }
+    if (method === 'GET' && path === '/backups') {
+      if (typeof memory.listBackups !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供备份接口（请升级 @restregular/dsh-memory）')
+      writeJson(res, { ok: true, value: { backups: memory.listBackups() } })
+      return
+    }
+    if (method === 'POST' && path === '/backups') {
+      if (typeof memory.createBackup !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供备份接口（请升级 @restregular/dsh-memory）')
+      const result = memory.createBackup()
+      console.log(`[dsh-memory-panel] 创建本地备份 ${result.name}（${result.records} 条 / ${(result.bytes / 1024).toFixed(1)} KB）`)
+      writeJson(res, { ok: true, value: result })
+      return
+    }
+    if (method === 'POST' && path === '/backups/restore') {
+      if (typeof memory.restoreBackup !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供备份接口（请升级 @restregular/dsh-memory）')
+      const body = await readJsonBody(req)
+      const name = String(body.name ?? '')
+      if (name === '') {
+        // 不传名字 = 恢复最近一次备份（面板一键操作的默认行为）
+        const backups = typeof memory.listBackups === 'function' ? memory.listBackups() : []
+        if (backups.length === 0) throw new ApiError(404, 'BACKUP_NOT_FOUND', '还没有任何本地备份')
+        writeJson(res, { ok: true, value: { ...memory.restoreBackup(backups[0].name), restoredFrom: backups[0].name } })
+        return
+      }
+      writeJson(res, { ok: true, value: { ...memory.restoreBackup(name), restoredFrom: name } })
       return
     }
     if (method === 'GET' && path === '/records') {

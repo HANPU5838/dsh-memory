@@ -151,3 +151,28 @@ test('取用反馈只由显式 memory_get 触发：内部/注入读取不涨 uti
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('本地备份：创建 / 列出 / 恢复，且拒绝路径穿越', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-magic-backup-'))
+  const svc = makeService(dir)
+  try {
+    const rec = await svc.save({ scope: SCOPE, kind: 'note', content: '备份测试记录' })
+    const created = svc.createBackup()
+    assert.ok(created.name.endsWith('.jsonl.gz'), '备份文件名应为 gzip')
+    assert.equal(created.records, 1)
+    const list = svc.listBackups()
+    assert.equal(list.length, 1)
+    assert.equal(list[0].name, created.name)
+    // 物理删掉记录后从备份恢复：应补回来
+    svc.store.peek(SCOPE).remove(rec.id)
+    svc.flushSync()
+    const restored = svc.restoreBackup(created.name)
+    assert.equal(restored.imported, 1)
+    assert.ok((await svc.list({ scope: SCOPE })).some((r) => r.content === '备份测试记录'))
+    // 路径穿越拒绝
+    assert.throws(() => svc.restoreBackup('../evil.jsonl.gz'), /BACKUP_NAME_INVALID/)
+  } finally {
+    svc.flushSync()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

@@ -355,6 +355,8 @@ window.__ModuleLoader__.load({
       '.memp .tree-node.record.st-invalid{box-shadow:0 0 0 1px #d97706 inset,0 1px 2px rgba(0,0,0,.04);border-color:#d97706}',
       '.memp .tree-node.record.st-dormant{opacity:.74}',
       '.memp .tree-node.record.st-conflict{border-color:#dc2626;box-shadow:0 0 0 1px rgba(220,38,38,.38),0 6px 16px rgba(220,38,38,.12)}',
+      '.memp .tree-node.record.st-quarantined{border-color:#7c3aed;box-shadow:0 0 0 1px rgba(124,58,237,.35) inset}',
+      '.memp .tn-badge.st-quarantined{background:color-mix(in srgb,#7c3aed 15%,transparent);color:#6d28d9}',
       '.memp .tn-badge.st-tomb{background:color-mix(in srgb,#6b7280 18%,transparent);color:#6b7280}',
       '.memp .tn-badge.st-invalid{background:color-mix(in srgb,#d97706 16%,transparent);color:#b45309}',
       '.memp .tn-badge.st-dormant{background:color-mix(in srgb,#3b82f6 14%,transparent);color:#2563eb}',
@@ -1219,6 +1221,7 @@ window.__ModuleLoader__.load({
                       rec.invalidated ? h('span', { className: 'tag', key: 'invalidated', title: rec.validUntil ? `失效于 ${fmtTime(rec.validUntil)}` : '已失效' }, '已失效') : null,
                       rec.dormant ? h('span', { className: 'tag', key: 'dormant' }, '休眠') : null,
                       rec.conflictWith && rec.conflictWith.length > 0 ? h('span', { className: 'tag', key: 'conflict', title: `与 ${rec.conflictWith.length} 条记忆冲突（置信度 ${(Number(rec.conflictConfidence) || 0).toFixed(2)}）` }, '冲突') : null,
+                      rec.quarantined ? h('span', { className: 'tag', key: 'quarantined', title: `可疑写入已隔离${Array.isArray(rec.quarantineReasons) && rec.quarantineReasons.length > 0 ? '：' + rec.quarantineReasons.join(' / ') : ''}` }, '隔离待复核') : null,
                       rec.generation > 1 ? h('span', { className: 'tag', key: 'gen' }, `第 ${rec.generation} 版`) : null,
                     ),
                     (rec.stability !== null && rec.stability !== undefined) || (rec.utility !== null && rec.utility !== undefined)
@@ -1254,6 +1257,17 @@ window.__ModuleLoader__.load({
               rec.tombstoned
                 ? null
                 : h('button', { disabled: busy, onClick: del }, busy ? '…' : '删除'),
+              rec.quarantined
+                ? h('button', {
+                    disabled: busy,
+                    onClick: async () => {
+                      setBusy(true); setError('')
+                      try { await api('quarantine/release', { id: rec.id }); onSaved && onSaved() }
+                      catch (e) { setError(String(e.message || e)) }
+                      finally { setBusy(false) }
+                    },
+                  }, '解除隔离')
+                : null,
             )
           : null,
       )
@@ -1273,6 +1287,7 @@ window.__ModuleLoader__.load({
       if (rec.invalidated) classes.push('st-invalid')
       if (rec.dormant) classes.push('st-dormant')
       if (Array.isArray(rec.conflictWith) && rec.conflictWith.length > 0) classes.push('st-conflict')
+      if (rec.quarantined) classes.push('st-quarantined')
       const pick = () => onSelect(rec.id)
       return h('div', {
         className: classes.join(' '),
@@ -1314,6 +1329,9 @@ window.__ModuleLoader__.load({
             : null,
           Array.isArray(rec.conflictWith) && rec.conflictWith.length > 0
             ? h('span', { className: 'tn-badge st-conflict', title: `与 ${rec.conflictWith.length} 条记忆冲突，置信度 ${(Number(rec.conflictConfidence) || 0).toFixed(2)}` }, '冲突')
+            : null,
+          rec.quarantined
+            ? h('span', { className: 'tn-badge st-quarantined', title: rec.quarantineReasons && rec.quarantineReasons.length > 0 ? rec.quarantineReasons.join(' / ') : '可疑写入，待人工复核' }, '隔离')
             : null,
           // 强度条：stability 映射 1~3 格；utility>0 时加一个取用点。
           (() => {
@@ -1478,7 +1496,7 @@ window.__ModuleLoader__.load({
      */
     /** 0.35.0：树上的"问题记忆"判定（删除/失效/休眠/冲突之一）。 */
     function isIssueRecord(rec) {
-      return Boolean(rec && (rec.tombstoned || rec.invalidated || rec.dormant || (Array.isArray(rec.conflictWith) && rec.conflictWith.length > 0)))
+      return Boolean(rec && (rec.tombstoned || rec.invalidated || rec.dormant || rec.quarantined || (Array.isArray(rec.conflictWith) && rec.conflictWith.length > 0)))
     }
 
     /** 0.35.0：把 stability（天）映射成 1~3 格强度条。 */
@@ -1847,6 +1865,7 @@ window.__ModuleLoader__.load({
         records.some((r) => r.invalidated) ? h('span', null, h('i', { style: { background: '#d97706' } }), '已失效') : null,
         records.some((r) => r.tombstoned) ? h('span', null, h('i', { style: { background: '#6b7280' } }), '已删除（可恢复）') : null,
         records.some((r) => r.dormant) ? h('span', null, h('i', { style: { background: '#3b82f6' } }), '休眠') : null,
+        records.some((r) => r.quarantined) ? h('span', null, h('i', { style: { background: '#7c3aed' } }), '隔离待复核') : null,
         h('span', null, h('i', { style: { background: 'var(--dsw-alias-brand-primary)' } }), '强度条：越高越稳（1~3 格）'),
       )
 
@@ -3783,6 +3802,79 @@ window.__ModuleLoader__.load({
     /** 待嵌入自动刷新:最多 300 次 × 1.5s(后端挂着时不无限轮询)。 */
     const PENDING_POLL_LIMIT = 300
 
+    /** 0.40.0（P1/P2）：记忆健康度 + 冲突中心。自包含拉取，失败静默。 */
+    function HealthCard({ api, onChanged }) {
+      const [health, setHealth] = React.useState(null)
+      const [conflicts, setConflicts] = React.useState([])
+      const [busy, setBusy] = React.useState(false)
+      const [msg, setMsg] = React.useState('')
+      const refresh = async () => {
+        try {
+          const [h, c] = await Promise.all([api('health'), api('conflicts')])
+          setHealth(h)
+          setConflicts(Array.isArray(c.conflicts) ? c.conflicts : [])
+        } catch (e) { setMsg(`健康度读取失败：${String(e.message || e)}`) }
+      }
+      React.useEffect(() => { void refresh() }, [])
+      const resolveOne = async (id) => {
+        setBusy(true); setMsg('')
+        try {
+          const res = await api('conflicts/resolve', { id })
+          setMsg(`已处理：${res.action}（${res.reason}）`)
+          await refresh()
+          if (typeof onChanged === 'function') onChanged()
+        } catch (e) { setMsg(`处理失败：${String(e.message || e)}`) } finally { setBusy(false) }
+      }
+      const resolveAll = async () => {
+        setBusy(true); setMsg('')
+        let done = 0
+        try {
+          for (const item of conflicts.slice(0, 20)) {
+            try { await api('conflicts/resolve', { id: item.id }); done += 1 } catch { /* 单条失败继续 */ }
+          }
+          setMsg(`已自动处理 ${done} 条冲突`)
+          await refresh()
+          if (typeof onChanged === 'function') onChanged()
+        } catch (e) { setMsg(`批量处理失败：${String(e.message || e)}`) } finally { setBusy(false) }
+      }
+      if (health === null) {
+        return h('div', { className: 'server' },
+          h('div', { className: 'server-head' }, h('b', null, '记忆健康'), h('span', { className: 'muted' }, msg || '读取中…')))
+      }
+      const pct = (v) => `${Math.round((Number(v) || 0) * 100)}%`
+      const scoreColor = health.score >= 80 ? '#059669' : health.score >= 50 ? '#d97706' : '#dc2626'
+      return h('div', { className: 'server' },
+        h('div', { className: 'server-head' },
+          h('b', null, '记忆健康'),
+          h('span', { style: { color: scoreColor, fontWeight: 700, fontSize: '15px' } }, `${Math.round(health.score)} / 100`),
+          h('span', { className: 'muted' }, `${health.live} 活跃 · ${health.total} 总量`),
+          h('span', { className: 'server-spacer' }),
+          h('button', { disabled: busy, onClick: () => void refresh() }, '重新体检'),
+        ),
+        h('div', { className: 'stats', style: { marginTop: '8px' } },
+          h('div', { className: 'stat' }, h('b', null, pct(health.conflictRate)), h('span', null, '冲突率')),
+          h('div', { className: 'stat' }, h('b', null, pct(health.duplicateRate)), h('span', null, `重复率(抽样 ${health.duplicateSampled})`)),
+          h('div', { className: 'stat' }, h('b', null, pct(health.invalidRate)), h('span', null, '失效率')),
+          h('div', { className: 'stat' }, h('b', null, String(health.quarantined)), h('span', null, '待复核隔离')),
+          h('div', { className: 'stat' }, h('b', null, pct(health.pendingEmbedRate)), h('span', null, '待嵌入')),
+          h('div', { className: 'stat' }, h('b', null, String(Number(health.avgStability || 0).toFixed(1))), h('span', null, '平均稳定天数')),
+        ),
+        conflicts.length > 0
+          ? h('div', { className: 'maint-row', style: { alignItems: 'flex-start' } },
+              h('span', { className: 'grow' }, `冲突中心：${conflicts.length} 条待处理`),
+              h('button', { disabled: busy, onClick: () => void resolveAll() }, busy ? '处理中…' : '全部自动解决'),
+            )
+          : h('div', { className: 'hint' }, '没有待处理冲突。'),
+        conflicts.slice(0, 8).map((item) => h('div', { key: item.id, className: 'maint-row' },
+          h('span', { className: 'grow', title: item.content }, `${item.content.slice(0, 48)}${item.content.length > 48 ? '…' : ''}`),
+          h('span', { className: 'muted' }, `置信度 ${Number(item.conflictConfidence || 0).toFixed(2)}`),
+          h('button', { disabled: busy, onClick: () => void resolveOne(item.id) }, '自动解决'),
+        )),
+        msg ? h('div', { className: 'hint' }, msg) : null,
+        h('div', { className: 'hint' }, '健康度 = 100 −（冲突/失效/重复/隔离/墓碑/休眠/待嵌入 的加权扣分）；重复率是抽样估计。'),
+      )
+    }
+
     function MemoryPanel({ openSession, sessionInfo, audience = 'panel', lockSession } = {}) {
       const [records, setRecords] = React.useState([])
       const [scopes, setScopes] = React.useState([])
@@ -4172,6 +4264,24 @@ window.__ModuleLoader__.load({
       // 维护区：DSH 卸载插件时不会给插件任何提问机会（就是 pnpm remove + 去掉
       // bundles），所以"要不要留向量服务 / 要不要留记忆数据"只能在这里、卸载之前问。
       const [maintMsg, setMaintMsg] = React.useState('')
+      const [bakMsg, setBakMsg] = React.useState('')
+      const runBackup = async () => {
+        setBakMsg('备份中…')
+        try {
+          const out = await api('backups', {})
+          setBakMsg(`已备份：${out.name}（${out.records} 条 / ${(Number(out.bytes) / 1024).toFixed(1)} KB）`)
+          setTimeout(() => setBakMsg(''), 6000)
+        } catch (e) { setBakMsg(`备份失败：${String(e.message || e)}`) }
+      }
+      const runRestoreBackup = async () => {
+        if (!window.confirm('从最近一次本地备份恢复？\n恢复只做「补齐缺失记录」，不会覆盖现有记忆。')) return
+        setBakMsg('恢复中…')
+        try {
+          const out = await api('backups/restore', {})
+          setBakMsg(`已从 ${out.restoredFrom} 恢复：新增 ${out.imported}，跳过 ${out.skipped}`)
+          setTimeout(() => { setBakMsg(''); if (typeof load === 'function') load() }, 1500)
+        } catch (e) { setBakMsg(`恢复失败：${String(e.message || e)}`) }
+      }
       const runConsolidate = async () => {
         setMaintMsg('巩固中…')
         try {
@@ -4211,6 +4321,11 @@ window.__ModuleLoader__.load({
           h('div', { className: 'maint-row' },
             h('span', { className: 'grow' }, `记忆巩固：${maintMsg || '把同簇的零散记忆合并成一条稳定结论'}`),
             h('button', { onClick: runConsolidate }, '立即巩固'),
+          ),
+          h('div', { className: 'maint-row' },
+            h('span', { className: 'grow' }, bakMsg || '本地备份：固定目录 <storeDir>/backups（gzip JSONL，可随时恢复）'),
+            h('button', { onClick: runBackup }, '立即备份'),
+            h('button', { onClick: runRestoreBackup }, '恢复最近备份'),
           ),
           h('div', { className: 'maint-row' },
             h('span', { className: 'grow' }, `记忆数据：${maintenance.records} 条`),
@@ -4345,7 +4460,7 @@ window.__ModuleLoader__.load({
         ' · ',
         h('a', { href: 'https://github.com/HANPU5838/dsh-memory/issues/new', target: '_blank', rel: 'noreferrer' }, '💬 反馈建议 / 提 issue'),
       )
-      const overviewBody = h('div', { className: 'memp-body' }, serverCard, maintenanceCard, footer)
+      const overviewBody = h('div', { className: 'memp-body' }, h(HealthCard, { api, onChanged: () => load() }), serverCard, maintenanceCard, footer)
 
       // ---- 「记录」页的二级标签页:记忆 / 作用域(0.28.0) ----
       // 作用域子标签页回答的是「有哪些域、各自干什么、多少条」——用途与

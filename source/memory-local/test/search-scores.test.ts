@@ -26,6 +26,9 @@ function makeService(dir: string, opts: { llm?: boolean; strengthRanking?: boole
       // 所以显式关掉 0.33.0 的强度排序，用 0.32 的 recordScore 做基准。
       ...(opts.strengthRanking === false ? { strengthRanking: false } : {}),
       temporalWeighting: false,
+      // 这两个用例锁定 0.32 时代的经典打分/重排管线语义，显式关掉 0.40 的 BM25/RRF。
+      bm25: { enabled: false },
+      fusion: { enabled: false },
       ...(opts.llm ? { llm: { enabled: true, provider: 'fake', model: 'fake' } } : {}),
     },
   })

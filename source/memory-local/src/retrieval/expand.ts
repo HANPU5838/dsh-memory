@@ -14,6 +14,7 @@
  *
  * 纯函数、无 I/O、零第三方依赖;不读任何配置对象,参数由调用方传入。
  */
+import { tokenize } from '../scoring.ts'
 
 // ---------------------------------------------------------------------------
 // 查询画像
@@ -293,4 +294,273 @@ export function expandQuery(
   const norm = Math.sqrt(sum)
   for (let i = 0; i < dim; i++) result[i] = result[i]! / norm
   return result
+}
+
+// ---------------------------------------------------------------------------
+// 多查询变体(0.36.0):原查询 + 关键词变体 + 近邻文档词 —— 给 RRF 用
+//
+// 为什么需要"查询变体"而不只是 Rocchio:
+//   Rocchio 扩的是**向量**,只对向量通道有效;词法通道(BM25)看到的仍是原查询。
+//   用户换个说法、或者查询里混了口语虚词(「怎么」「那个」「来着」)时,词法通道
+//   会漏掉真正该命中的记忆。这里在**查询侧**生成一组确定性变体,每个变体各跑
+//   一路词法检索,再用 fusion.reciprocalRankFusion 融合:
+//
+//     1) original  原查询(不降权,恒为第一路);
+//     2) keyword   只留强 token(拉丁词 / CJK 二元),丢掉单字弱 token;
+//     3) neighbor  首轮 top-N 近邻正文里"查询没出现过的强词",拼回原查询;
+//     4) neighbor  只用这些近邻词(纯扩展查询,原查询噪声大时兜底)。
+//
+//   全部基于现成分词与词频统计,**无 LLM、无 I/O、纯函数**:同一输入永远得到同一
+//   组变体(顺序、文本、权重都稳定),离线评测可复现,也不产生模型调用成本。
+// ---------------------------------------------------------------------------
+
+/** 变体来源类型。 */
+export type QueryVariantKind = 'original' | 'keyword' | 'neighbor'
+
+/**
+ * 近邻文档来源:字符串 = 正文;对象取其 `text` / `content`(兼容 MemoryRecord)。
+ * 无法取出非空文本的元素直接忽略。
+ */
+export type NeighborSource = string | { text?: string; content?: string }
+
+/** 一个查询变体。 */
+export interface QueryVariant {
+  /** 变体文本(展示 / 日志用;检索请用 `tokens`,见下) */
+  text: string
+  kind: QueryVariantKind
+  /**
+   * 该变体的检索 token。original 是 `tokenize(text)` 的完整结果(含 CJK 一元);
+   * keyword / neighbor 变体是**精挑过的强 token**,不是对 `text` 再 tokenize 一遍
+   * —— 再切一次会把 CJK 二元拆回一元,等于把刚丢掉的弱 token 又加回来。
+   */
+  tokens: string[]
+  /** 建议的 RRF 权重,越大越可信(original 恒为 1) */
+  weight: number
+  /** 该变体为什么存在(可解释,面板 / 日志可直接展示) */
+  reason: string
+}
+
+export interface ExpandQueriesOptions {
+  /** 近邻文档:首轮检索 top-N 命中(字符串或带 text/content 的对象) */
+  neighbors?: readonly NeighborSource[]
+  /**
+   * `neighbors` 的别名:兼容 `expandQueries(text, { vectors: [...] })` 的调用约定。
+   * 元素同样是**近邻文档文本**,不是嵌入向量;取不出文本的元素会被忽略。
+   */
+  vectors?: readonly NeighborSource[]
+  /** 关键词变体最多保留几个强 token,默认 6;0 = 不生成关键词变体 */
+  maxKeywords?: number
+  /** 近邻扩展最多补几个词,默认 4;0 = 不生成近邻变体 */
+  maxNeighborTerms?: number
+  /** 最多用几条近邻文档,默认 3(排名越靠前权重越高) */
+  maxNeighbors?: number
+  /** 总变体上限(含 original),默认 4;0 = 不生成任何变体 */
+  maxVariants?: number
+  /** 关键词变体权重,默认 0.9 */
+  keywordWeight?: number
+  /** 近邻扩展变体(原查询 + 近邻词)权重,默认 0.7 */
+  neighborWeight?: number
+  /** 纯近邻词变体权重,默认 0.6 */
+  neighborTermsWeight?: number
+}
+
+/** 关键词变体默认最多保留的强 token 数。 */
+export const DEFAULT_MAX_KEYWORDS = 6
+/** 近邻扩展默认最多补入的词数。 */
+export const DEFAULT_MAX_NEIGHBOR_TERMS = 4
+/** 默认最多使用几条近邻文档。 */
+export const DEFAULT_MAX_NEIGHBORS = 3
+/** 默认总变体上限(含原查询)。 */
+export const DEFAULT_MAX_QUERY_VARIANTS = 4
+/** 关键词变体默认权重。 */
+export const DEFAULT_KEYWORD_VARIANT_WEIGHT = 0.9
+/** 近邻扩展变体默认权重。 */
+export const DEFAULT_NEIGHBOR_VARIANT_WEIGHT = 0.7
+/** 纯近邻词变体默认权重。 */
+export const DEFAULT_NEIGHBOR_TERMS_WEIGHT = 0.6
+
+function optionInt(value: number | undefined, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
+  return Math.max(0, Math.floor(value))
+}
+
+function optionWeight(value: number | undefined, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
+  return Math.max(0, value)
+}
+
+/** 确定性 token 比较(码点序,不依赖 locale)。 */
+function compareTokens(a: string, b: string): number {
+  if (a < b) return -1
+  if (a > b) return 1
+  return 0
+}
+
+/** 第二种参数既可以是选项对象,也可以直接是近邻数组(两种调用约定都支持)。 */
+function mergeExpandOptions(
+  input: ExpandQueriesOptions | readonly NeighborSource[] | null | undefined,
+  extra: ExpandQueriesOptions,
+): ExpandQueriesOptions {
+  if (Array.isArray(input)) return { ...extra, neighbors: input as readonly NeighborSource[] }
+  if (input !== null && input !== undefined && typeof input === 'object') {
+    return { ...(input as ExpandQueriesOptions), ...extra }
+  }
+  return extra
+}
+
+/** 从一个近邻来源里取正文;取不到返回 undefined。 */
+function neighborTextOf(item: NeighborSource | null | undefined): string | undefined {
+  if (typeof item === 'string') return item
+  if (item === null || item === undefined || typeof item !== 'object') return undefined
+  if (typeof item.text === 'string') return item.text
+  if (typeof item.content === 'string') return item.content
+  return undefined
+}
+
+/** 收集可用的近邻正文(按顺序、去空、限量)。 */
+function resolveNeighborTexts(options: ExpandQueriesOptions): string[] {
+  const maxNeighbors = optionInt(options.maxNeighbors, DEFAULT_MAX_NEIGHBORS)
+  if (maxNeighbors <= 0) return []
+  const raw = Array.isArray(options.neighbors) && options.neighbors.length > 0
+    ? options.neighbors
+    : (Array.isArray(options.vectors) ? options.vectors : [])
+  const texts: string[] = []
+  for (const item of raw) {
+    if (texts.length >= maxNeighbors) break
+    const text = neighborTextOf(item)
+    if (text !== undefined && text.trim().length > 0) texts.push(text)
+  }
+  return texts
+}
+
+/**
+ * 关键词变体:按原顺序保留唯一强 token(长度 ≥ 2 = 拉丁词或 CJK 二元),
+ * 用空格拼成变体文本。没有强 token(例如查询只有单个汉字)时返回 null。
+ */
+function createKeywordVariant(
+  text: string,
+  baseTokens: readonly string[],
+  maxKeywords: number,
+  weight: number,
+): QueryVariant | null {
+  if (maxKeywords <= 0) return null
+  const strong: string[] = []
+  const seen = new Set<string>()
+  for (const token of baseTokens) {
+    if (token.length < 2 || seen.has(token)) continue
+    seen.add(token)
+    strong.push(token)
+    if (strong.length >= maxKeywords) break
+  }
+  if (strong.length === 0) return null
+  const variantText = strong.join(' ')
+  // 变体文本与原查询等价时不重复占位(例如查询本身就是 "alpha beta")。
+  if (variantText === text.trim()) return null
+  return {
+    text: variantText,
+    kind: 'keyword',
+    tokens: strong,
+    weight,
+    reason: `关键词变体:只保留 ${strong.length} 个强 token(拉丁词 / CJK 二元),丢掉单字弱 token`,
+  }
+}
+
+/**
+ * 从近邻正文里挑"查询没出现过"的强词。打分 = Σ 1/(近邻名次)·tf,
+ * 即排名越高的近邻、出现次数越多的词越靠前;同分按码点序,保证确定性。
+ */
+function collectNeighborTerms(
+  neighborTexts: readonly string[],
+  excludeTokens: ReadonlySet<string>,
+  maxTerms: number,
+): string[] {
+  if (maxTerms <= 0) return []
+  const scores = new Map<string, number>()
+  for (let i = 0; i < neighborTexts.length; i++) {
+    const neighborWeight = 1 / (i + 1) // 第一名近邻最可信,依次衰减
+    const seen = new Set<string>()
+    for (const token of tokenize(neighborTexts[i]!)) {
+      if (token.length < 2 || excludeTokens.has(token) || seen.has(token)) continue
+      seen.add(token)
+      scores.set(token, (scores.get(token) ?? 0) + neighborWeight)
+    }
+  }
+  const ranked = [...scores.entries()].sort((a, b) => b[1] - a[1] || compareTokens(a[0], b[0]))
+  return ranked.slice(0, maxTerms).map(([token]) => token)
+}
+
+/**
+ * 生成查询变体列表(保持确定性顺序:original → keyword → neighbor 扩展 → 纯近邻词)。
+ *
+ * 调用形式(两种都支持):
+ *   - `expandQueries(text)` / `expandQueries(text, { neighbors, ... })`
+ *   - `expandQueries(text, neighborsArray, opts?)` —— 第二参数直接给近邻数组
+ *
+ * 行为约定:
+ *   - 空 / 纯空白查询 → `[]`(没有可扩展的查询);
+ *   - 没有近邻或近邻里没有可用的新词 → 不生成 neighbor 变体,只返回 original(+ keyword);
+ *   - `maxVariants` 在**生成后**统一截断,所以调小它永远先保留 original;
+ *   - 纯函数:不修改入参数组 / 对象,同一输入两次调用深相等。
+ */
+export function expandQueries(
+  text: string,
+  optsOrNeighbors?: ExpandQueriesOptions | readonly NeighborSource[] | null,
+  opts: ExpandQueriesOptions = {},
+): QueryVariant[] {
+  const options = mergeExpandOptions(optsOrNeighbors, opts)
+  const source = typeof text === 'string' ? text : ''
+  if (source.trim().length === 0) return []
+  const maxVariants = optionInt(options.maxVariants, DEFAULT_MAX_QUERY_VARIANTS)
+  if (maxVariants === 0) return []
+
+  const baseTokens = tokenize(source)
+  const variants: QueryVariant[] = [{
+    text: source,
+    kind: 'original',
+    tokens: baseTokens,
+    weight: 1,
+    reason: '原查询:不做改写,权重最高',
+  }]
+
+  if (variants.length < maxVariants) {
+    const keyword = createKeywordVariant(
+      source,
+      baseTokens,
+      optionInt(options.maxKeywords, DEFAULT_MAX_KEYWORDS),
+      optionWeight(options.keywordWeight, DEFAULT_KEYWORD_VARIANT_WEIGHT),
+    )
+    if (keyword !== null) variants.push(keyword)
+  }
+
+  const neighborTexts = resolveNeighborTexts(options)
+  if (neighborTexts.length > 0) {
+    const terms = collectNeighborTerms(
+      neighborTexts,
+      new Set(baseTokens),
+      optionInt(options.maxNeighborTerms, DEFAULT_MAX_NEIGHBOR_TERMS),
+    )
+    if (terms.length > 0) {
+      const joined = terms.join(' ')
+      if (variants.length < maxVariants) {
+        variants.push({
+          text: `${source} ${joined}`,
+          kind: 'neighbor',
+          tokens: [...baseTokens, ...terms],
+          weight: optionWeight(options.neighborWeight, DEFAULT_NEIGHBOR_VARIANT_WEIGHT),
+          reason: `近邻文档词扩展:原查询 + 近邻正文新词(${terms.join(' / ')})`,
+        })
+      }
+      if (variants.length < maxVariants) {
+        variants.push({
+          text: joined,
+          kind: 'neighbor',
+          tokens: terms,
+          weight: optionWeight(options.neighborTermsWeight, DEFAULT_NEIGHBOR_TERMS_WEIGHT),
+          reason: `纯近邻词查询:只用近邻正文新词(${terms.join(' / ')}),原查询噪声大时兜底`,
+        })
+      }
+    }
+  }
+
+  return variants.slice(0, maxVariants)
 }

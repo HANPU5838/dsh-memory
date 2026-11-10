@@ -42,5 +42,9 @@ jobs:
 
       # 单包产物构建验证：不发布、不落包，只确认 source/ 能完整转译成 packages/ 形态。
       # 产物与源码不同步是本项目最容易犯的错（DSH 实际加载的是 packages/lib/**）。
+      # 检索质量门禁：合成集、无嵌入服务，几秒内完成（评测器退出码恒 0，不阻塞 CI）。
+      - name: 检索评测（合成集）
+        run: node tools/eval/run.mjs --mode synthetic --no-public --quiet
+
       - name: 构建验证
-        run: node tools/build-single-package.mjs --scope @restregular --version 0.35.0 --repo https://github.com/HANPU5838/dsh-memory --out .verify --no-place
+        run: node tools/build-single-package.mjs --scope @restregular --version 0.40.0 --repo https://github.com/HANPU5838/dsh-memory --out .verify --no-place

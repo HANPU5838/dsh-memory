@@ -54,12 +54,17 @@ import {
 import { mergeInjectSettings, normalizeInjectSettings, type InjectSettings } from './inject-settings.ts'
 import { buildStats, lexicalScore, recordScore, tokenize, cosine, normalizeInPlace, hasStrongHit, finalFloor, semanticDedupe, mmrSelect } from './scoring.ts'
 import { adaptiveScopeThreshold, calibrateScore } from './retrieval/adapt.ts'
-import { blendHybrid, expandQuery, hybridWeights, queryProfile } from './retrieval/expand.ts'
+import { blendHybrid, expandQuery, expandQueries, hybridWeights, queryProfile } from './retrieval/expand.ts'
+import { buildBm25Docs, bm25Score, rankByBm25 } from './retrieval/bm25.ts'
+import { reciprocalRankFusion, normalizeScores } from './retrieval/fusion.ts'
 import { explainCandidate } from './retrieval/rank.ts'
 import { initialStrength, updateAfterUse } from './retrieval/retention.ts'
 import { temporalBoost, planValidityOnConflict, applyValidityPlan } from './cognitive/temporal.ts'
 import { assessContradiction } from './cognitive/contradiction.ts'
 import { applyConsolidationPlan, clusterRecords, planConsolidation } from './cognitive/consolidate.ts'
+import { computeHealth, type HealthReport } from './cognitive/health.ts'
+import { resolveConflict, applyConflictResolution } from './cognitive/resolve.ts'
+import { scanMemoryContent, quarantineRecord, clearQuarantine } from './cognitive/guard.ts'
 import { MERGE_THRESHOLD, planNearDuplicateMerge } from './cognitive/merge.ts'
 import { assessConflicts, applyConflictMarker, hasCriticalDetailConflict } from './cognitive/conflict.ts'
 import { isRecordVisible, revive, tombstone, purgeTombstones, markDormant, restore as restoreTombstoned, snapshot as writeSnapshot, restoreSnapshot as readSnapshotFile } from './cognitive/lifecycle.ts'
@@ -245,6 +250,12 @@ export interface MemoryLocalConfig {
     temporalWeighting?: boolean
     /** 0.33.0：Rocchio 伪相关反馈查询扩展（默认关，配合 eval.ts 调参）。 */
     expansion?: { enabled?: boolean; beta?: number }
+    /** 0.40.0：BM25 词法通道（P0）。 */
+    bm25?: { enabled?: boolean; k1?: number; b?: number; tagsWeight?: number }
+    /** 0.40.0：RRF 多路融合（P0）。 */
+    fusion?: { enabled?: boolean; k?: number; weights?: { lexical?: number; vector?: number; expanded?: number }; addCandidates?: boolean }
+    /** 0.40.0：查询变体扩展（P0，基于近邻文档关键词）。 */
+    variants?: { enabled?: boolean; maxVariants?: number; maxNeighbors?: number }
   }
   limits?: { maxRecordsPerScope?: number; maxRecordChars?: number }
   /** 0.32.0：认知层（语义合并 / 冲突标记 / 生命周期）。缺省全部开启。 */
@@ -694,6 +705,31 @@ export function resolveConfig(config: MemoryLocalConfig = {}): ResolvedConfig {
     // 0.33.0：强度排序默认开；查询扩展默认关（需要按真实库用 eval 调 beta）。
     strengthRanking: config.retrieval?.strengthRanking ?? true,
     temporalWeighting: config.retrieval?.temporalWeighting ?? true,
+    // 0.40.0：P0 检索核心。BM25 + RRF 融合默认开（有旧路径可关掉做 A/B）；
+    // 查询变体默认关（每个变体多一次 BM25 全扫，先由 eval 决定是否默认开）。
+    bm25: {
+      enabled: config.retrieval?.bm25?.enabled ?? true,
+      k1: config.retrieval?.bm25?.k1 ?? 1.2,
+      b: config.retrieval?.bm25?.b ?? 0.75,
+      tagsWeight: config.retrieval?.bm25?.tagsWeight ?? 1.5,
+    },
+    fusion: {
+      enabled: config.retrieval?.fusion?.enabled ?? true,
+      k: config.retrieval?.fusion?.k ?? 60,
+      weights: {
+        lexical: config.retrieval?.fusion?.weights?.lexical ?? 1,
+        vector: config.retrieval?.fusion?.weights?.vector ?? 1,
+        expanded: config.retrieval?.fusion?.weights?.expanded ?? 0.6,
+      },
+      // 默认只重排已有候选，不注入"仅 BM25 命中"的新候选 —— 实测后者会在
+      // strengthRanking 关闭时用低相关度挤掉真命中（recall -0.04）。需要补召回时再开。
+      addCandidates: config.retrieval?.fusion?.addCandidates ?? false,
+    },
+    variants: {
+      enabled: config.retrieval?.variants?.enabled ?? false,
+      maxVariants: config.retrieval?.variants?.maxVariants ?? 3,
+      maxNeighbors: config.retrieval?.variants?.maxNeighbors ?? 3,
+    },
     expansion: {
       enabled: config.retrieval?.expansion?.enabled ?? false,
       beta: config.retrieval?.expansion?.beta ?? 0.35,
@@ -1904,7 +1940,7 @@ export class LocalMemoryService implements MemoryServiceApi {
     }
   }
 
-  runHousekeeping(): { purged: string[]; evicted: string[]; dormant: string[]; tombstones: string[]; consolidated: string[] } {
+  runHousekeeping(): { purged: string[]; evicted: string[]; dormant: string[]; tombstones: string[]; consolidated: string[]; health?: { score: number; conflictRate: number; duplicateRate: number; quarantined: number; pending: number } } {
     const frozen = (scope: string): boolean => this.isArchivedSessionScope(scope)
     const purged = this.store.purgeExpired(Date.now(), frozen)
     const evicted = this.store.enforceLimit(this.cfg.maxRecordsPerScope, Date.now(), frozen)
@@ -1921,7 +1957,13 @@ export class LocalMemoryService implements MemoryServiceApi {
     const tombstones = purgeTombstones(this.store, { now: Date.now(), ...(liveScopes.length > 0 ? { scopes: liveScopes } : {}) })
     // 0.33.0：周期巩固（把同簇 episodic 记忆合并成一条 semantic 摘要）。
     const consolidated = this.consolidateNow().created
-    return { purged, evicted, dormant, tombstones, consolidated }
+    // 0.40.0：P1 健康度快照（维护任务顺带算一次，面板可轮询）。
+    let health
+    try {
+      const report = this.healthReport()
+      health = { score: report.score, conflictRate: report.conflictRate, duplicateRate: report.duplicateRate, quarantined: report.quarantined, pending: report.pending }
+    } catch { /* 健康度是增强，失败不影响维护 */ }
+    return { purged, evicted, dormant, tombstones, consolidated, ...(health !== undefined ? { health } : {}) }
   }
 
   /**
@@ -3162,6 +3204,15 @@ export class LocalMemoryService implements MemoryServiceApi {
       if (initialized) {
         this.meta.put(scope, { description: effectiveDescription, createdBy: metaBefore?.createdBy ?? createdBy, status: 'ready' })
       }
+      // 0.40.0：可疑写入隔离（P4 投毒防护）。用户显式写入的疑似注入只报风险不隔离；
+      // auto/agent 来源的高风险内容直接隔离（不进检索/注入，等人工复核）。
+      try {
+        const guard = scanMemoryContent(content, { source: { origin: agentWrite ? 'agent' : 'user' } })
+        if (guard.quarantined) {
+          quarantineRecord(this.store, record.id, guard.reasons)
+          this.store.scheduleFlush()
+        }
+      } catch { /* 防护失败不影响写入 */ }
     } catch (error) {
       // 保留 pending 元数据（而不是删掉）：下一次保存可以接着完成初始化，
       // 目录工具也能明确看到这个作用域尚未就绪。
@@ -3242,12 +3293,18 @@ export class LocalMemoryService implements MemoryServiceApi {
           ? { conflicted: false, findings: [], marker: { conflictWith: [], conflictConfidence: 0 }, severity: 'none' as const }
           : assessConflicts({ content: record.content, candidates: [detailConflict] })
         if (detailConflict !== undefined) {
-          const pre = assessContradiction(record.content, detailConflict.record.content, { similarity: detailConflict.similarity })
-          if (pre.level === 'low') {
-            // 细节差异不足以构成矛盾（比如只是多了个修饰词）→ 只记录高相似，不标冲突。
-            this.store.scheduleFlush()
-            return
-          }
+          // 0.40.0：P2 冲突自动解决 —— 证据/来源/时间三信号 + 矛盾度决策。
+          // invalidate-old 直接让旧事实失效；merge 原地升级新记录；keep-both 时只打标。
+          try {
+            const decision = resolveConflict({ newer: record, older: detailConflict.record, evidence: { similarity: detailConflict.similarity } })
+            if (decision.action === 'invalidate-old' || decision.action === 'merge') {
+              const applied = applyConflictResolution(this.store, decision)
+              if (applied !== undefined) {
+                this.store.scheduleFlush()
+                return
+              }
+            }
+          } catch { /* 自动决策失败退回"只打标" */ }
         }
         if (detailConflict !== undefined) {
           if (detailConflict !== undefined) {
@@ -3459,7 +3516,7 @@ export class LocalMemoryService implements MemoryServiceApi {
     }
 
     // --- channel 1: lexical recall, scored per scope with local IDF ---
-    type Cand = { record: MemoryRecord; recallScore: number; isGlobal: boolean; vector?: Float32Array | null; lexScore?: number; vecScore?: number }
+    type Cand = { record: MemoryRecord; recallScore: number; isGlobal: boolean; vector?: Float32Array | null; lexScore?: number; vecScore?: number; synthetic?: boolean }
     const candidates = new Map<string, Cand>()
     for (const { store, isGlobal } of stores) {
       const all = [...store.records.values()]
@@ -3602,6 +3659,105 @@ export class LocalMemoryService implements MemoryServiceApi {
       else if (vec !== undefined) cand.recallScore = vec
     }
 
+    // 0.40.0（P0）：BM25 + RRF 融合。RRF 只产出 max +20% 的排序加成，不覆盖相关度。
+    const fusionBonus = new Map<string, number>()
+
+    // 0.40.0（P0）：BM25 + RRF 融合。
+    // 设计取舍：旧路径（lexicalScore + 自适应阈值）继续做**准入门槛**，BM25 与 RRF 只负责
+    // 「补召回 + 排序」—— 阈值/地板分的分数域保持不变，融合不会把老库行为整体推翻。
+    if (this.cfg.bm25.enabled || this.cfg.fusion.enabled) {
+      const perScope: Array<{ scope: MemoryScope; store: ScopeStore; index: ReturnType<typeof buildBm25Docs>; docsById: Map<string, MemoryRecord> }> = []
+      for (const { store, scope } of stores) {
+        const visible = [...store.records.values()].filter((rec) => {
+          if (!includeSuperseded && retired.has(rec.id)) return false
+          if (!isRecordVisible(rec, { includeDormant, includeTombstoned, includeExpired, now })) return false
+          if (kindFilter !== undefined && !kindFilter(rec.scope, rec.kind)) return false
+          return true
+        })
+        if (visible.length === 0) continue
+        const index = buildBm25Docs(
+          visible.map((rec) => ({ id: rec.id, content: rec.content, tags: rec.tags ?? [] })),
+          { k1: this.cfg.bm25.k1, b: this.cfg.bm25.b, tagsWeight: this.cfg.bm25.tagsWeight },
+        )
+        perScope.push({ scope, store, index, docsById: new Map(visible.map((r) => [r.id, r])) })
+      }
+      const byLexical = [...candidates.values()]
+        .filter((c) => c.lexScore !== undefined)
+        .sort((a, b) => (b.lexScore ?? 0) - (a.lexScore ?? 0) || a.record.id.localeCompare(b.record.id))
+        .map((c) => c.record.id)
+      const byVector = [...candidates.values()]
+        .filter((c) => c.vecScore !== undefined)
+        .sort((a, b) => (b.vecScore ?? 0) - (a.vecScore ?? 0) || a.record.id.localeCompare(b.record.id))
+        .map((c) => c.record.id)
+      const bm25Ids: string[] = []
+      if (this.cfg.bm25.enabled) {
+        for (const part of perScope) {
+          for (const hit of rankByBm25(queryTokens, part.index, recallN * 2)) bm25Ids.push(hit.id)
+        }
+      }
+      // 变体扩展（默认关）：只跑词法 BM25，不再为每个变体发嵌入请求（手机上不可行）。
+      let expandedIds: string[] = []
+      if (this.cfg.variants.enabled && perScope.length > 0) {
+        const neighbors = [...candidates.values()]
+          .sort((a, b) => b.recallScore - a.recallScore)
+          .slice(0, this.cfg.variants.maxNeighbors)
+          .map((c) => ({ content: c.record.content, tags: c.record.tags ?? [] }))
+        const variants = expandQueries(query.text, { neighbors, maxVariants: this.cfg.variants.maxVariants })
+        const seen = new Set<string>()
+        for (const variant of variants) {
+          if (variant.kind === 'original') continue
+          for (const part of perScope) {
+            const scored = [...part.index.docs.values()]
+              .map((doc) => ({ id: doc.id, score: bm25Score(variant.tokens, doc, part.index) }))
+              .filter((hit) => hit.score > 0)
+              .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
+              .slice(0, recallN * 2)
+            for (const hit of scored) seen.add(hit.id)
+          }
+        }
+        expandedIds = [...seen]
+      }
+      const ensureCandidate = (id: string): boolean => {
+        if (candidates.has(id)) return true
+        for (const part of perScope) {
+          const rec = part.docsById.get(id)
+          if (rec === undefined) continue
+          // 只靠 BM25/变体补回来的记录：**给低相关度**（不能和词法/向量真命中平起平坐，
+          // 实测固定 0.5 会在 strengthRanking 关闭时压过真命中，recall 掉 0.04）。
+          candidates.set(id, { record: rec, recallScore: 0.2, isGlobal: rec.scope === 'global', vector: part.store.vectors.get(id) ?? null, synthetic: true })
+          return true
+        }
+        return false
+      }
+      if (this.cfg.fusion.addCandidates) for (const id of [...bm25Ids, ...expandedIds]) ensureCandidate(id)
+
+      if (this.cfg.fusion.enabled && candidates.size > 0 && perScope.length > 0) {
+        const lexicalList = this.cfg.bm25.enabled && bm25Ids.length > 0 ? bm25Ids : byLexical
+        const lists = [
+          { name: 'lexical', ids: lexicalList, weight: this.cfg.fusion.weights.lexical },
+          { name: 'vector', ids: byVector, weight: this.cfg.fusion.weights.vector },
+          ...(expandedIds.length > 0 ? [{ name: 'expanded', ids: expandedIds, weight: this.cfg.fusion.weights.expanded }] : []),
+        ].filter((list) => list.ids.length > 0)
+        if (lists.length > 0) {
+          const fused = reciprocalRankFusion(lists, { k: this.cfg.fusion.k, limit: Math.max(recallN * 3, candidates.size) })
+          const normalized = normalizeScores(fused.map((hit) => hit.score))
+          for (let i = 0; i < fused.length; i++) {
+            const id = fused[i]!.id
+            if (!candidates.has(id)) continue
+            // 关键：RRF **不覆盖**原相关度（那会让"重要度/效用/保持度"失效，
+            // 实测会把同相关度的两条按 id 排序）。它只作为一个加成信号，
+            // 在 shape() 里以 (1 + 0.2·bonus) 的形式参与最终排序。
+            const bonus = Math.max(0, Math.min(1, normalized[i] ?? 0))
+            fusionBonus.set(id, bonus)
+            // BM25-only 候选：只允许拿到 0.2~0.6 的相关度（低于词法/向量的真命中），
+            // 既能让它参与排序，又不会把真命中挤下去。
+            const cand = candidates.get(id)
+            if (cand !== undefined && cand.synthetic === true) cand.recallScore = Math.min(cand.recallScore, 0.2 + 0.4 * bonus)
+          }
+        }
+      }
+    }
+
     // shape with recency/importance, sort, cut
     // 0.33.0：默认用"可解释强度排序"（相关度 × 保持度 × 效用提升 × 重要度），
     // 并提供 breakdown；老库没有 strength 字段时由 stabilityOf() 兼容推导，零迁移。
@@ -3635,7 +3791,10 @@ export class LocalMemoryService implements MemoryServiceApi {
             superseded: retired.has(c.record.id),
           })
       // 事实时间权重：新近更新/临近失效的光谱（已失效为 0，但检索侧已过滤）。
-      return base * (includeExpired || !this.cfg.temporalWeighting ? 1 : temporalBoost(c.record, now))
+      const temporal = includeExpired || !this.cfg.temporalWeighting ? 1 : temporalBoost(c.record, now)
+      // 0.40.0：RRF 融合加成（最多 +20%），只影响排序、不影响相关度语义。
+      const fusion = 1 + 0.1 * (fusionBonus.get(c.record.id) ?? 0)
+      return base * temporal * fusion
     }
 
     // 稳定 tie-break:同分时 session > project > 自定义 > global,再同分按 record id ——
@@ -3884,6 +4043,109 @@ export class LocalMemoryService implements MemoryServiceApi {
     const result = restoreTombstoned(this.store, id, opts.force === true ? { force: true } : {})
     if (result.ok) this.store.scheduleFlush()
     return { restored: result.ok, ...(result.reason !== undefined ? { reason: result.reason } : {}) }
+  }
+
+  /** 0.40.0（P1）：记忆健康度报告（抽样重复率 + 冲突/失效/隔离/休眠/嵌入覆盖 + 0-100 分）。 */
+  healthReport(): HealthReport {
+    const records: MemoryRecord[] = []
+    const vectors = new Map<string, Float32Array>()
+    for (const scopeStore of this.store.allScopes()) {
+      for (const rec of scopeStore.records.values()) records.push(rec)
+      for (const [id, vec] of scopeStore.vectors) vectors.set(id, vec)
+    }
+    return computeHealth(records, { vectors, now: Date.now() })
+  }
+
+  /** 0.40.0（P1）：冲突中心 —— 列出带冲突标记的活记录（按置信度降序）。 */
+  listConflicts(): Array<{ id: string; scope: string; content: string; conflictWith: string[]; conflictConfidence: number; updatedAt: number }> {
+    const out: Array<{ id: string; scope: string; content: string; conflictWith: string[]; conflictConfidence: number; updatedAt: number }> = []
+    for (const scopeStore of this.store.allScopes()) {
+      for (const rec of scopeStore.records.values()) {
+        const cognitive = rec as { conflictWith?: string[]; conflictConfidence?: number }
+        if (!Array.isArray(cognitive.conflictWith) || cognitive.conflictWith.length === 0) continue
+        out.push({
+          id: rec.id,
+          scope: rec.scope,
+          content: rec.content,
+          conflictWith: cognitive.conflictWith,
+          conflictConfidence: Number.isFinite(cognitive.conflictConfidence) ? Number(cognitive.conflictConfidence) : 0,
+          updatedAt: rec.updatedAt,
+        })
+      }
+    }
+    return out.sort((a, b) => b.conflictConfidence - a.conflictConfidence || b.updatedAt - a.updatedAt)
+  }
+
+  /** 0.40.0（P2）：对一条冲突记录做自动解决（证据/来源/时间三信号）。 */
+  resolveConflictRecord(id: string): { applied: boolean; action: string; reason: string; confidence: number; updated: string[] } {
+    const located = this.store.scopeOf(id)
+    if (located === undefined) throw memoryError('RECORD_NOT_FOUND', `id ${id} not found`)
+    const record = located.record as MemoryRecord & { conflictWith?: string[] }
+    const targetId = (record.conflictWith ?? [])[0]
+    if (targetId === undefined) throw memoryError('CONFLICT_NOT_FOUND', `record ${id} has no conflict target`)
+    const older = this.store.scopeOf(targetId)?.record
+    if (older === undefined) throw memoryError('CONFLICT_NOT_FOUND', `conflict target ${targetId} not found`)
+    const decision = resolveConflict({ newer: record, older })
+    const applied = applyConflictResolution(this.store, decision)
+    if (applied.applied) {
+      // 解决后清掉冲突标记，冲突中心不再反复出现同一条。
+      const current = this.store.scopeOf(id)?.record as MemoryRecord & { conflictWith?: string[]; conflictConfidence?: number }
+      if (current !== undefined && applied.action !== 'keep-both') {
+        const next = { ...current }
+        delete next.conflictWith
+        delete next.conflictConfidence
+        this.store.scopeOf(id)?.store.insert(next)
+      }
+      this.store.scheduleFlush()
+    }
+    return { applied: applied.applied, action: applied.action, reason: applied.reason, confidence: decision.confidence, updated: applied.updated }
+  }
+
+  /** 0.40.0（P4）：人工复核后解除隔离。 */
+  releaseQuarantine(id: string): { released: boolean } {
+    const released = clearQuarantine(this.store, id)
+    if (released) this.store.scheduleFlush()
+    return { released }
+  }
+
+  /** 0.40.0：备份目录（固定 <storeDir>/backups，面板只用这里，避免任意路径写入）。 */
+  get backupDir(): string {
+    return join(this.cfg.storeDir, 'backups')
+  }
+
+  /** 0.40.0：列出本地备份（时间倒序）。 */
+  listBackups(): Array<{ name: string; bytes: number; createdAt: number }> {
+    const dir = this.backupDir
+    const out: Array<{ name: string; bytes: number; createdAt: number }> = []
+    try {
+      for (const name of readdirSync(dir)) {
+        if (!name.endsWith('.jsonl.gz') && !name.endsWith('.jsonl')) continue
+        try {
+          const stat = statSync(join(dir, name))
+          out.push({ name, bytes: stat.size, createdAt: stat.mtimeMs })
+        } catch { /* 单个文件失败跳过 */ }
+      }
+    } catch { /* 目录不存在 = 无备份 */ }
+    return out.sort((a, b) => b.createdAt - a.createdAt)
+  }
+
+  /** 0.40.0：立即创建本地备份，返回文件名与大小。 */
+  createBackup(): { name: string; bytes: number; records: number } {
+    const dir = this.backupDir
+    mkdirSync(dir, { recursive: true })
+    const name = `snapshot-${new Date().toISOString().replace(/[:.]/g, '-')}.jsonl.gz`
+    const file = join(dir, name)
+    const result = this.snapshotStore(file)
+    return { name, bytes: result.bytes, records: result.records }
+  }
+
+  /** 0.40.0：从本地备份恢复（只允许 backupDir 下的文件名，防路径穿越）。 */
+  restoreBackup(name: string): { imported: number; skipped: number } {
+    const base = basename(String(name ?? ''))
+    if (base === '' || base !== name || !/^[\w.\-]+\.jsonl(\.gz)?$/.test(base)) {
+      throw memoryError('BACKUP_NAME_INVALID', `备份文件名非法：${String(name)}`)
+    }
+    return this.restoreStore(join(this.backupDir, base))
   }
 
   /** 0.32.0：导出记忆快照（gzip JSONL，不含向量；导入后按当前模型重新嵌入）。 */

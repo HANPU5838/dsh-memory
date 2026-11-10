@@ -86,3 +86,56 @@ test('面板 /consolidate 走服务层巩固接口（无向量时安全返回 0�
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('面板备份接口：创建 / 列出 / 恢复最近备份', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-panel-backup-'))
+  const svc = new LocalMemoryService({ storeDir: dir, scopes: { global: true, project: true } })
+  const ctx = ctxWith(svc)
+  try {
+    await svc.save({ scope: 'global', kind: 'note', content: '面板备份测试' })
+    const created = fakeRes()
+    await handleRequest(ctx, ROUTE, post(`${ROUTE}/backups`, {}), created)
+    assert.equal(created.out.status, 200)
+    assert.ok(created.out.body.value.name)
+
+    const listed = fakeRes()
+    await handleRequest(ctx, ROUTE, get(`${ROUTE}/backups`), listed)
+    assert.equal(listed.out.status, 200)
+    assert.equal(listed.out.body.value.backups.length, 1)
+
+    const restored = fakeRes()
+    await handleRequest(ctx, ROUTE, post(`${ROUTE}/backups/restore`, {}), restored)
+    assert.equal(restored.out.status, 200)
+    assert.ok(typeof restored.out.body.value.restoredFrom === 'string')
+  } finally {
+    svc.flushSync()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('面板健康度/冲突/隔离接口可用', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-panel-health-'))
+  const svc = new LocalMemoryService({ storeDir: dir, scopes: { global: true, project: true } })
+  const ctx = ctxWith(svc)
+  try {
+    await svc.save({ scope: 'global', kind: 'note', content: '健康度接口测试' })
+    const health = fakeRes()
+    await handleRequest(ctx, ROUTE, get(`${ROUTE}/health`), health)
+    assert.equal(health.out.status, 200)
+    assert.equal(typeof health.out.body.value.score, 'number')
+    assert.ok(Array.isArray(health.out.body.value.explain))
+
+    const conflicts = fakeRes()
+    await handleRequest(ctx, ROUTE, get(`${ROUTE}/conflicts`), conflicts)
+    assert.equal(conflicts.out.status, 200)
+    assert.ok(Array.isArray(conflicts.out.body.value.conflicts))
+
+    const release = fakeRes()
+    await handleRequest(ctx, ROUTE, post(`${ROUTE}/quarantine/release`, { id: 'nope' }), release)
+    assert.equal(release.out.status, 200)
+    assert.equal(release.out.body.value.released, false)
+  } finally {
+    svc.flushSync()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
