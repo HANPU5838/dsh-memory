@@ -957,6 +957,27 @@ export class LocalMemoryService                             {
    * 让每个查询等前一个完成（热路径单条 ~130ms），避免自己打自己。
    */
           queryEmbedChain                = Promise.resolve()
+  /**
+   * 0.41.3：文档嵌入并发闸门。
+   * llama-server 只有 4 个 slot；批量写/回填时如果 4 个 slot 全被长文档占住，
+   * 交互查询就会排队超时（实测批量写 20 条后，首个查询 1000ms 超时）。
+   * 这里限制文档嵌入最多同时占 2 个 slot，给查询留至少 2 个。
+   */
+          docEmbedInFlight = 0
+                   docEmbedMax = 2
+          docEmbedWaiters                    = []
+          async withDocEmbedSlot   (run                  )             {
+    while (this.docEmbedInFlight >= this.docEmbedMax) {
+      await new Promise      ((resolve) => this.docEmbedWaiters.push(resolve))
+    }
+    this.docEmbedInFlight += 1
+    try {
+      return await run()
+    } finally {
+      this.docEmbedInFlight -= 1
+      this.docEmbedWaiters.shift()?.()
+    }
+  }
   /** 0.33.0：每个 scope 的 ANN 索引（size 与 store.vectors 不一致即视为过期，回退全量扫描）。 */
           annIndexes = new Map                                           ()
           annBuilding = new Set        ()
@@ -3261,7 +3282,7 @@ export class LocalMemoryService                             {
     }
     // save-time budget: one full record, much slower than a search query
     // 记录按"文档"嵌入:有些模型(nomic/e5)要求文档与查询带不同前缀,不带质量会掉。
-    const vec = await this.embed.embed([text], undefined, { timeoutMs: this.cfg.vector.writeTimeoutMs }).catch(() => null)
+    const vec = await this.withDocEmbedSlot(() => this.embed.embed([text], undefined, { timeoutMs: this.cfg.vector.writeTimeoutMs })).catch(() => null)
     if (vec?.[0]) {
       const normalized = normalizeInPlace(vec[0])
       s.appendVector(record.id, normalized)
@@ -3390,9 +3411,11 @@ export class LocalMemoryService                             {
       if (texts.length === 0) continue
       // 0.32.0：优先用批量接口（部分成功语义）。旧实现只要有一条失败就整批作废、
       // 而且无论成功与否都 del pending —— 超长记录会永远重试，正常记录也白跑。
-      const vecs                                    = this.embed.embedBatch !== undefined
-        ? await this.embed.embedBatch(texts, undefined, { timeoutMs: this.cfg.vector.backfillTimeoutMs }).catch(() => null)
-        : await this.embed.embed(texts, undefined, { timeoutMs: this.cfg.vector.backfillTimeoutMs }).catch(() => null)
+      const vecs                                    = await this.withDocEmbedSlot(() => (
+        this.embed.embedBatch !== undefined
+          ? this.embed.embedBatch(texts, undefined, { timeoutMs: this.cfg.vector.backfillTimeoutMs })
+          : this.embed.embed(texts, undefined, { timeoutMs: this.cfg.vector.backfillTimeoutMs })
+      )).catch(() => null)
       if (vecs === null) return done // 外层 null = 后端整体不可用，整轮到此为止
       for (let i = 0; i < valid.length; i++) {
         const vector = vecs[i]
