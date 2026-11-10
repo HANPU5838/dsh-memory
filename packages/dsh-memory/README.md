@@ -10,7 +10,7 @@
 > | 项目 | 说明 |
 > | --- | --- |
 > | 原作者 | **RestRegular**（上游原项目 [RestRegular/dsh-memory](https://github.com/RestRegular/dsh-memory)，MIT）；本项目在其 v0.30.1 基础上维护 |
-> | 本仓库 | **v0.41.1** = 上游 v0.30.1 + 平台/可靠性改进 + 语义认知层（去重合并/冲突检测/谱系/生命周期）+ 检索整形（MMR/地板分/自适应阈值）+ 嵌入性能（批量/缓存/保活/ANN 索引）+ **记忆强度算法（FSRS 保持度/动态融合/时间有效性/周期巩固）**。完整清单见 [IMPROVEMENTS.md](IMPROVEMENTS.md)，架构见 [docs/architecture.md](docs/architecture.md) |
+> | 本仓库 | **v0.41.2** = 上游 v0.30.1 + 平台/可靠性改进 + 语义认知层（去重合并/冲突检测/谱系/生命周期）+ 检索整形（MMR/地板分/自适应阈值）+ 嵌入性能（批量/缓存/保活/ANN 索引）+ **记忆强度算法（FSRS 保持度/动态融合/时间有效性/周期巩固）**。完整清单见 [IMPROVEMENTS.md](IMPROVEMENTS.md)，架构见 [docs/architecture.md](docs/architecture.md) |
 > | 许可 | **MIT**，版权归原作者所有，见 [LICENSE](LICENSE)；转载、分发请保留原始版权声明 |
 > | 更新与反馈 | Issue / PR / 反馈请到 **[本仓库 Issues](https://github.com/HANPU5838/dsh-memory/issues)**；与上游的差异集中在 `IMPROVEMENTS.md` |
 >
@@ -25,7 +25,7 @@
 
 JSONL 落盘 · 本机向量检索 · 六个模型工具 · 自动召回 · 硬性规则 · 可视化管理面板
 
-[![version](https://img.shields.io/badge/version-v0.41.1-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![version](https://img.shields.io/badge/version-v0.41.2-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/HANPU5838/dsh-memory/blob/main/LICENSE)
 [![ci](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.13-5FA04E.svg)](https://nodejs.org/)
@@ -73,7 +73,6 @@ JSONL 落盘 · 本机向量检索 · 六个模型工具 · 自动召回 · 硬�
 | **可疑写入隔离（0.40.0）** | 写入时扫描指令注入/凭据/零宽字符：高风险且来源为 agent/auto 的内容自动**隔离**（不进检索与注入），面板显示「隔离待复核」并可一键解除 |
 | **本地备份（0.40.0）** | 面板维护区可「立即备份 / 恢复最近备份」，备份固定落在 `<storeDir>/backups`（gzip JSONL），恢复只补齐不覆盖 |
 | **离线评测（0.40.0）** | `tools/eval/run.mjs`：合成集 94 条/48 查询 × 16 组开关矩阵，输出 recall@k / MRR / nDCG / purity；方法见 [docs/benchmark.md](docs/benchmark.md)，竞品对比见 [docs/comparison.md](docs/comparison.md) |
-| **记忆树列表视图（0.41.0）** | 手机默认「列表」视图：作用域→类型→记录三级折叠、行内状态徽章与强度条、点开详情；工具栏可切「画布」并持久化 |
 | **记忆树可视化（0.35.0）** | 删除/失效/休眠/冲突直接体现在节点样式与徽章上；记忆强度条（1~3 格）+ 效用点；「只看问题」过滤 + 状态图例，树上一眼看出哪些记忆需要处理 |
 | **记忆树缩放（0.34.1）** | 「记忆树」画布可**随意缩大缩小**：− / 百分比 / + / 100% / 适应画布，范围 **20%~300%**；**Ctrl/⌘ + 滚轮**连续缩放且锚定鼠标位置；比例持久化在浏览器本地，下次打开保持不变 |
 | **全链路一致性（0.34.0）** | 可见性判定收敛成**唯一函数**（软删/休眠/过期/失效），检索、列表、注入、巩固、面板全部走同一套；配套「不变量测试」锁住三读路径、三写路径与删除/恢复往返，防止修一处断一处 |

@@ -382,28 +382,6 @@ window.__ModuleLoader__.load({
       '.memp .tree-zoom{position:absolute;right:10px;bottom:10px;display:flex;align-items:center;gap:1px;padding:3px;border:1px solid var(--dsw-alias-border-l1);border-radius:9px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 88%,transparent);backdrop-filter:blur(6px);box-shadow:0 4px 14px rgba(0,0,0,.12);z-index:3}',
       '.memp .tree-zoom button{background:none;border:0;padding:2px 8px;border-radius:6px;font-size:12px;color:var(--dsw-alias-label-secondary)}',
       '.memp .tree-zoom button:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-brand-primary)}',
-      '.memp .tree-list{display:flex;flex-direction:column;gap:8px;padding:6px 2px 12px}',
-      '.memp .tl-scope{border:1px solid var(--dsw-alias-border-l1);border-radius:11px;background:var(--dsw-alias-bg-layer-1);overflow:hidden}',
-      '.memp .tl-scope-head{display:flex;align-items:center;gap:7px;padding:9px 11px;cursor:pointer;user-select:none;background:linear-gradient(120deg,var(--dsw-alias-bg-layer-1),color-mix(in srgb,var(--dsw-alias-brand-primary) 5%,var(--dsw-alias-bg-layer-1)))}',
-      '.memp .tl-scope-head b{font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-      '.memp .tl-scope-head .tl-count{font-size:10.5px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}',
-      '.memp .tl-kind{margin:0 8px 8px;border-left:2px solid var(--k,var(--dsw-alias-border-l1));border-radius:8px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-2) 55%,transparent)}',
-      '.memp .tl-kind-head{display:flex;align-items:center;gap:6px;padding:6px 9px;cursor:pointer;user-select:none;font-size:11px;font-weight:600;color:var(--dsw-alias-label-secondary)}',
-      '.memp .tl-row{display:flex;gap:8px;align-items:flex-start;padding:7px 10px;border-top:1px solid color-mix(in srgb,var(--dsw-alias-border-l1) 55%,transparent);cursor:pointer;user-select:none}',
-      '.memp .tl-row:hover{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 6%,transparent)}',
-      '.memp .tl-row.selected{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 10%,transparent);box-shadow:inset 2px 0 0 var(--dsw-alias-brand-primary)}',
-      '.memp .tl-row.st-tombstoned{opacity:.6}',
-      '.memp .tl-row.st-invalid{background:color-mix(in srgb,#d97706 7%,transparent)}',
-      '.memp .tl-row.st-conflict{background:color-mix(in srgb,#dc2626 7%,transparent)}',
-      '.memp .tl-row.st-quarantined{background:color-mix(in srgb,#7c3aed 7%,transparent)}',
-      '.memp .tl-dot{width:7px;height:7px;border-radius:50%;background:var(--k);flex:none;margin-top:5px}',
-      '.memp .tl-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}',
-      '.memp .tl-content{font-size:11.5px;line-height:1.45;color:var(--dsw-alias-label-primary);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}',
-      '.memp .tl-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:10px;color:var(--dsw-alias-label-secondary)}',
-      '.memp .tl-meta .tn-strength{margin-left:0}',
-      '.memp .tree-view-toggle{display:inline-flex;gap:2px;margin-left:6px}',
-      '.memp .tree-view-toggle button{padding:3px 8px;border-radius:6px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);font-size:11px;color:var(--dsw-alias-label-secondary)}',
-      '.memp .tree-view-toggle button.on{color:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary)}',
       '.memp .tree-zoom .zoomval{font-size:10.5px;min-width:38px;text-align:center;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}',
       '.memp .tree-legend{position:absolute;left:10px;bottom:10px;display:flex;gap:10px;align-items:center;font-size:10.5px;color:var(--dsw-alias-label-secondary);padding:3px 9px;border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 88%,transparent);border:1px solid var(--dsw-alias-border-l1);backdrop-filter:blur(6px);z-index:2;pointer-events:none}',
       '.memp .tree-legend .line{display:inline-block;width:18px;height:0;border-top:1.5px dashed #D9A441;margin-right:4px;vertical-align:middle}',
@@ -1540,15 +1518,6 @@ window.__ModuleLoader__.load({
         return Number.isFinite(value) && value >= TREE_ZOOM_MIN && value <= TREE_ZOOM_MAX ? value : 1
       } catch { return 1 }
     }
-    /** 0.41.0：记忆树视图选择（列表/画布），手机默认列表。 */
-    function loadTreeView() {
-      try {
-        const saved = window.localStorage.getItem('dsh-memory:tree-view')
-        if (saved === 'list' || saved === 'canvas') return saved
-      } catch { /* 隐私模式 */ }
-      const width = Number(typeof window !== 'undefined' ? window.innerWidth : 0)
-      return Number.isFinite(width) && width >= 900 ? 'canvas' : 'list'
-    }
     function clampTreeZoom(value) {
       return Math.max(TREE_ZOOM_MIN, Math.min(TREE_ZOOM_MAX, Math.round(value * 100) / 100))
     }
@@ -1563,8 +1532,6 @@ window.__ModuleLoader__.load({
       const [showCorrections, setShowCorrections] = React.useState(true)
       // 0.35.0：只看问题记忆（删除/失效/休眠/冲突）
       const [onlyIssues, setOnlyIssues] = React.useState(false)
-      // 0.41.0：记忆树默认「列表」视图（手机屏幕上画布太散），可切回画布。
-      const [treeView, setTreeView] = React.useState(loadTreeView())
       const [zoom, setZoom] = React.useState(loadTreeZoom())
       const [autoFitDone, setAutoFitDone] = React.useState(false)
       const wrapRef = React.useRef(null)
@@ -1591,143 +1558,12 @@ window.__ModuleLoader__.load({
         ? allKinds
         : new Set(presentKinds.filter((kind) => kindFilter.has(kind)))
 
-      React.useEffect(() => {
-        try { window.localStorage.setItem('dsh-memory:tree-view', treeView) } catch { /* 隐私模式 */ }
-      }, [treeView])
       // 0.35.0：状态过滤只影响画布布局，统计仍显示全量。
       const treeRecords = onlyIssues ? records.filter(isIssueRecord) : records
       const issueTotal = records.filter(isIssueRecord).length
       const layout = buildMemoryTree(treeRecords, {
         labels, collapsed, activeKinds, scopeFilter, query,
       })
-
-      // 0.41.0：列表树数据（作用域 → 类型 → 记录），按当前筛选/折叠状态生成。
-      const listGroups = (() => {
-        const byScope = new Map()
-        for (const rec of treeRecords) {
-          if (!activeKinds.has(rec.kind)) continue
-          if (scopeFilter !== '' && rec.scope !== scopeFilter) continue
-          if (!byScope.has(rec.scope)) byScope.set(rec.scope, new Map())
-          const kinds = byScope.get(rec.scope)
-          if (!kinds.has(rec.kind)) kinds.set(rec.kind, [])
-          kinds.get(rec.kind).push(rec)
-        }
-        const out = []
-        for (const [scope, kindMap] of byScope) {
-          const kinds = []
-          let count = 0
-          for (const [kind, list] of kindMap) {
-            kinds.push({
-              kind,
-              collapsed: collapsed.has(`kind:${scope}|${kind}`),
-              records: list.slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)),
-            })
-            count += list.length
-          }
-          kinds.sort((a, b) => kindRank(a.kind) - kindRank(b.kind) || String(a.kind).localeCompare(String(b.kind)))
-          out.push({
-            scope,
-            label: scopeLabel(scope, labels),
-            collapsed: collapsed.has(`scope:${scope}`),
-            count,
-            kinds,
-            issues: kindMap.size > 0 ? 0 : 0,
-          })
-        }
-        out.sort((a, b) => scopeRank(a.scope) - scopeRank(b.scope) || a.label.localeCompare(b.label, 'zh'))
-        return out
-      })()
-
-      // 记录级状态徽章（列表/画布共用同一套口径）
-      const statusBadges = (rec) => [
-        rec.supersedes ? h('span', { key: 'corr', className: 'tn-badge corr' }, '修正版') : null,
-        rec.supersededBy ? h('span', { key: 'old', className: 'tn-badge old' }, '已修正') : null,
-        rec.tombstoned ? h('span', { key: 'tomb', className: 'tn-badge st-tomb' }, '已删除') : null,
-        rec.invalidated ? h('span', { key: 'inv', className: 'tn-badge st-invalid' }, '已失效') : null,
-        rec.dormant ? h('span', { key: 'dorm', className: 'tn-badge st-dormant' }, '休眠') : null,
-        Array.isArray(rec.conflictWith) && rec.conflictWith.length > 0 ? h('span', { key: 'conf', className: 'tn-badge st-conflict' }, '冲突') : null,
-        rec.quarantined ? h('span', { key: 'quar', className: 'tn-badge st-quarantined' }, '隔离') : null,
-        h('span', { key: 'str', className: 'tn-strength' },
-          h('i', { className: strengthLevel(rec) >= 1 ? 'on' : '' }),
-          h('i', { className: strengthLevel(rec) >= 2 ? 'on' : '' }),
-          h('i', { className: strengthLevel(rec) >= 3 ? 'on' : '' }),
-        ),
-      ]
-
-      const listEmptyText = records.length === 0
-        ? (loading ? '正在加载记忆…' : '还没有记忆。去「记录」里新建一条，或让 Agent 用 memory_save 写一条。')
-        : '当前筛选下没有记忆。'
-      const listView = listGroups.length === 0
-        ? h('div', { className: 'tree-list' },
-            h('div', { className: 'tree-empty' },
-              h('span', { className: 'big' }, '🌳'),
-              h('span', null, error ? String(error) : listEmptyText),
-            ),
-          )
-        : h('div', { className: 'tree-list' }, listGroups.map((group) => h('section', { key: `scope:${group.scope}`, className: 'tl-scope' },
-            h('div', {
-              className: 'tl-scope-head',
-              role: 'button',
-              tabIndex: 0,
-              'aria-expanded': !group.collapsed,
-              onClick: () => toggleScope(group.scope),
-              onKeyDown: (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggleScope(group.scope) } },
-            },
-              h('span', { className: 'tn-ico' }, scopeGlyph(group.scope)),
-              h('b', { title: scopeTitle(group.scope, group.label) }, group.label),
-              h('span', { className: 'tl-count' }, `${group.count} 条`),
-              h('span', { className: 'tn-caret' }, group.collapsed ? '▸' : '▾'),
-            ),
-            group.collapsed ? null : group.kinds.map((kg) => h('div', {
-              key: `kind:${group.scope}|${kg.kind}`,
-              className: 'tl-kind',
-              style: { '--k': kindMeta(kg.kind).color },
-            },
-              h('div', {
-                className: 'tl-kind-head',
-                role: 'button',
-                tabIndex: 0,
-                'aria-expanded': !kg.collapsed,
-                onClick: () => toggleKind(group.scope, kg.kind),
-                onKeyDown: (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggleKind(group.scope, kg.kind) } },
-              },
-                h('span', { className: 'tdot' }),
-                kindMeta(kg.kind).label,
-                h('span', { className: 'tl-count' }, String(kg.records.length)),
-                h('span', { className: 'tn-caret' }, kg.collapsed ? '▸' : '▾'),
-              ),
-              kg.collapsed ? null : kg.records.map((rec) => {
-                const rowClass = ['tl-row']
-                if (rec.id === selectedId) rowClass.push('selected')
-                if (rec.tombstoned) rowClass.push('st-tombstoned')
-                if (rec.invalidated) rowClass.push('st-invalid')
-                if (rec.conflictWith && rec.conflictWith.length > 0) rowClass.push('st-conflict')
-                if (rec.quarantined) rowClass.push('st-quarantined')
-                return h('div', {
-                  key: rec.id,
-                  className: rowClass.join(' '),
-                  style: { '--k': kindMeta(rec.kind).color },
-                  role: 'button',
-                  tabIndex: 0,
-                  title: rec.content,
-                  onClick: () => setSelectedId((cur) => (cur === rec.id ? null : rec.id)),
-                  onKeyDown: (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedId((cur) => (cur === rec.id ? null : rec.id)) } },
-                  onMouseEnter: () => setHoverId(rec.id),
-                  onMouseLeave: () => setHoverId(null),
-                },
-                  h('span', { className: 'tl-dot' }),
-                  h('div', { className: 'tl-main' },
-                    h('div', { className: 'tl-content' }, rec.content),
-                    h('div', { className: 'tl-meta' },
-                      h('span', null, kindMeta(rec.kind).label),
-                      h('span', null, shortTime(rec.updatedAt)),
-                      ...statusBadges(rec),
-                    ),
-                  ),
-                )
-              }),
-            )),
-          )))
 
       // 第一次拿到记录时把宽度缩到画布内:右侧的记录列默认不该被横向截断。
       // 高度方向仍可滚动 —— 记忆很多时把整棵树压到一屏里会小到看不清。
@@ -1910,10 +1746,6 @@ window.__ModuleLoader__.load({
           value: query,
           onChange: (event) => setQuery(event.target.value),
         }),
-        h('div', { className: 'tree-view-toggle', title: '列表视图更适合手机；画布视图适合看全局结构' },
-          h('button', { className: treeView === 'list' ? 'on' : '', onClick: () => setTreeView('list') }, '列表'),
-          h('button', { className: treeView === 'canvas' ? 'on' : '', onClick: () => setTreeView('canvas') }, '画布'),
-        ),
         h(Dropdown, {
           items: scopeItems,
           value: scopeFilter,
@@ -2080,16 +1912,7 @@ window.__ModuleLoader__.load({
         kindbar,
         statusLegend,
         error && records.length > 0 ? h('div', { className: 'err' }, error) : null,
-        treeView === 'list' ? listView : treeWrap,
-        treeView === 'list' && selected
-          ? h('div', { style: { position: 'sticky', bottom: 0, zIndex: 5 } }, h(TreeDetail, {
-              rec: selected,
-              labels,
-              byId: recordById,
-              onClose: () => setSelectedId(null),
-              onJump: jumpTo,
-            }))
-          : null,
+        treeWrap,
       )
     }
 

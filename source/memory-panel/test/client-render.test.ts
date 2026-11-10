@@ -1637,7 +1637,7 @@ test('记忆树标签页:从面板能切过去,空数据也有统计、类型图
 
   const classNames = collect(tree()).map((n) => String(n.props?.className ?? ''))
   assert.ok(classNames.includes('tree-tab'), '渲染的是记忆树标签页')
-  assert.ok(classNames.includes('tree-wrap') || classNames.includes('tree-list'), '树视图存在（画布或列表）')
+  assert.ok(classNames.includes('tree-wrap'), '树画布存在')
   assert.ok(classNames.includes('tree-stats'), '统计区存在')
 })
 
@@ -3430,7 +3430,7 @@ test('记忆树缩放：− / % / + / 100% / 适应，恢复上次比例', async
   const MemoryTreeTab = (exports.__test as { MemoryTreeTab: (p: Record<string, unknown>) => unknown }).MemoryTreeTab
   assert.equal(typeof MemoryTreeTab, 'function', '记忆树组件可在测试里直接渲染')
 
-  const store = new Map<string, string>([['dsh-memory:tree-view', 'canvas'], ['dsh-memory:tree-zoom', '1.3']])
+  const store = new Map<string, string>([['dsh-memory:tree-zoom', '1.3']])
   const globals = globalThis as Record<string, unknown>
   const savedWindow = globals.window
   globals.window = Object.assign({}, savedWindow, {
@@ -3504,35 +3504,4 @@ test('记忆树状态可视化：删除/失效/休眠/冲突徽章 + 强度条 +
   hooks.resetAll()
 })
 
-test('记忆树：列表视图默认渲染、可切换画布', async () => {
-  const { exports, hooks } = await loadBundle()
-  // 明确模拟手机宽度（列表视图的默认判定依据），并清掉可能残留的持久化视图选择。
-  const globals = globalThis as Record<string, unknown>
-  const savedWindow = globals.window
-  globals.window = Object.assign({}, savedWindow, { innerWidth: 600 })
-  try { globals.window.localStorage = undefined } catch { /* ignore */ }
-  const MemoryTreeTab = (exports.__test as { MemoryTreeTab: (p: Record<string, unknown>) => unknown }).MemoryTreeTab
-  const now = Date.now()
-  const records = [
-    { id: 'a', scope: 'global', kind: 'fact', content: '列表视图记录一', updatedAt: now, createdAt: now, tags: [], importance: 0.8 },
-    { id: 'b', scope: 'global', kind: 'note', content: '列表视图记录二', updatedAt: now - 1000, createdAt: now, tags: [], importance: 0.5 },
-  ]
-  const element = () => hooks.React.createElement(MemoryTreeTab, { records, scopes: [], loading: false, error: '', onRefresh() {} })
-  let current: RenderNode | null = render(element(), hooks)
-  hooks.setRerender(() => { current = render(element(), hooks) })
-  hooks.runEffects()
-  for (let i = 0; i < 6; i++) await Promise.resolve()
 
-  const buttons = collect(current).filter((n) => n.tag === 'button').map((n) => textOf(n).trim())
-  assert.ok(buttons.includes('列表') && buttons.includes('画布'), '有列表/画布视图切换')
-  assert.ok(collect(current).some((n) => String(n.props?.className ?? '').includes('tl-row')), '默认列表视图渲染记录行')
-  assert.ok(textOf(current).includes('列表视图记录一'))
-
-  const canvasBtn = collect(current).find((n) => n.tag === 'button' && textOf(n).trim() === '画布')
-  ;(canvasBtn!.props!.onClick as () => void)()
-  hooks.runEffects()
-  for (let i = 0; i < 8; i++) await Promise.resolve()
-  assert.ok(collect(current).some((n) => String(n.props?.className ?? '').includes('tree-canvas')), '切换后渲染画布')
-  globals.window = savedWindow
-  hooks.resetAll()
-})

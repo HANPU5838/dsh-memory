@@ -297,6 +297,8 @@ cognitive:
 | G13 | **维护覆盖全部作用域（0.41.1）** | `healthReport`/`runHousekeeping`/`listConflicts`/`consolidateNow`/`wipeAllRecords` 先 `discoverScopes()`，不再只扫已加载 scope |
 | G14 | **重复率排除历史版本（0.41.1）** | superseded 旧版本不计入重复率；真实库 72.9→92.9 分、22%→0% |
 
+| G15 | **记忆树还原（0.41.2）** | 撤销 0.41.0 列表视图，恢复原画布模式；保留健康卡片去重入口与 0.41.1 修复 |
+
 ## 三、如何从上游同步
 
 ```bash
