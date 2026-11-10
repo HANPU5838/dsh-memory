@@ -2,6 +2,25 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.33.0 — 记忆强度算法 · 时间有效性 · 周期巩固（本仓库维护，2026-11-10）
+
+**算法层**
+- FSRS 式保持度：`R=(1+t/(9S))⁻¹`，`stability/difficulty/utility/useCount` 进记录（老记录零迁移）
+- 取用反馈闭环：只有 `memory_get` 取用才更新 utility/stability（召回不计分）
+- 可解释强度排序：相关度 × 保持度 × 效用 × 重要度 + breakdown；`strengthRanking:false` 可回退
+- 动态混合权重（查询画像）+ Rocchio 查询扩展（默认关）
+- 矛盾置信度：`sim × (0.65·数值/标识符差异 + 0.35·关键细节冲突)`
+- 事实有效期：旧事实被推翻 → `validUntil=now` 失效但保留历史
+- 周期巩固：余弦聚类 → 抽取式合并（supersedes 基底 + 其余时间失效 + consolidatedFrom/generation）
+
+**接线 / 配置**
+- search：有效期过滤、时间权重、动态融合、强度排序、可选扩展；历史浏览不整形
+- save 初始化强度字段；memory_get 反馈；applyCognition 冲突失效；housekeeping 周期巩固
+- ANN 热路径接线（后台建图、自动回退、增量更新；默认关）
+- 新配置：`retrieval.strengthRanking/temporalWeighting/expansion`、`vector.ann`、`cognitive.consolidation`
+
+**测试**：896 例 / 895 pass / 1 skip / 0 fail（新增 122 例）。
+
 ## 0.32.0 — 语义认知层 · 检索整形 · 嵌入性能（本仓库维护，2026-11-10）
 
 > 本版把「档案式记忆」升级为**会整理、会遗忘、可回滚**的记忆系统，并把本地嵌入压到实际可用。

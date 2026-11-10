@@ -195,6 +195,46 @@ cognitive:
 
 **测试**：771 例 / 770 pass / 1 skip / 0 fail（新增 137 例：认知层 36、检索 28、性能 73）。
 
+## 二之四、0.33.0 —— 记忆强度算法 · 时间有效性 · 周期巩固（2026-11-10）
+
+> 目标：让"记忆"变成有强度、会退化、能巩固、能失效的对象，而不是一堆静态文本。
+> 公式全部在代码注释 + 本节，参数全部可配置、可 A/B。
+
+### 1. 强度与排序（`retrieval/retention.ts`、`rank.ts`、`expand.ts`）
+
+| # | 能力 | 公式/口径 | 解决的竞品短板 |
+|---|---|---|---|
+| A1 | **FSRS 式保持度** | `R=(1+t/(9S))⁻¹`；`S₀=类型先验/(1+0.12·log₂(1+chars/200))`；`updateAfterUse` 按质量/难度/间隔增益，单次 ×≤4 | 竞品多用固定半衰期或纯余弦，旧但正确的记忆会沉底 |
+| A2 | **效用反馈闭环** | 只有 `memory_get` 取用才更新 `utility`（EWMA）与 `useCount`；召回本身不计分 | 用"被使用"而非"被召回"作为信号，避免自我强化刷分 |
+| A3 | **可解释排序** | `score = relevance × (1−0.5(1−R)) × (1+0.3U) × (1−0.4(1−importance)) × (退役?0.3:1)`，附 breakdown | 排序结果可解释、可回归，不是黑盒 |
+| A4 | **动态混合权重** | 查询画像（CJK 比例/标识符/数字/路径）→ 词法权重 0.2~0.9；`blendHybrid` 融合双通道 | 代码/端口查询偏词法，自然语言偏向量 |
+| A5 | **Rocchio 查询扩展** | `q' = normalize(αq + β·mean(top文档向量))`，默认关 | 对"换个说法搜不到"的补救；需按库调 beta |
+
+### 2. 时间与矛盾（`cognitive/temporal.ts`、`contradiction.ts`）
+
+| # | 能力 | 口径 |
+|---|---|---|
+| B1 | **事实有效期** | `[validFrom, validUntil)` 左闭右开；旧事实被推翻 → `validUntil=now` 失效但保留（历史可查） |
+| B2 | **矛盾置信度** | `conf = sim × (0.65·detailDiff + 0.35·criticalConflict)`；`detailDiff=0.6·numericRate+0.4·identifierRate`；数值不等至少 0.5；≥0.6 high / ≥0.3 medium |
+| B3 | **冲突判定收紧** | 只有"关键细节不一致 + 置信度 ≥ medium"才标冲突；同义改写不再被误标（否则既进不了巩固又误导用户） |
+| B4 | **时间权重** | `(1+0.12·freshness)·(1−0.25·(1−urgency))`，失效为 0 |
+
+### 3. 巩固（`cognitive/consolidate.ts`）
+
+- 并查集按余弦 ≥0.9 聚类（**跨 scope 不合并**）；只处理"活着、非退役、非休眠、非失效、无冲突标记"的记录。
+- 合并计划：基底 `0.6·utility+0.4·importance`；正文 = 基底原文 + 簇内独有句（截断 `maxChars`）；tags 并集；
+  `generation=max+1`、`consolidatedFrom=全簇`、`stability/utility/difficulty` 取最大、`useCount` 求和。
+- 落盘：新记录 `supersedes` 基底；其余来源 `validUntil=now`（时间失效、历史保留）；新记录自动进 `embedPending`。
+- 调度：每小时维护任务，`maxClusters` 限流；也可手动 `service.consolidateNow()`。
+
+### 4. 接线（index.ts）
+
+- `save` 初始化强度字段；`memory_get` 触发取用反馈；`search` 有效期过滤 + 时间权重 + 动态融合 + 强度排序 + 可选扩展；
+- `applyCognition` 冲突时失效旧事实（不再合并矛盾记忆）；历史浏览（`includeExpired`）跳过整形与时间过滤；
+- ANN 热路径接线（0.33.0 补上 0.32 遗留项）：后台建图、未就绪自动回退、增量 insert/update；默认关。
+
+**测试**：896 例 / 895 pass / 1 skip / 0 fail（新增 122 例：retention 22 / expand 17 / rank 16 / temporal 21 / contradiction 19 / consolidate 24 / 集成 3）。
+
 ## 三、如何从上游同步
 
 ```bash
@@ -211,6 +251,6 @@ node --test source/*/test/*.test.ts
 
 1. 冒烟探测是阻塞的 spawnSync（≤4s，用户点按钮才会触发），阻塞期间不响应取消（可改为异步 spawn）。
 2. 10k 条以上时向量仍常驻内存（增量索引已解决「每 60s 全量读文件」，内存占用本身未做分层/淘汰）。
-3. ANN 模块已交付但**未接进检索热路径**；默认全量扫描，规模上限仍受 `maxRecordsPerScope` 约束。
-4. 语义合并只在**写入时**触发；存量近重复需要显式调用 `nearDuplicates()` 维护（未做成自动巡检）。
+3. ANN 已接进检索热路径（默认关）；默认全量扫描，规模上限仍受 `maxRecordsPerScope` 约束。
+4. 语义合并只在写入时触发；存量近重复靠周期巩固（0.33.0）消化，但仍不是全量巡检。
 5. 面板尚未暴露 restore / snapshot / 冲突提示 UI（服务层 API 已就绪）。

@@ -10,7 +10,7 @@
 > | 项目 | 说明 |
 > | --- | --- |
 > | 原作者 | **RestRegular**（上游原项目 [RestRegular/dsh-memory](https://github.com/RestRegular/dsh-memory)，MIT）；本项目在其 v0.30.1 基础上维护 |
-> | 本仓库 | **v0.32.0** = 上游 v0.30.1 + 平台/可靠性改进 + 语义认知层（去重合并/冲突检测/谱系/生命周期）+ 检索整形（MMR/地板分/自适应阈值）+ 嵌入性能（批量/缓存/保活/ANN 模块/基准）。完整清单见 [IMPROVEMENTS.md](IMPROVEMENTS.md)，架构见 [docs/architecture.md](docs/architecture.md) |
+> | 本仓库 | **v0.33.0** = 上游 v0.30.1 + 平台/可靠性改进 + 语义认知层（去重合并/冲突检测/谱系/生命周期）+ 检索整形（MMR/地板分/自适应阈值）+ 嵌入性能（批量/缓存/保活/ANN 索引）+ **记忆强度算法（FSRS 保持度/动态融合/时间有效性/周期巩固）**。完整清单见 [IMPROVEMENTS.md](IMPROVEMENTS.md)，架构见 [docs/architecture.md](docs/architecture.md) |
 > | 许可 | **MIT**，版权归原作者所有，见 [LICENSE](LICENSE)；转载、分发请保留原始版权声明 |
 > | 更新与反馈 | Issue / PR / 反馈请到 **[本仓库 Issues](https://github.com/HANPU5838/dsh-memory/issues)**；与上游的差异集中在 `IMPROVEMENTS.md` |
 >
@@ -25,7 +25,7 @@
 
 JSONL 落盘 · 本机向量检索 · 六个模型工具 · 自动召回 · 硬性规则 · 可视化管理面板
 
-[![version](https://img.shields.io/badge/version-v0.32.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![version](https://img.shields.io/badge/version-v0.33.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/HANPU5838/dsh-memory/blob/main/LICENSE)
 [![ci](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.13-5FA04E.svg)](https://nodejs.org/)
@@ -64,6 +64,10 @@ JSONL 落盘 · 本机向量检索 · 六个模型工具 · 自动召回 · 硬�
 | **语义整理（认知层）** | 写入后按向量做近重复检测：余弦 ≥0.92 且**关键细节一致**才自动合并（旧记录经 `supersedes` 保留、`generation` 递增）；0.75~0.92 或**数字/路径/标识符不一致**只打冲突标记，绝不自动改内容（例如「占用 10.4GB」和「占用 20GB」不会被合并） |
 | **生命周期** | `dormant` 休眠（长期未访问且不重要 → 不进摘要/召回，命中即唤醒）、`tombstone` 软删（`memory_forget` 默认 30 天内可 `restore`，到期由维护任务物理清理）、`snapshot/restore`（gzip JSONL 快照，可整库备份/迁移/回滚） |
 | **性能** | 文档/查询向量缓存（同内容重写、重复问句免嵌入；实测热查询 ~0.03ms）、批量嵌入（部分失败只留单条 null，超长记录不再毒死整批回填）、llama-server 预热 + 周期探活保活、可选纯 JS HNSW 索引模块（2 万条查询 P50 1.73ms vs 全量 25.2ms）、本地 chat 模型重排（可选，失败静默回退） |
+| **记忆强度（0.33.0）** | 每条记忆带 **FSRS 式保持度**：`stability`（越用越牢）、`difficulty`（长文/易变类型更难）、`utility`（被取用才涨）；检索排序 = 相关度 × 保持度 × 效用 × 重要度，且带可解释 breakdown。老记录无需迁移（由内容/类型/访问次数推导） |
+| **记忆巩固（0.33.0）** | 周期维护对同 scope、同簇（余弦 ≥0.9）的活跃记忆做**抽取式合并**：基底正文 + 簇内独有要点，`supersedes` 基底、`consolidatedFrom` 全簇、`generation` 递增；冲突记录与退役/休眠/失效记录一律不参与 |
+| **事实有效期（0.33.0）** | 新证据推翻旧事实时，旧记录置 `validUntil=now` **失效但保留**（历史可查），并用矛盾置信度（数值/标识符差异 + 相似度）分级；默认检索只看有效事实 |
+| **ANN 索引（0.33.0）** | 可选纯 JS HNSW：库规模 ≥ minSize 时后台建图，未就绪/过期自动回退全量扫描；检索热路径按图查询（2 万条实测 14.6×），配置 `retrieval.vector.ann.enabled` |
 | **自动召回** | 每轮按用户问题召回；新会话第一步注入项目 / global 摘要；发布、部署、工具失败等行为按标签触发定向召回 |
 | **印象形态** | 每轮只给每条记忆的短摘要；模型判断相关但需要细节时再 `memory_get` 取全文，省 token 也不丢信息 |
 | **硬性规则** | `kind: rule` 进系统提示常驻段；行首带 8 位 id，注入的是摘要，需要全文时用 `memory_get`；旧会话会收到新增 / 编辑提醒；超预算有明确警告，不静默丢弃 |
@@ -79,6 +83,25 @@ JSONL 落盘 · 本机向量检索 · 六个模型工具 · 自动召回 · 硬�
 | **平台自检** | 面板「向量服务 → 环境自检」一次探测 平台 / glibc loader / 后端 / 磁盘 / 目录权限，Termux 与普通 Linux 都是自包含的（不改宿主、不需要环境变量） |
 | **插件事件** | 对外发 `memory/record-saved` / `memory/recalled` / `memory/record-forgotten` 事件（只含元数据，不含正文），其他插件可 `ctx.on(...)` 订阅 |
 | **跨进程安全** | 每个作用域一把写锁，锁内重新读盘再合并；多个 DSH 实例或 MCP server 共用一个 store 不丢数据 |
+
+## 记忆强度算法（0.33.0）
+
+这一版把"记忆"从静态文本升级成**有强度、会退化、能被巩固**的对象，公式全部可在代码里
+（`src/retrieval/retention.ts`、`src/cognitive/contradiction.ts`、`src/cognitive/consolidate.ts`）与
+`IMPROVEMENTS.md` 中核对。
+
+| 组件 | 公式 / 规则 | 为什么这样做 |
+| --- | --- | --- |
+| 保持度 R(t) | `R = (1 + t / (9·S))⁻¹`，t=0→1，t=9S→0.5 | 代替固定半衰期：越是"用出来的稳定性"，越不容易被遗忘；纯时间衰减会让旧但正确的记忆被误杀 |
+| 稳定性 S | 初始按类型 + 长度：`S₀ = 类型先验 / (1 + 0.12·log₂(1+chars/200))`；取用后按 FSRS 形状增长（难度越高涨得越慢、隔得越久涨得越多，单次最多 ×4） | 长文本更难记（初始 S 低）；间隔重复效应（遗忘后再回忆收益更大） |
+| 难度 D | 类型先验 + `0.2·(1−e^(−chars/300))`，0..1 | 易变类型（state/note）难度高，稳定度长得慢 |
+| 效用 U | `U = clamp(u)·(1−0.5^(useCount/2))·0.5^(ageDays/30)`，只有 `memory_get` 真正取用才更新 EWMA | 召回不等于有用；用"被取用"作反馈信号，避免刷分 |
+| 排序 | `score = 相关度 × (1−0.5·(1−R)) × (1+0.3·U) × (1−0.4·(1−importance))`，退役 ×0.3 | 保持度/重要度用"软化因子"而非直接相乘：单调、最大降权幅度可控，旧但正确的记忆不会被永久沉底 |
+| 矛盾置信度 | `conf = similarity × (0.65·detailDiff + 0.35·criticalConflict)`，`detailDiff = 0.6·数值差异率 + 0.4·标识符差异率`；≥0.6 high、≥0.3 medium | 纯余弦分不清"换个说法"和"数字变了"；数值不相等即使幅度小也给 0.5 下限（8080 vs 8078 也能抓到） |
+| 巩固 | 并查集按余弦 ≥0.9 聚类 → 基底取 `0.6·utility+0.4·importance` → 追加簇内独有句 → 新记录 `generation=max+1` | episodic（多句零散经历）→ semantic（一条稳定结论），同时保留全簇谱系 |
+
+所有阈值都可通过 `retrieval.strengthRanking / temporalWeighting / expansion / vector.ann` 与
+`cognitive.merge / conflict / consolidation` 单独开关，方便用自己的库做 A/B。
 
 ## 和同类方案怎么比
 
@@ -502,6 +525,7 @@ retrieval:
         backfillMaxChars: 8000
         cache: true                        # 0.32.0 文档/查询向量缓存（<storeDir>/embed-cache）
         keepAlive: true                    # 0.32.0 启动预热 + 周期探活
+        ann: { enabled: false, minSize: 2000 }   # 0.33.0 可选 ANN（大库再开）
         spawn:
           enabled: true
           exe: '/path/to/llama-server.exe'
@@ -509,6 +533,9 @@ retrieval:
           cwd: '/path/to/llamacpp'         # 目录里要有 llama-server-impl.dll
           logFile: '/path/to/llama-server.log'
       llm: { enabled: false }
+      strengthRanking: true                # 0.33.0 FSRS 强度排序（false = 0.32 recordScore）
+      temporalWeighting: true              # 0.33.0 事实时间权重
+      expansion: { enabled: false, beta: 0.35 }  # 0.33.0 Rocchio 查询扩展（默认关）
       finalFloor: 0.2                      # 0.32.0 匹配强度地板分（0 = 关闭）
       dedupeThreshold: 0.85                # 0.32.0 同义结果合并阈值（0 = 关闭）
       mmr: true                            # 0.32.0 MMR 多样性
@@ -517,6 +544,7 @@ retrieval:
       merge: { enabled: true, threshold: 0.92 }
       conflict: { enabled: true, minSimilarity: 0.75 }
       lifecycle: { dormantAfterDays: 30, dormantMaxImportance: 0.3, tombstoneDays: 30 }
+      consolidation: { enabled: true, threshold: 0.9, maxClusters: 2 }  # 0.33.0 周期巩固
     limits: { maxRecordsPerScope: 2000, maxRecordChars: 4000 }
     secrets: { enabled: true, mode: refuse }   # refuse | redact
     tools: { defaultScope: session }            # session / project / global

@@ -54,6 +54,12 @@ import {
 import { mergeInjectSettings, normalizeInjectSettings,                     } from './inject-settings.js'
 import { buildStats, lexicalScore, recordScore, tokenize, cosine, normalizeInPlace, hasStrongHit, finalFloor, semanticDedupe, mmrSelect } from './scoring.js'
 import { adaptiveScopeThreshold, calibrateScore } from './retrieval/adapt.js'
+import { blendHybrid, expandQuery, hybridWeights, queryProfile } from './retrieval/expand.js'
+import { explainCandidate } from './retrieval/rank.js'
+import { initialStrength, updateAfterUse } from './retrieval/retention.js'
+import { isActiveNow, temporalBoost, planValidityOnConflict, applyValidityPlan } from './cognitive/temporal.js'
+import { assessContradiction } from './cognitive/contradiction.js'
+import { applyConsolidationPlan, clusterRecords, planConsolidation } from './cognitive/consolidate.js'
 import { MERGE_THRESHOLD, planNearDuplicateMerge } from './cognitive/merge.js'
 import { assessConflicts, applyConflictMarker, hasCriticalDetailConflict } from './cognitive/conflict.js'
 import { shouldSkipRecord, revive, tombstone, purgeTombstones, markDormant, restore as restoreTombstoned, snapshot as writeSnapshot, restoreSnapshot as readSnapshotFile } from './cognitive/lifecycle.js'
@@ -65,6 +71,7 @@ import { scanSecrets, redactSecrets } from './secrets.js'
 import { EmbedServerManager,                                               } from './embed-server.js'
 import { VectorInstaller, detectInstalled, installPaths,                      } from './embed-install.js'
 import { EmbedCache } from './embed-cache.js'
+import { createAnnIndex, shouldUseAnn,                             } from './ann/index.js'
 import { EmbedKeepAlive } from './embed.js'
 import { MemoryEventBus } from './events.js'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
@@ -195,6 +202,15 @@ function isInside(parent        , child        )          {
                        
                                       
                          
+                                                                
+             
+                         
+                        
+                                 
+                  
+                               
+                         
+       
                                                                                       
                                
          
@@ -223,6 +239,12 @@ function isInside(parent        , child        )          {
                  
                                                    
                       
+                                                   
+                             
+                                          
+                               
+                                                       
+                                                    
    
                                                                    
                                                
@@ -230,6 +252,8 @@ function isInside(parent        , child        )          {
                                                      
                                                             
                                                                                                     
+                                                         
+                                                                                   
    
                                                                            
                                                              
@@ -297,6 +321,15 @@ function isInside(parent        , child        )          {
                     
                             
                       
+                           
+          
+                      
+                     
+                              
+                
+                             
+                       
+     
                             
    
                    
@@ -319,6 +352,9 @@ function isInside(parent        , child        )          {
                             
                                 
                          
+                                 
+                                  
+                                    
    
  
 
@@ -596,6 +632,14 @@ export function resolveConfig(config                    = {})                 {
       cache: v.cache ?? true,
       cacheDir: v.cacheDir ?? join(storeDir, 'embed-cache'),
       keepAlive: v.keepAlive ?? true,
+      ann: {
+        enabled: v.ann?.enabled ?? false,
+        minSize: v.ann?.minSize ?? 2000,
+        prefer: v.ann?.prefer ?? 'auto',
+        ...(v.ann?.M !== undefined ? { M: v.ann.M } : {}),
+        ...(v.ann?.efConstruction !== undefined ? { efConstruction: v.ann.efConstruction } : {}),
+        ...(v.ann?.efSearch !== undefined ? { efSearch: v.ann.efSearch } : {}),
+      },
       // Port defaults to the one in the embeddings endpoint so the two can never
       // drift apart; opt-in (enabled:false) keeps dev/test runs from spawning.
       // A backend the panel installed (or a hand-made one at installRoot) is
@@ -633,6 +677,13 @@ export function resolveConfig(config                    = {})                 {
       enabled: config.secrets?.enabled ?? true,
       mode: config.secrets?.mode ?? 'refuse',
     },
+    // 0.33.0：强度排序默认开；查询扩展默认关（需要按真实库用 eval 调 beta）。
+    strengthRanking: config.retrieval?.strengthRanking ?? true,
+    temporalWeighting: config.retrieval?.temporalWeighting ?? true,
+    expansion: {
+      enabled: config.retrieval?.expansion?.enabled ?? false,
+      beta: config.retrieval?.expansion?.beta ?? 0.35,
+    },
     // 0.32.0：结果整形。floor 默认 0.2（与 REAL_HIT_FLOOR 同源），dedupe 0.85
     // 略低于实测同义对 0.865，既能合并重复又不误伤「相关但不同」的条目。
     shaping: {
@@ -650,6 +701,10 @@ export function resolveConfig(config                    = {})                 {
       dormantAfterDays: config.cognitive?.lifecycle?.dormantAfterDays ?? 30,
       dormantMaxImportance: config.cognitive?.lifecycle?.dormantMaxImportance ?? 0.3,
       tombstoneDays: config.cognitive?.lifecycle?.tombstoneDays ?? 30,
+      // 巩固默认开，但只在**有向量的作用域**跑（纯词法库不做合并，避免误伤）。
+      consolidationEnabled: config.cognitive?.consolidation?.enabled ?? true,
+      consolidationThreshold: config.cognitive?.consolidation?.threshold ?? 0.9,
+      consolidationMaxClusters: config.cognitive?.consolidation?.maxClusters ?? 2,
     },
   }
 }
@@ -842,6 +897,9 @@ export class LocalMemoryService                             {
           embedCache                    = null
   /** 0.32.0：启动预热 + 周期探活，llama-server 被杀后能自动恢复。 */
           embedKeepAlive                        = null
+  /** 0.33.0：每个 scope 的 ANN 索引（size 与 store.vectors 不一致即视为过期，回退全量扫描）。 */
+          annIndexes = new Map                                           ()
+          annBuilding = new Set        ()
           rerankBudget             
           rerankCache = new RerankCache()
   /** Host-provided one-shot LLM call; null = rerank disabled (recall order). */
@@ -1109,6 +1167,21 @@ export class LocalMemoryService                             {
       writeTimeoutMs: this.cfg.vector.writeTimeoutMs,
       log: (message) => console.warn(`[dsh-memory-local] ${message}`),
     })
+  }
+
+  /** 0.33.0：把新向量增量同步进已建好的 ANN 索引（没建或维度不符就跳过）。 */
+          syncAnnIndex(scope        , id        , vector              )       {
+    const entry = this.annIndexes.get(scope)
+    if (entry === undefined) return
+    const scopeStore = this.store.peek(scope)
+    if (scopeStore === undefined) return
+    try {
+      if (entry.index.has(id)) entry.index.update(id, vector)
+      else entry.index.insert(id, vector)
+      entry.size = scopeStore.vectors.size
+    } catch {
+      // 索引不同步就让 size 失配，下次查询回退全量扫描并重建
+    }
   }
 
   /** 0.32.0：构造向量缓存。identity 跟着 model/dims/pooling 走，换模型整体失效。 */
@@ -1716,7 +1789,104 @@ export class LocalMemoryService                             {
    * 0.30.0：归档会话作用域在归档期间**冻结** —— 过期与容量都不碰它们，
    * 恢复会话后记忆原样回来；恢复后下一次 housekeeping 再按原规则清理。
    */
-  runHousekeeping()                                                                                   {
+  /**
+   * 0.33.0：记忆巩固（手动 / 维护任务调用）。
+   *
+   * 只对**有向量的作用域**做（纯词法库没有语义聚类能力，强行按内容合并会误伤）；
+   * 每轮最多处理 maxClusters 个簇，避免一次维护把 CPU 打满。巩固产生的新记录
+   * 自动进 embedPending，由回填队列补向量。
+   */
+  consolidateNow()                                        {
+    const created           = []
+    let merged = 0
+    if (!this.cfg.cognitive.consolidationEnabled) return { created, merged }
+    const now = Date.now()
+    for (const scopeStore of this.store.allScopes()) {
+      if (scopeStore.vectors.size === 0) continue
+      // 只巩固"活着且不冲突"的记录：
+      //  - 退役（superseded）、休眠、软删、过期/失效的都不参与；
+      //  - 带 conflictWith 标记的记录**绝不合并** —— 它们是"措辞像但事实矛盾"的对，
+      //    合并会把两个互相矛盾的事实揉成一条，比不巩固更糟。
+      const retired = new Set        ()
+      for (const rec of scopeStore.records.values()) {
+        if ((rec                           ).supersedes !== undefined) retired.add((rec                          ).supersedes)
+      }
+      const candidates = [...scopeStore.records.values()].filter((rec) => {
+        if (retired.has(rec.id)) return false
+        if (shouldSkipRecord(rec, {})) return false
+        if (!isActiveNow(rec, now)) return false
+        const extra = rec                                                    
+        if (Array.isArray(extra.conflictWith) && extra.conflictWith.length > 0) return false
+        if (extra.validUntil !== undefined) return false
+        return true
+      })
+      if (candidates.length < 2) continue
+      let clusters                                               
+      try {
+        clusters = clusterRecords(candidates, {
+          threshold: this.cfg.cognitive.consolidationThreshold,
+          vectors: scopeStore.vectors,
+        }).clusters.slice(0, this.cfg.cognitive.consolidationMaxClusters)
+      } catch {
+        continue
+      }
+      for (const cluster of clusters) {
+        try {
+          const plan = planConsolidation(cluster, { maxChars: this.cfg.maxRecordChars, now })
+          if (plan === null) continue
+          const applied = applyConsolidationPlan(this.store, plan)
+          if (applied.record !== undefined) {
+            created.push(applied.record.id)
+            // applied.superseded 是基底 id（string）；本簇被合并掉的条数 = 簇大小 - 1。
+            merged += Math.max(0, plan.supersedes.length - 1)
+          }
+        } catch { /* 单个簇失败不影响其它 */ }
+      }
+    }
+    if (created.length > 0) this.store.scheduleFlush()
+    return { created, merged }
+  }
+
+  /**
+   * 0.33.0：后台维护 ANN 索引。
+   *
+   * 建图很贵（纯 JS HNSW 2 万条约 45s），**绝不能放在查询路径上**：这里只在
+   * 维护定时器 / 回填完成后调用，建好之前检索继续走全量扫描，行为与 0.32 完全一致。
+   * 索引以 scope 为粒度；size 与 store.vectors 不一致就视为过期并重建。
+   */
+          async maintainAnnIndexes()                {
+    if (!this.cfg.vector.ann.enabled) return
+    for (const scopeStore of this.store.allScopes()) {
+      const scope = scopeStore.scope
+      const total = scopeStore.vectors.size
+      if (!shouldUseAnn(total, this.cfg.vector.ann.minSize)) continue
+      const current = this.annIndexes.get(scope)
+      if (current !== undefined && current.size === total) continue
+      if (this.annBuilding.has(scope)) continue
+      this.annBuilding.add(scope)
+      try {
+        const index = await createAnnIndex({
+          dims: this.cfg.vector.dims,
+          prefer: this.cfg.vector.ann.prefer,
+          ...(this.cfg.vector.ann.M !== undefined ? { M: this.cfg.vector.ann.M } : {}),
+          ...(this.cfg.vector.ann.efConstruction !== undefined ? { efConstruction: this.cfg.vector.ann.efConstruction } : {}),
+          ...(this.cfg.vector.ann.efSearch !== undefined ? { efSearch: this.cfg.vector.ann.efSearch } : {}),
+          log: (message        ) => console.warn(`[dsh-memory-local] ${message}`),
+        })
+        const items = [...scopeStore.vectors]
+          .filter(([id]) => scopeStore.records.has(id))
+          .map(([id, vector]) => ({ id, vector }))
+        index.build(items)
+        this.annIndexes.set(scope, { index, size: total })
+      } catch {
+        // 建图失败保持全量扫描，不影响正确性
+      } finally {
+        this.annBuilding.delete(scope)
+      }
+    }
+  }
+
+  runHousekeeping()                                                                                                           {
     const frozen = (scope        )          => this.isArchivedSessionScope(scope)
     const purged = this.store.purgeExpired(Date.now(), frozen)
     const evicted = this.store.enforceLimit(this.cfg.maxRecordsPerScope, Date.now(), frozen)
@@ -1731,7 +1901,9 @@ export class LocalMemoryService                             {
         }).marked
       : []
     const tombstones = purgeTombstones(this.store, { now: Date.now(), ...(liveScopes.length > 0 ? { scopes: liveScopes } : {}) })
-    return { purged, evicted, dormant, tombstones }
+    // 0.33.0：周期巩固（把同簇 episodic 记忆合并成一条 semantic 摘要）。
+    const consolidated = this.consolidateNow().created
+    return { purged, evicted, dormant, tombstones, consolidated }
   }
 
   /**
@@ -1744,6 +1916,7 @@ export class LocalMemoryService                             {
           startMaintenance()       {
     this.maintenanceTimer = setInterval(() => {
       this.runHousekeeping()
+      void this.maintainAnnIndexes()
       this.store.scheduleFlush(0)
     }, 3_600_000)
     this.maintenanceTimer.unref?.()
@@ -2944,7 +3117,15 @@ export class LocalMemoryService                             {
     let deduped = false
     try {
       const saved = this.store.save(
-        { ...saveInput, scope, content, ...(initialized || carryInitial ? { initial: true } : {}) },
+        {
+          ...saveInput,
+          scope,
+          content,
+          // 0.33.0：新记录初始化"记忆强度"（FSRS 式 stability/difficulty + 效用计数），
+          // 排序与遗忘曲线都基于它；老记录缺省时由 stabilityOf() 兼容推导。
+          ...initialStrength(content, String(input.kind ?? 'fact')),
+          ...(initialized || carryInitial ? { initial: true } : {}),
+        },
         { importance: input.source?.origin === 'auto' ? 0.4 : 0.8, source: { origin: 'explicit' } },
       )
       record = saved.record
@@ -2980,6 +3161,7 @@ export class LocalMemoryService                             {
     const cached = this.embedCache?.getDocument(text) ?? null
     if (cached !== null) {
       s.appendVector(record.id, cached)
+      this.syncAnnIndex(record.scope, record.id, cached)
       this.applyCognition(record, cached)
       return
     }
@@ -2989,6 +3171,7 @@ export class LocalMemoryService                             {
     if (vec?.[0]) {
       const normalized = normalizeInPlace(vec[0])
       s.appendVector(record.id, normalized)
+      this.syncAnnIndex(record.scope, record.id, normalized)
       this.embedCache?.putDocument(text, normalized)
       // 0.32.0：拿到向量后做一次语义整理（近重复合并 / 冲突打标）。
       // 放在嵌入之后是因为这一步要靠向量；失败不影响主流程。
@@ -3030,13 +3213,48 @@ export class LocalMemoryService                             {
         }
       }
       if (this.cfg.cognitive.conflictEnabled) {
-        const assessment = assessConflicts({ content: record.content, candidates: hits })
-        // 关键细节冲突即使相似度超过合并阈值也要标出来（冲突判定不能只看相似区间）。
+        // 0.33.0：冲突只由"关键细节不一致"判定，且置信度要达到 medium。
+        // 纯余弦落在 0.75~0.92 的往往是**同义改写**（措辞不同、事实相同），
+        // 不该被打成冲突 —— 否则它们既进不了巩固、又会让用户误以为记忆互相矛盾。
         const detailConflict = hits.find((hit) => hasCriticalDetailConflict(record.content, hit.record.content))
-        if (assessment.conflicted || detailConflict !== undefined) {
-          applyConflictMarker(this.store, record.id, assessment.conflicted
-            ? assessment
-            : { conflicted: true, findings: [detailConflict ], marker: { conflictWith: detailConflict .record.id, conflictConfidence: detailConflict .similarity }, severity: 'high' })
+        const assessment = detailConflict === undefined
+          ? { conflicted: false, findings: [], marker: { conflictWith: [], conflictConfidence: 0 }, severity: 'none'          }
+          : assessConflicts({ content: record.content, candidates: [detailConflict] })
+        if (detailConflict !== undefined) {
+          const pre = assessContradiction(record.content, detailConflict.record.content, { similarity: detailConflict.similarity })
+          if (pre.level === 'low') {
+            // 细节差异不足以构成矛盾（比如只是多了个修饰词）→ 只记录高相似，不标冲突。
+            this.store.scheduleFlush()
+            return
+          }
+        }
+        if (detailConflict !== undefined) {
+          if (detailConflict !== undefined) {
+            // 0.33.0：矛盾置信度 = 相似度 ×（数值/标识符差异 + 关键细节冲突）。
+            // 它比"只看余弦"更能区分"换个说法"和"数字变了"。
+            const contradiction = assessContradiction(record.content, detailConflict.record.content, {
+              similarity: detailConflict.similarity,
+            })
+            applyConflictMarker(this.store, record.id, {
+              conflicted: true,
+              findings: [{ id: detailConflict.record.id, similarity: detailConflict.similarity }],
+              marker: {
+                // ConflictAssessment.marker.conflictWith 是 string[]（不是单个 id）。
+                conflictWith: [detailConflict.record.id],
+                conflictConfidence: Math.max(detailConflict.similarity, contradiction.confidence),
+              },
+              severity: contradiction.level,
+            })
+            // 0.33.0：事实被新证据推翻 → 旧记录标记失效窗口（validUntil=now），
+            // 而不是删掉或合并；历史仍可用 includeExpired / memory_get 查到。
+            const plan = planValidityOnConflict({
+              oldRecord: detailConflict.record,
+              newContent: record.content,
+              similarity: detailConflict.similarity,
+              now: Date.now(),
+            })
+            if (plan.invalidateOld) applyValidityPlan(this.store, detailConflict.record.id, plan)
+          }
           this.store.scheduleFlush()
         }
       }
@@ -3081,6 +3299,7 @@ export class LocalMemoryService                             {
         if (s.records.has(valid[i] ) && vector) {
           const normalized = normalizeInPlace(vector)
           s.appendVector(valid[i] , normalized)
+          this.syncAnnIndex(s.scope, valid[i] , normalized)
           this.embedCache?.putDocument(texts[i] , normalized)
           s.embedPending.delete(valid[i] )
           done++
@@ -3175,8 +3394,9 @@ export class LocalMemoryService                             {
     // 0.32.0：休眠/墓碑记录默认不参与召回（面板历史浏览显式打开时才显示）。
     const includeDormant = internal.includeDormant === true
     const includeTombstoned = internal.includeTombstoned === true
-    // 面板的历史浏览不做结果整形（不去噪/不合并/不做 MMR）：用户要看到全部命中。
-    const shapingEnabled = internal.shaping !== false
+    // 面板/历史浏览不做结果整形（不去噪/不合并/不做 MMR）：用户要看到全部命中。
+    // includeExpired 通常意味着"查历史版本"，这时同义去重会把新旧版本合并掉，必须跳过。
+    const shapingEnabled = internal.shaping !== false && !includeExpired
     // 注入侧按可见域的类型白名单检索(scope → 允许的类型;未列出的 scope 不限制)。
     // 工具侧不传 kinds:它需要看到范围外命中,才能发起审批。
     const kindFilter = internal.kinds === undefined
@@ -3218,7 +3438,7 @@ export class LocalMemoryService                             {
     }
 
     // --- channel 1: lexical recall, scored per scope with local IDF ---
-                                                                                                              
+                                                                                                                                                    
     const candidates = new Map              ()
     for (const { store, isGlobal } of stores) {
       const all = [...store.records.values()]
@@ -3234,6 +3454,9 @@ export class LocalMemoryService                             {
         if (!includeSuperseded && retired.has(rec.id)) continue
         // 0.32.0：休眠/墓碑记录不进召回（forget 变软删后，靠这里立即不可见）。
         if (shouldSkipRecord(rec, { includeDormant, includeTombstoned })) continue
+        // 0.33.0：事实有效期过滤 —— 被推翻的旧结论（validUntil 已过）默认不返回，
+        // 面板历史浏览（includeExpired）仍可见。
+        if (!includeExpired && !isActiveNow(rec, now)) continue
         if (kindFilter !== undefined && !kindFilter(rec.scope, rec.kind)) continue
         const lex = lexicalScore(queryTokens, tokenSets[i] , stats)
         if (lex <= 0) continue
@@ -3247,7 +3470,8 @@ export class LocalMemoryService                             {
         })
         const effective = hasStrongHit(queryTokens, tokenSets[i] ) ? floor : Math.max(floor, REAL_HIT_FLOOR)
         if (lex < effective) continue
-        candidates.set(rec.id, { record: rec, recallScore: calibrateScore(lex, rec.scope), isGlobal, vector: store.vectors.get(rec.id) ?? null })
+        const calibrated = calibrateScore(lex, rec.scope)
+        candidates.set(rec.id, { record: rec, recallScore: calibrated, lexScore: calibrated, isGlobal, vector: store.vectors.get(rec.id) ?? null })
       }
     }
 
@@ -3280,39 +3504,122 @@ export class LocalMemoryService                             {
     if (qvec?.[0] !== undefined && cachedQuery === null) this.embedCache?.putQuery(queryText, qvec[0])
     if (qvec?.[0]) {
       const vectorScores = new Map                ()
+      let needAnnRefresh = false
       for (const { store } of stores) {
+        // 0.33.0：索引就绪且条数一致才走 ANN（未就绪/已过期一律回退全量扫描，
+        // 正确性不依赖索引；建图交给维护定时器，不在查询路径上做）。
+        const ann = this.cfg.vector.ann.enabled ? this.annIndexes.get(store.scope) : undefined
+        if (ann !== undefined && ann.size === store.vectors.size) {
+          const hits = ann.index.search(qvec[0] , Math.max(recallN * 2, topK), {
+            threshold: this.cfg.vector.minScore,
+            ...(this.cfg.vector.ann.efSearch !== undefined ? { efSearch: this.cfg.vector.ann.efSearch } : {}),
+          })
+          for (const hit of hits) {
+            if (!store.records.has(hit.id)) continue
+            vectorScores.set(hit.id, hit.score)
+          }
+          continue
+        }
+        if (this.cfg.vector.ann.enabled) needAnnRefresh = true
         for (const [id, vec] of store.vectors) {
           if (!store.records.has(id)) continue
           const sim = cosine(qvec[0] , vec)
           if (sim >= this.cfg.vector.minScore) vectorScores.set(id, sim)
         }
       }
+      if (needAnnRefresh) void this.maintainAnnIndexes()
       for (const [id, sim] of vectorScores) {
         if (!includeSuperseded && retired.has(id)) continue
         const existing = candidates.get(id)
         if (existing) {
-          existing.recallScore = Math.max(existing.recallScore, sim) // best channel wins
+          existing.vecScore = Math.max(existing.vecScore ?? 0, sim)
           continue
         }
         const rec = this.findById(id)
         if (!rec) continue
         if (!includeExpired && rec.expiredAt !== undefined && rec.expiredAt < now) continue
         if (shouldSkipRecord(rec, { includeDormant, includeTombstoned })) continue
+        if (!includeExpired && !isActiveNow(rec, now)) continue
         if (kindFilter !== undefined && !kindFilter(rec.scope, rec.kind)) continue
         if (!(rec.scope === 'global' && sim < this.cfg.globalThreshold)) {
           const store = stores.find((s) => s.scope === rec.scope)?.store
-          candidates.set(id, { record: rec, recallScore: sim, isGlobal: rec.scope === 'global', vector: store?.vectors.get(id) ?? null })
+          candidates.set(id, { record: rec, recallScore: sim, vecScore: sim, isGlobal: rec.scope === 'global', vector: store?.vectors.get(id) ?? null })
         }
       }
     }
 
+    // 0.33.0：Rocchio 伪相关反馈（默认关）。用首轮向量的 top 文档质心扩展查询，
+    // 再扫一遍取 max —— 对"换个说法就搜不到"的查询有实测收益，但要按库调 beta。
+    if (this.cfg.expansion.enabled && qvec?.[0] !== undefined && candidates.size > 0) {
+      const topDocs = [...candidates.values()]
+        .filter((c) => c.vector !== null && c.vector !== undefined)
+        .sort((a, b) => (b.vecScore ?? 0) - (a.vecScore ?? 0))
+        .slice(0, 5)
+        .map((c) => c.vector )
+      const expanded = expandQuery(qvec[0], topDocs, { alpha: 1, beta: this.cfg.expansion.beta })
+      if (expanded !== null) {
+        for (const { store } of stores) {
+          for (const [id, vec] of store.vectors) {
+            if (!store.records.has(id)) continue
+            const record = store.records.get(id) 
+            if (!includeExpired && !isActiveNow(record, now)) continue
+            if (shouldSkipRecord(record, { includeDormant, includeTombstoned })) continue
+            const sim = cosine(expanded, vec)
+            if (sim < this.cfg.vector.minScore) continue
+            const existing = candidates.get(id)
+            if (existing) existing.vecScore = Math.max(existing.vecScore ?? 0, sim)
+            else candidates.set(id, { record, recallScore: sim, vecScore: sim, isGlobal: record.scope === 'global', vector: vec })
+          }
+        }
+      }
+    }
+
+    // 0.33.0：双通道融合 —— 按查询特征动态调词法/向量权重（代码/数字查询偏词法，
+    // 自然语言偏向量），比原来 max() 取大更贴近信号强度。
+    const hybrid = hybridWeights(queryProfile(query.text))
+    for (const cand of candidates.values()) {
+      const lex = cand.lexScore
+      const vec = cand.vecScore
+      if (lex !== undefined && vec !== undefined) cand.recallScore = blendHybrid(lex, vec, hybrid)
+      else if (lex !== undefined) cand.recallScore = lex
+      else if (vec !== undefined) cand.recallScore = vec
+    }
+
     // shape with recency/importance, sort, cut
-    const shape = (c      )         =>
-      recordScore(c.recallScore, c.record.importance, c.record.accessCount, c.record.lastAccessedAt, {
-        now,
-        halfLifeDays: this.cfg.halfLifeDays,
-        superseded: retired.has(c.record.id),
-      })
+    // 0.33.0：默认用"可解释强度排序"（相关度 × 保持度 × 效用提升 × 重要度），
+    // 并提供 breakdown；老库没有 strength 字段时由 stabilityOf() 兼容推导，零迁移。
+    // strengthRanking=false 可回退到 0.32 的 recordScore（A/B 对比用）。
+    const strengthOf = (c      )         => {
+      const rec = c.record                    
+                                                                                                         
+       
+      return explainCandidate({
+        id: rec.id,
+        relevance: Math.min(1, Math.max(0, c.recallScore)),
+        importance: rec.importance,
+        content: rec.content,
+        kind: rec.kind,
+        accessCount: rec.accessCount,
+        createdAt: rec.createdAt,
+        ...(rec.stability !== undefined ? { stability: rec.stability } : {}),
+        ...(rec.difficulty !== undefined ? { difficulty: rec.difficulty } : {}),
+        ...(rec.utility !== undefined ? { utility: rec.utility } : {}),
+        ...(rec.useCount !== undefined ? { useCount: rec.useCount } : {}),
+        ...(rec.lastUsedAt !== undefined ? { lastUsedAt: rec.lastUsedAt } : {}),
+        superseded: retired.has(rec.id),
+      }, { now, halfLifeDays: this.cfg.halfLifeDays }).score
+    }
+    const shape = (c      )         => {
+      const base = this.cfg.strengthRanking
+        ? strengthOf(c)
+        : recordScore(c.recallScore, c.record.importance, c.record.accessCount, c.record.lastAccessedAt, {
+            now,
+            halfLifeDays: this.cfg.halfLifeDays,
+            superseded: retired.has(c.record.id),
+          })
+      // 事实时间权重：新近更新/临近失效的光谱（已失效为 0，但检索侧已过滤）。
+      return base * (includeExpired || !this.cfg.temporalWeighting ? 1 : temporalBoost(c.record, now))
+    }
 
     // 稳定 tie-break:同分时 session > project > 自定义 > global,再同分按 record id ——
     // 否则 Map 的插入顺序(取决于 scope 顺序)会让同一查询在不同进程间给出不同结果。
@@ -3642,6 +3949,24 @@ export class LocalMemoryService                             {
           }
         }
       }
+    }
+    // 0.33.0：取用反馈闭环 —— memory_get 取到正文才算"真的用到了"，
+    // 用 FSRS 式 updateAfterUse 提升 stability / utility；召回本身不算（避免刷分）。
+    if (out.length > 0) {
+      const now = Date.now()
+      for (const rec of out) {
+        try {
+          const next = updateAfterUse({
+            stability: (rec                          ).stability,
+            difficulty: (rec                           ).difficulty,
+            utility: (rec                        ).utility,
+            useCount: (rec                         ).useCount,
+            lastUsedAt: (rec                           ).lastUsedAt,
+          }, 3, now)
+          this.store.updateMetrics(rec.id, next)
+        } catch { /* 反馈失败不影响读取 */ }
+      }
+      this.store.scheduleFlush()
     }
     return out
   }

@@ -98,6 +98,23 @@ export function newId()         {
                              
                                          
                      
+                                                
+                                                 
+                    
+                                               
+                     
+                                                      
+                  
+                
+                   
+                    
+                     
+                                 
+                    
+                                                 
+                     
+                                                              
+                             
  
 
                                                             
@@ -1196,6 +1213,17 @@ export class MemoryStore {
         : {}),
       // 0.24.0：初始化流程创建的记录带来源标记（可选字段，旧记录缺省 = 非初始）。
       ...((input                                           ).initial === true ? { initial: true } : {}),
+      // 0.33.0：记忆强度 / 有效期 / 巩固字段（可选；由认知层算好后带进来，store 只负责持久化）。
+      ...(typeof cognitive.stability === 'number' && Number.isFinite(cognitive.stability) ? { stability: Math.max(0, cognitive.stability) } : {}),
+      ...(typeof cognitive.difficulty === 'number' && Number.isFinite(cognitive.difficulty) ? { difficulty: clamp01(cognitive.difficulty) } : {}),
+      ...(typeof cognitive.utility === 'number' && Number.isFinite(cognitive.utility) ? { utility: clamp01(cognitive.utility) } : {}),
+      ...(typeof cognitive.useCount === 'number' && Number.isFinite(cognitive.useCount) ? { useCount: Math.max(0, Math.floor(cognitive.useCount)) } : {}),
+      ...(typeof cognitive.lastUsedAt === 'number' && Number.isFinite(cognitive.lastUsedAt) ? { lastUsedAt: cognitive.lastUsedAt } : {}),
+      ...(typeof cognitive.validFrom === 'number' && Number.isFinite(cognitive.validFrom) ? { validFrom: cognitive.validFrom } : {}),
+      ...(typeof cognitive.validUntil === 'number' && Number.isFinite(cognitive.validUntil) ? { validUntil: cognitive.validUntil } : {}),
+      ...(Array.isArray(cognitive.consolidatedFrom) && cognitive.consolidatedFrom.length > 0
+        ? { consolidatedFrom: cognitive.consolidatedFrom.map(String) }
+        : {}),
     }
     if (record.kind === 'state' && record.expiredAt === undefined) {
       // provider 已经按默认 TTL 算出 expiredAt;这里只兜底直接调 store 的调用方。
@@ -1283,6 +1311,31 @@ export class MemoryStore {
   }
 
   /** 按 id 定位记录所在的 ScopeStore（lineage / lifecycle 需要拿到可写的 scope）。 */
+  /**
+   * 0.33.0：就地更新一条记录的"记忆强度"字段（stability/difficulty/utility/useCount/
+   * lastUsedAt/validUntil）。认知层算好增量、这里只做持久化；不 flush，由调用方调度。
+   * 返回更新后的记录；找不到 id 时返回 undefined。
+   */
+  updateMetrics(
+    id        ,
+    patch                                                                                                                                                      ,
+  )                           {
+    const located = this.scopeOf(id)
+    if (located === undefined) return undefined
+    const record = located.record                   
+    const next                  = { ...record }
+    if (typeof patch.stability === 'number' && Number.isFinite(patch.stability)) next.stability = Math.max(0, patch.stability)
+    if (typeof patch.difficulty === 'number' && Number.isFinite(patch.difficulty)) next.difficulty = clamp01(patch.difficulty)
+    if (typeof patch.utility === 'number' && Number.isFinite(patch.utility)) next.utility = clamp01(patch.utility)
+    if (typeof patch.useCount === 'number' && Number.isFinite(patch.useCount)) next.useCount = Math.max(0, Math.floor(patch.useCount))
+    if (typeof patch.lastUsedAt === 'number' && Number.isFinite(patch.lastUsedAt)) next.lastUsedAt = patch.lastUsedAt
+    if (typeof patch.validFrom === 'number' && Number.isFinite(patch.validFrom)) next.validFrom = patch.validFrom
+    if (typeof patch.validUntil === 'number' && Number.isFinite(patch.validUntil)) next.validUntil = patch.validUntil
+    if (Array.isArray(patch.consolidatedFrom)) next.consolidatedFrom = patch.consolidatedFrom.map(String)
+    located.store.insert(next)
+    return next
+  }
+
   scopeOf(id        )                                                          {
     for (const store of this.scopes.values()) {
       const record = store.records.get(id)
