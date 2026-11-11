@@ -2,6 +2,32 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.50.0 — 智能关系分析系统（本仓库维护，2026-11-11）
+
+新增独立「关系分析」页与完整分析引擎，全部真实数据、零依赖、不调 LLM、推断与事实分离。
+
+**引擎（`source/memory-local/src/analysis/`，36 例单测）**
+- 六引擎：关系发现（实体共现 + 语义相似，confidence=0.45·cosine+0.25·Jaccard+0.15·时间+0.15·来源）、
+  冲突检测（update/contradiction/context）、知识聚类（并查集 + 主题名）、演化时间线、2-hop 推理、
+  结果校验；输出上限与确定性排序。
+- 关系模型：status（suggested/confirmed/rejected/ignored/pending_review）、strength、confidence、
+  evidence、sourceMemoryIds、inferred、analysis_version；推断关系单独存，不写事实记忆。
+- 持久化：`<storeDir>/analysis/{relations,conflicts,events,tasks}.jsonl + state.json`，原子写；
+  增量指纹 `sha256(content)|updatedAt`，未受影响建议保留；用户决策（确认/拒绝/忽略）不被重算覆盖。
+- 任务：队列/运行/暂停/完成/失败状态、历史；provider 14 个 `analysis*` 方法。
+
+**面板**
+- 新增「关系分析」页：A 概览（已分析记忆/关系/潜在关系/待确认冲突/知识簇/分析时间）、
+  B 控制台（增量/全量/暂停/历史/范围/实体类型/时间筛选 + 真实进度轮询）、
+  C 关系发现中心（依据/强度/置信度/确认/拒绝/忽略/详情/批量审核）、
+  D 冲突中心（new/pending_review/confirmed/resolved/ignored，新旧对比与处理）、
+  E 可视化（关系网络 / 知识聚类 / 演化时间轴 / 多跳推理路径，可确认建立关系）。
+- 服务端 14 条 `/analysis/*` API（15 例路由测试）；端到端集成测试覆盖 全量→概览→关系→确认→图谱。
+
+**文档**：新增 [docs/analysis.md](docs/analysis.md)（架构/算法/数据模型/增量/限制）。
+
+**测试**：1094 例 / 1093 pass / 1 skip / 0 fail。
+
 ## 0.44.1 — 图谱/面板交互修复（专项评审落地，本仓库维护，2026-11-11）
 
 按 UI 专项评审的 P0/P1 逐条修复：

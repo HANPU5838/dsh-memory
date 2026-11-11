@@ -3611,3 +3611,63 @@ test('图谱布局：确定性且落在画布范围内', async () => {
     assert.ok(p.y >= 0 && p.y <= 320, `y 在画布内: ${p.y}`)
   }
 })
+
+test('关系分析页：概览/关系发现/冲突中心渲染真实 API 数据', async () => {
+  const { exports, hooks } = await loadBundle()
+  const AnalysisTab = (exports.__test as { AnalysisTab: (p: Record<string, unknown>) => unknown }).AnalysisTab
+  const now = Date.now()
+  const records = [
+    { id: 'm1', scope: 'global', kind: 'fact', content: '项目使用 PostgreSQL', updatedAt: now, createdAt: now, tags: [], importance: 0.6 },
+    { id: 'm2', scope: 'global', kind: 'fact', content: '项目已迁移到 Neo4j', updatedAt: now, createdAt: now, tags: [], importance: 0.6 },
+  ]
+  const overview = { analyzedMemories: 2, relations: 3, suggested: 1, confirmed: 2, conflictsPending: 1, clusters: 1, lastAnalyzedAt: now, analysisVersion: '1' }
+  const relations = [{
+    id: 'rel1', sourceEntityId: 'tool:postgresql', targetEntityId: 'tool:neo4j', relationshipType: 'entity', status: 'suggested',
+    confidenceScore: 0.72, strength: 'medium', evidence: [{ kind: 'entity', text: '共享 2 条记忆', memoryIds: ['m1', 'm2'] }],
+    sourceMemoryIds: ['m1', 'm2'], inferred: false, analysisVersion: '1', createdAt: now, updatedAt: now,
+  }]
+  const conflicts = [{
+    id: 'cf1', kind: 'update', status: 'new', oldMemoryId: 'm1', newMemoryId: 'm2', similarity: 0.8, contradiction: 0.6,
+    summary: '数据库从 PostgreSQL 变为 Neo4j', evidence: ['数值/标识符差异'], createdAt: now, updatedAt: now,
+  }]
+  const calls: string[] = []
+  const api = async (path: string) => {
+    calls.push(path)
+    if (path.startsWith('analysis/overview')) return overview
+    if (path.startsWith('analysis/tasks/latest')) return null
+    if (path.startsWith('analysis/history')) return { tasks: [] }
+    if (path.startsWith('analysis/relations')) return { relations }
+    if (path.startsWith('analysis/conflicts')) return { conflicts }
+    if (path.startsWith('analysis/graph')) return { nodes: [], edges: [] }
+    if (path.startsWith('analysis/clusters')) return { clusters: [] }
+    if (path.startsWith('analysis/evolution')) return { tracks: [] }
+    throw new Error(`unexpected ${path}`)
+  }
+  const element = () => hooks.React.createElement(AnalysisTab, { api, records, scopes: [] })
+  let current: RenderNode | null = render(element(), hooks)
+  hooks.setRerender(() => { current = render(element(), hooks) })
+  hooks.runEffects()
+  await (async () => { for (let i = 0; i < 12; i++) await Promise.resolve() })()
+
+  const text = textOf(current)
+  assert.ok(text.includes('已分析记忆') && text.includes('已建立关系') && text.includes('潜在关系'), '概览卡渲染')
+  assert.ok(text.includes('增量分析') && text.includes('全量分析') && text.includes('暂停'), '分析控制台按钮')
+  assert.ok(calls.some((path) => path.startsWith('analysis/overview')), '请求真实 overview API')
+
+  const relTab = collect(current).find((n) => n.tag === 'button' && textOf(n).trim() === '关系发现')
+  assert.ok(relTab, '有关系发现视图')
+  ;(relTab!.props!.onClick as () => void)()
+  hooks.runEffects()
+  await (async () => { for (let i = 0; i < 12; i++) await Promise.resolve() })()
+  assert.ok(textOf(current).toLowerCase().includes('postgresql') && textOf(current).toLowerCase().includes('neo4j'), '关系列表展示实体与依据')
+  const confirmBtn = collect(current).find((n) => n.tag === 'button' && textOf(n).trim() === '确认')
+  assert.ok(confirmBtn, '关系可确认/拒绝/忽略')
+
+  const conflictTab = collect(current).find((n) => n.tag === 'button' && textOf(n).trim() === '冲突中心')
+  assert.ok(conflictTab, '有冲突中心视图')
+  ;(conflictTab!.props!.onClick as () => void)()
+  hooks.runEffects()
+  await (async () => { for (let i = 0; i < 12; i++) await Promise.resolve() })()
+  assert.ok(textOf(current).includes('信息更新') || textOf(current).includes('数据库从 PostgreSQL'), '冲突中心展示差异')
+  hooks.resetAll()
+})

@@ -63,6 +63,20 @@ import { temporalBoost } from './cognitive/temporal.ts'
 import { assessContradiction } from './cognitive/contradiction.ts'
 import { applyConsolidationPlan, clusterRecords, planConsolidation } from './cognitive/consolidate.ts'
 import { computeHealth, type HealthReport } from './cognitive/health.ts'
+import { AnalysisRepository } from './analysis/store.ts'
+import { analyzeMemories } from './analysis/engine.ts'
+import {
+  type AnalysisMemory,
+  type AnalysisMode,
+  type AnalysisState,
+  type AnalysisTask,
+  type ConflictRecord,
+  type KnowledgeCluster,
+  type ReasoningPath,
+  type RelationRecord,
+  type RelationStatus,
+  type RelationType,
+} from './analysis/types.ts'
 import { resolveConflict, applyConflictResolution } from './cognitive/resolve.ts'
 import { scanMemoryContent, quarantineRecord, clearQuarantine } from './cognitive/guard.ts'
 import { buildEntityGraph, serializeGraph, type EntityGraphOptions, type SerializableEntityGraph, type GraphMemory } from './cognitive/graph.ts'
@@ -4139,6 +4153,403 @@ export class LocalMemoryService implements MemoryServiceApi {
     return serializeGraph(buildEntityGraph(records, { ...opts, scopes: undefined, now: opts.now ?? now }))
   }
 
+  // -------------------------------------------------------------------------
+  // 0.50.0：智能关系分析（六引擎 + 任务队列 + 可审核关系）
+  // -------------------------------------------------------------------------
+  private analysisRepoInstance: AnalysisRepository | null = null
+  private analysisTask: AnalysisTask | null = null
+  private analysisPauseRequested = false
+
+  private get analysisRepo(): AnalysisRepository {
+    if (this.analysisRepoInstance === null) this.analysisRepoInstance = new AnalysisRepository(this.cfg.storeDir)
+    return this.analysisRepoInstance
+  }
+
+  private get analysisSnapshotPath(): string {
+    return join(this.cfg.storeDir, 'analysis', 'snapshot.json')
+  }
+
+  private readAnalysisSnapshot(): { clusters: KnowledgeCluster[]; evolution: unknown[]; paths: ReasoningPath[]; stats?: unknown; version?: string; analyzedAt?: number } {
+    try {
+      const raw = JSON.parse(readFileSync(this.analysisSnapshotPath, 'utf8')) as Record<string, unknown>
+      return {
+        clusters: Array.isArray(raw.clusters) ? raw.clusters as KnowledgeCluster[] : [],
+        evolution: Array.isArray(raw.evolution) ? raw.evolution : [],
+        paths: Array.isArray(raw.paths) ? raw.paths as ReasoningPath[] : [],
+        stats: raw.stats,
+        ...(typeof raw.version === 'string' ? { version: raw.version } : {}),
+        ...(typeof raw.analyzedAt === 'number' ? { analyzedAt: raw.analyzedAt } : {}),
+      }
+    } catch {
+      return { clusters: [], evolution: [], paths: [] }
+    }
+  }
+
+  private writeAnalysisSnapshot(value: Record<string, unknown>): void {
+    try {
+      mkdirSync(dirname(this.analysisSnapshotPath), { recursive: true })
+      const tmp = `${this.analysisSnapshotPath}.tmp-${process.pid}`
+      writeFileSync(tmp, JSON.stringify(value), 'utf8')
+      renameSync(tmp, this.analysisSnapshotPath)
+    } catch { /* 快照失败不影响主流程 */ }
+  }
+
+  /** 收集分析用记忆（含退役历史，用于演化；软删/过期的由引擎过滤）。 */
+  private collectAnalysisMemories(scopes?: string[]): { memories: AnalysisMemory[]; vectors: Map<string, Float32Array> } {
+    this.discoverScopes()
+    const wanted = scopes !== undefined && scopes.length > 0
+      ? scopes.map((scope) => this.canonicalScope(scope as MemoryScope))
+      : undefined
+    const memories: AnalysisMemory[] = []
+    const vectors = new Map<string, Float32Array>()
+    for (const scopeStore of this.store.allScopes()) {
+      if (wanted !== undefined && !wanted.includes(scopeStore.scope)) continue
+      for (const rec of scopeStore.records.values()) {
+        const extra = rec as MemoryRecord & {
+          source?: { origin?: string }
+          supersedes?: string
+          validUntil?: number
+          expiredAt?: number
+          tombstonedAt?: number
+        }
+        memories.push({
+          id: rec.id,
+          scope: rec.scope,
+          kind: rec.kind,
+          content: rec.content,
+          tags: rec.tags ?? [],
+          createdAt: rec.createdAt,
+          updatedAt: rec.updatedAt,
+          importance: rec.importance,
+          ...(extra.source?.origin !== undefined ? { sourceOrigin: extra.source.origin } : {}),
+          ...(extra.supersedes !== undefined ? { supersedes: extra.supersedes } : {}),
+          ...(extra.validUntil !== undefined ? { validUntil: extra.validUntil } : {}),
+          ...(extra.expiredAt !== undefined ? { expiredAt: extra.expiredAt } : {}),
+          ...(extra.tombstonedAt !== undefined ? { tombstonedAt: extra.tombstonedAt } : {}),
+        })
+        const vec = scopeStore.vectors.get(rec.id)
+        if (vec !== undefined) vectors.set(rec.id, vec)
+      }
+    }
+    return { memories, vectors }
+  }
+
+  analysisOverview(): {
+    analyzedMemories: number
+    relations: number
+    suggested: number
+    confirmed: number
+    conflictsPending: number
+    clusters: number
+    lastAnalyzedAt?: number
+    analysisVersion: string
+    running: AnalysisTask | null
+  } {
+    const repo = this.analysisRepo
+    const state = repo.loadState()
+    const relations = repo.listRelations()
+    const conflicts = repo.listConflicts()
+    const snapshot = this.readAnalysisSnapshot()
+    const { memories } = this.collectAnalysisMemories()
+    return {
+      analyzedMemories: memories.length,
+      relations: relations.filter((item) => item.status === 'confirmed' || item.status === 'suggested').length,
+      suggested: relations.filter((item) => item.status === 'suggested').length,
+      confirmed: relations.filter((item) => item.status === 'confirmed').length,
+      conflictsPending: conflicts.filter((item) => item.status === 'new' || item.status === 'pending_review').length,
+      clusters: snapshot.clusters.length,
+      ...(state.lastAnalyzedAt !== undefined ? { lastAnalyzedAt: state.lastAnalyzedAt } : {}),
+      analysisVersion: snapshot.version ?? '1',
+      running: this.analysisTask !== null && (this.analysisTask.status === 'running' || this.analysisTask.status === 'queued') ? this.analysisTask : null,
+    }
+  }
+
+  analysisLatestTask(): AnalysisTask | null {
+    return this.analysisTask ?? this.analysisRepo.listTasks(1)[0] ?? null
+  }
+
+  analysisHistory(input: { limit?: number } = {}): AnalysisTask[] {
+    const limit = Math.max(1, Math.min(500, Math.floor(Number(input.limit) || 20)))
+    return this.analysisRepo.listTasks(limit)
+  }
+
+  analysisPause(): { paused: boolean } {
+    this.analysisPauseRequested = true
+    return { paused: true }
+  }
+
+  async analysisRun(input: { mode?: AnalysisMode; scopes?: string[]; entityTypes?: string[]; since?: number; until?: number } = {}): Promise<AnalysisTask> {
+    const running = this.analysisTask
+    if (running !== null && (running.status === 'running' || running.status === 'queued')) {
+      throw memoryError('ANALYSIS_BUSY', '已有分析任务在运行，请等待完成或暂停。')
+    }
+    const mode: AnalysisMode = input.mode === 'incremental' ? 'incremental' : 'full'
+    const task: AnalysisTask = {
+      id: `ana-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      mode,
+      status: 'running',
+      progress: 0,
+      total: 0,
+      analyzed: 0,
+      startedAt: Date.now(),
+      options: {
+        ...(Array.isArray(input.scopes) && input.scopes.length > 0 ? { scopes: input.scopes.map(String) } : {}),
+        ...(Array.isArray(input.entityTypes) && input.entityTypes.length > 0 ? { entityTypes: input.entityTypes.map(String) } : {}),
+        ...(typeof input.since === 'number' ? { since: input.since } : {}),
+        ...(typeof input.until === 'number' ? { until: input.until } : {}),
+      },
+    }
+    this.analysisPauseRequested = false
+    this.analysisTask = task
+    this.analysisRepo.appendTask({ ...task })
+    void this.executeAnalysis(task, input).catch(() => { /* 任务内部已记录失败 */ })
+    return task
+  }
+
+  private async executeAnalysis(task: AnalysisTask, input: { scopes?: string[]; entityTypes?: string[]; since?: number; until?: number }): Promise<void> {
+    const repo = this.analysisRepo
+    const finish = (patch: Partial<AnalysisTask>): AnalysisTask => {
+      const next = { ...task, ...patch }
+      this.analysisTask = next
+      repo.appendTask(next)
+      return next
+    }
+    try {
+      const { memories, vectors } = this.collectAnalysisMemories(input.scopes)
+      task.total = memories.length
+      task.progress = 0.05
+      repo.appendTask({ ...task })
+      const state = repo.loadState()
+      const result = analyzeMemories({
+        memories,
+        vectors,
+        previousFingerprints: task.mode === 'incremental' ? state.fingerprints : undefined,
+        existingRelations: repo.listRelations(),
+        existingConflicts: repo.listConflicts(),
+        options: {
+          mode: task.mode,
+          ...(input.entityTypes !== undefined ? { entityTypes: input.entityTypes } : {}),
+          ...(input.since !== undefined ? { since: input.since } : {}),
+          ...(input.until !== undefined ? { until: input.until } : {}),
+          analysisVersion: '1',
+        },
+      })
+      task.progress = 0.9
+      // 合并：用户已确认/拒绝/忽略的关系与已处理冲突**优先保留**，重算只覆盖 suggested/new。
+      const mergedRelations = mergeAnalysisRelations(repo.listRelations(), result.relations, result.preservedRelations)
+      const mergedConflicts = mergeAnalysisConflicts(repo.listConflicts(), result.conflicts, result.preservedConflicts)
+      repo.saveRelations(mergedRelations)
+      repo.saveConflicts(mergedConflicts)
+      const nextState: AnalysisState = {
+        version: 1,
+        fingerprints: result.fingerprints,
+        lastAnalyzedAt: Date.now(),
+      }
+      repo.saveState(nextState)
+      this.writeAnalysisSnapshot({
+        version: '1',
+        analyzedAt: nextState.lastAnalyzedAt,
+        mode: task.mode,
+        stats: result.stats,
+        clusters: result.clusters,
+        evolution: result.evolution,
+        paths: result.paths,
+      })
+      finish({
+        status: this.analysisPauseRequested ? 'paused' : 'done',
+        progress: 1,
+        analyzed: result.stats.analyzed,
+        finishedAt: Date.now(),
+      })
+    } catch (error) {
+      finish({ status: 'failed', error: String((error as Error)?.message ?? error), finishedAt: Date.now() })
+    }
+  }
+
+  analysisRelations(input: { status?: string; limit?: number } = {}): RelationRecord[] {
+    const limit = Math.max(1, Math.min(500, Math.floor(Number(input.limit) || 200)))
+    const status = typeof input.status === 'string' && input.status !== '' ? input.status : undefined
+    return this.analysisRepo.listRelations()
+      .filter((item) => status === undefined || item.status === status)
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, limit)
+  }
+
+  analysisRelationAction(input: { id: string; action: string; relationshipType?: string; note?: string }): RelationRecord {
+    const repo = this.analysisRepo
+    const relations = repo.listRelations()
+    const index = relations.findIndex((item) => item.id === input.id)
+    if (index < 0) throw memoryError('RELATION_NOT_FOUND', `关系 ${input.id} 不存在`)
+    const current = relations[index]!
+    const statusMap: Record<string, RelationStatus> = { confirm: 'confirmed', reject: 'rejected', ignore: 'ignored', reopen: 'suggested', pending: 'pending_review' }
+    const status = statusMap[input.action]
+    if (status === undefined) throw memoryError('RELATION_ACTION_INVALID', `不支持的关系操作：${input.action}`)
+    const relationshipType = typeof input.relationshipType === 'string' && input.relationshipType !== ''
+      ? input.relationshipType as RelationType
+      : current.relationshipType
+    const next: RelationRecord = {
+      ...current,
+      status,
+      relationshipType,
+      ...(typeof input.note === 'string' ? { note: input.note } : {}),
+      updatedAt: Date.now(),
+    }
+    relations[index] = next
+    repo.saveRelations(relations)
+    return next
+  }
+
+  analysisCreateRelation(input: { sourceEntityId: string; targetEntityId: string; relationshipType?: string; evidenceText?: string; sourceMemoryIds?: string[] }): RelationRecord {
+    if (typeof input.sourceEntityId !== 'string' || input.sourceEntityId === '' || typeof input.targetEntityId !== 'string' || input.targetEntityId === '') {
+      throw memoryError('RELATION_INPUT_INVALID', 'sourceEntityId / targetEntityId 必填')
+    }
+    const repo = this.analysisRepo
+    const relations = repo.listRelations()
+    const type = (input.relationshipType ?? 'manual') as RelationType
+    const existing = relations.find((item) => (
+      (item.sourceEntityId === input.sourceEntityId && item.targetEntityId === input.targetEntityId)
+      || (item.sourceEntityId === input.targetEntityId && item.targetEntityId === input.sourceEntityId)
+    ) && item.relationshipType === type)
+    if (existing !== undefined) throw memoryError('RELATION_EXISTS', '这两个实体之间已存在同类型关系')
+    const now = Date.now()
+    const record: RelationRecord = {
+      id: `rel-${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      sourceEntityId: input.sourceEntityId,
+      targetEntityId: input.targetEntityId,
+      relationshipType: type,
+      status: 'confirmed',
+      confidenceScore: type === 'manual' ? 1 : 0.8,
+      strength: type === 'manual' ? 'strong' : 'medium',
+      evidence: [{ kind: type === 'reasoning' ? 'reasoning' : 'manual', text: input.evidenceText ?? '用户手动建立的关系', memoryIds: Array.isArray(input.sourceMemoryIds) ? input.sourceMemoryIds.map(String) : [] }],
+      sourceMemoryIds: Array.isArray(input.sourceMemoryIds) ? input.sourceMemoryIds.map(String) : [],
+      inferred: type === 'reasoning',
+      analysisVersion: '1',
+      createdAt: now,
+      updatedAt: now,
+    }
+    relations.push(record)
+    repo.saveRelations(relations)
+    return record
+  }
+
+  analysisConflicts(input: { status?: string; limit?: number } = {}): ConflictRecord[] {
+    const limit = Math.max(1, Math.min(500, Math.floor(Number(input.limit) || 200)))
+    const status = typeof input.status === 'string' && input.status !== '' ? input.status : undefined
+    return this.analysisRepo.listConflicts()
+      .filter((item) => status === undefined || item.status === status)
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, limit)
+  }
+
+  analysisConflictAction(input: { id: string; action: string; resolution?: unknown }): ConflictRecord {
+    const repo = this.analysisRepo
+    const conflicts = repo.listConflicts()
+    const index = conflicts.findIndex((item) => item.id === input.id)
+    if (index < 0) throw memoryError('CONFLICT_NOT_FOUND', `冲突 ${input.id} 不存在`)
+    const statusMap: Record<string, ConflictRecord['status']> = { confirmed: 'confirmed', resolved: 'resolved', ignored: 'ignored', pending: 'pending_review' }
+    const status = statusMap[input.action]
+    if (status === undefined) throw memoryError('CONFLICT_ACTION_INVALID', `不支持的冲突操作：${input.action}`)
+    const current = conflicts[index]!
+    const next: ConflictRecord = {
+      ...current,
+      status,
+      updatedAt: Date.now(),
+      ...(status === 'resolved' ? { resolution: { action: 'resolved', note: typeof input.resolution === 'string' ? input.resolution : undefined, decidedAt: Date.now() } } : {}),
+    }
+    conflicts[index] = next
+    repo.saveConflicts(conflicts)
+    return next
+  }
+
+  analysisClusters(): KnowledgeCluster[] {
+    return this.readAnalysisSnapshot().clusters
+  }
+
+  analysisEvolution(input: { entity?: string; limit?: number } = {}): unknown[] {
+    const limit = Math.max(1, Math.min(500, Math.floor(Number(input.limit) || 200)))
+    const tracks = this.readAnalysisSnapshot().evolution as Array<{ entityId?: string }>
+    const entity = typeof input.entity === 'string' && input.entity !== '' ? input.entity : undefined
+    return tracks.filter((track) => entity === undefined || track.entityId === entity).slice(0, limit)
+  }
+
+  analysisPaths(input: { from: string; to: string; maxHops?: number }): { paths: ReasoningPath[] } {
+    if (typeof input.from !== 'string' || input.from === '' || typeof input.to !== 'string' || input.to === '') {
+      throw memoryError('ANALYSIS_INPUT_INVALID', 'from / to 必填')
+    }
+    const from = input.from, to = input.to
+    if (from === to) return { paths: [] }
+    const maxHops = Math.max(2, Math.min(3, Math.floor(Number(input.maxHops) || 3)))
+    const graph = this.analysisGraph()
+    const labelOf = new Map(graph.nodes.map((node) => [node.id, node.label]))
+    if (!labelOf.has(from) || !labelOf.has(to)) return { paths: [] }
+    // 无向邻接：只沿 confirmed/suggested 关系走；BFS 最多 maxHops 跳，取前 5 条最短路径。
+    const adjacency = new Map<string, Array<{ to: string; confidence: number; confirmed: boolean }>>()
+    for (const edge of graph.edges) {
+      const entry = { to: edge.b, confidence: edge.confidence, confirmed: edge.status === 'confirmed' }
+      const reverse = { to: edge.a, confidence: edge.confidence, confirmed: edge.status === 'confirmed' }
+      if (!adjacency.has(edge.a)) adjacency.set(edge.a, [])
+      if (!adjacency.has(edge.b)) adjacency.set(edge.b, [])
+      adjacency.get(edge.a)!.push(entry)
+      adjacency.get(edge.b)!.push(reverse)
+    }
+    const found: Array<{ ids: string[]; confidence: number; confirmed: boolean }> = []
+    type Node = { id: string; ids: string[]; confidence: number; confirmed: boolean }
+    let frontier: Node[] = [{ id: from, ids: [from], confidence: 1, confirmed: true }]
+    const seenDepth = new Map<string, number>([[from, 0]])
+    for (let hop = 1; hop <= maxHops && found.length < 5; hop++) {
+      const next: Node[] = []
+      for (const node of frontier) {
+        for (const edge of adjacency.get(node.id) ?? []) {
+          if (node.ids.includes(edge.to)) continue
+          const candidate: Node = {
+            id: edge.to,
+            ids: [...node.ids, edge.to],
+            confidence: node.confidence * edge.confidence,
+            confirmed: node.confirmed && edge.confirmed,
+          }
+          if (edge.to === to) { found.push({ ids: candidate.ids, confidence: candidate.confidence, confirmed: candidate.confirmed }) ; continue }
+          const previousDepth = seenDepth.get(edge.to)
+          if (previousDepth !== undefined && previousDepth <= hop) continue
+          seenDepth.set(edge.to, hop)
+          next.push(candidate)
+        }
+      }
+      frontier = next
+    }
+    const now = Date.now()
+    return {
+      paths: found.slice(0, 5).map((item) => ({
+        id: `path-${item.ids.join('-')}`,
+        fromEntityId: from,
+        toEntityId: to,
+        path: item.ids,
+        labels: item.ids.map((id) => labelOf.get(id) ?? id),
+        confidence: Math.min(1, item.confidence),
+        inferred: !item.confirmed,
+        relationshipType: 'reasoning',
+        evidence: [{ kind: 'reasoning', text: `多跳路径：${item.ids.map((id) => labelOf.get(id) ?? id).join(' → ')}`, memoryIds: [] }],
+        sourceMemoryIds: [],
+        analysisVersion: '1',
+        createdAt: now,
+        updatedAt: now,
+      })),
+    }
+  }
+
+  analysisGraph(): {
+    nodes: Array<{ id: string; label: string; type: string; count: number }>
+    edges: Array<{ a: string; b: string; weight: number; status: string; type: string; confidence: number; inferred: boolean }>
+  } {
+    const entities = this.entityGraph()
+    const relations = this.analysisRepo.listRelations().filter((item) => item.status === 'confirmed' || item.status === 'suggested')
+    const nodes = entities.nodes.map((node) => ({ id: node.id, label: node.label, type: node.type, count: node.count }))
+    const nodeIds = new Set(nodes.map((node) => node.id))
+    const edges = relations
+      .filter((relation) => nodeIds.has(relation.sourceEntityId) && nodeIds.has(relation.targetEntityId))
+      .map((relation) => ({ a: relation.sourceEntityId, b: relation.targetEntityId, weight: Math.max(1, Math.round(relation.confidenceScore * 10)), status: relation.status, type: relation.relationshipType, confidence: relation.confidenceScore, inferred: relation.inferred }))
+    return { nodes, edges }
+  }
+
   /** 0.40.0（P1）：记忆健康度报告（抽样重复率 + 冲突/失效/隔离/休眠/嵌入覆盖 + 0-100 分）。 */
   healthReport(): HealthReport {
     this.discoverScopes()
@@ -5008,4 +5419,31 @@ const DISCOVER_TTL_MS = 3000
 
 export function createMemoryService(config: MemoryLocalConfig = {}): LocalMemoryService {
   return new LocalMemoryService(config)
+}
+
+/**
+ * 关系合并：既有关系里用户已决策的（confirmed/rejected/ignored/pending_review）优先，
+ * 重算结果只覆盖 suggested；未触及的 suggested 原样保留。同 id 去重。
+ */
+function mergeAnalysisRelations(existing: readonly RelationRecord[], fresh: readonly RelationRecord[], preserved: readonly RelationRecord[]): RelationRecord[] {
+  const map = new Map<string, RelationRecord>()
+  for (const item of existing) map.set(item.id, item)
+  for (const item of [...fresh, ...preserved]) {
+    const previous = map.get(item.id)
+    if (previous !== undefined && previous.status !== 'suggested') continue
+    map.set(item.id, item)
+  }
+  return [...map.values()]
+}
+
+/** 冲突合并：已确认/已解决/已忽略的冲突保留；new/pending_review 用重算或保留结果覆盖。 */
+function mergeAnalysisConflicts(existing: readonly ConflictRecord[], fresh: readonly ConflictRecord[], preserved: readonly ConflictRecord[]): ConflictRecord[] {
+  const map = new Map<string, ConflictRecord>()
+  for (const item of existing) map.set(item.id, item)
+  for (const item of [...fresh, ...preserved]) {
+    const previous = map.get(item.id)
+    if (previous !== undefined && previous.status !== 'new' && previous.status !== 'pending_review') continue
+    map.set(item.id, item)
+  }
+  return [...map.values()]
 }

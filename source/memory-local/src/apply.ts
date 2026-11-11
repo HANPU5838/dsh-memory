@@ -197,6 +197,22 @@ export class CordisMemoryService extends Service {
     return this.impl.consolidateNow()
   }
 
+  // 0.50.0：智能关系分析
+  analysisOverview(): ReturnType<LocalMemoryService['analysisOverview']> { return this.impl.analysisOverview() }
+  analysisLatestTask(): ReturnType<LocalMemoryService['analysisLatestTask']> { return this.impl.analysisLatestTask() }
+  analysisRun(input?: Parameters<LocalMemoryService['analysisRun']>[0]): ReturnType<LocalMemoryService['analysisRun']> { return this.impl.analysisRun(input) }
+  analysisPause(): ReturnType<LocalMemoryService['analysisPause']> { return this.impl.analysisPause() }
+  analysisRelations(input?: Parameters<LocalMemoryService['analysisRelations']>[0]): ReturnType<LocalMemoryService['analysisRelations']> { return this.impl.analysisRelations(input) }
+  analysisRelationAction(input: Parameters<LocalMemoryService['analysisRelationAction']>[0]): ReturnType<LocalMemoryService['analysisRelationAction']> { return this.impl.analysisRelationAction(input) }
+  analysisCreateRelation(input: Parameters<LocalMemoryService['analysisCreateRelation']>[0]): ReturnType<LocalMemoryService['analysisCreateRelation']> { return this.impl.analysisCreateRelation(input) }
+  analysisConflicts(input?: Parameters<LocalMemoryService['analysisConflicts']>[0]): ReturnType<LocalMemoryService['analysisConflicts']> { return this.impl.analysisConflicts(input) }
+  analysisConflictAction(input: Parameters<LocalMemoryService['analysisConflictAction']>[0]): ReturnType<LocalMemoryService['analysisConflictAction']> { return this.impl.analysisConflictAction(input) }
+  analysisClusters(): ReturnType<LocalMemoryService['analysisClusters']> { return this.impl.analysisClusters() }
+  analysisEvolution(input?: Parameters<LocalMemoryService['analysisEvolution']>[0]): ReturnType<LocalMemoryService['analysisEvolution']> { return this.impl.analysisEvolution(input) }
+  analysisPaths(input: Parameters<LocalMemoryService['analysisPaths']>[0]): ReturnType<LocalMemoryService['analysisPaths']> { return this.impl.analysisPaths(input) }
+  analysisGraph(): ReturnType<LocalMemoryService['analysisGraph']> { return this.impl.analysisGraph() }
+  analysisHistory(input?: Parameters<LocalMemoryService['analysisHistory']>[0]): ReturnType<LocalMemoryService['analysisHistory']> { return this.impl.analysisHistory(input) }
+
   /** 0.42.0：知识图谱（实体共现图）。 */
   entityGraph(opts?: Parameters<LocalMemoryService['entityGraph']>[0]): ReturnType<LocalMemoryService['entityGraph']> {
     return this.impl.entityGraph(opts)

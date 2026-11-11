@@ -11,6 +11,8 @@
  *   GET  /status    各 scope 记录数 + 待嵌入数 + 展示标签 + 用途描述(0.28.0)
  *   POST /scope-meta {scope, description?, name?}  编辑作用域用途 / 别名(0.29.0)
  *   GET  /records   ?scope=&q=  枚举/过滤记录
+ *   GET|POST /analysis/*  智能关系分析(0.50.0):概览 / 任务 / 关系 / 冲突 / 聚类 /
+ *                   演化 / 路径 / 图 —— 只做校验与转发,算法与状态在 provider 里
  *   GET  /search    ?scope=&q=&topK=  语义检索(向量 + 词法,provider 排序)
  *   POST /update    {id, content?, kind?, importance?, tags?, triggers?, expiresAt?/ttlMs?}
  *                   → 新建一条修正版(supersedes=id),旧记录保留(0.23.0)
@@ -675,6 +677,89 @@ function grantsPayload(ctx, memory, sessionId) {
   return { sessionId, grants: list }
 }
 
+// ---------------------------------------------------------------------------
+// 智能关系分析(0.50.0)
+//
+// 面板「智能关系分析」页的接口全部只是**转发层**:关系发现、冲突分类、聚类、
+// 演化、路径推理的算法与状态都在 provider(记忆服务)里。面板不持有分析状态、
+// 不缓存、也绝不伪造数据 —— provider 没实现对应方法时统一 501,面板据此显示
+// "当前记忆服务版本不支持关系分析",而不是拿空数组冒充结果。
+// ---------------------------------------------------------------------------
+
+/** 分析接口的输入错误:一律 400,消息里带字段名,面板可直接 toast。 */
+function analysisInputError(field, message) {
+  return new ApiError(400, 'ANALYSIS_INPUT_INVALID', message ?? `${field} 不合法`)
+}
+
+/** 取 provider 的分析方法;缺失 → 501 NOT_SUPPORTED(而不是 500)。 */
+function analysisMethod(memory, name) {
+  const fn = memory?.[name]
+  if (typeof fn !== 'function') {
+    throw new ApiError(501, 'NOT_SUPPORTED', `provider 未提供智能关系分析接口（${name}，请升级 @restregular/dsh-memory）`)
+  }
+  return fn
+}
+
+/** 必填非空字符串(去掉首尾空白)。 */
+function requireText(value, field) {
+  const text = typeof value === 'string' ? value.trim() : ''
+  if (text === '') throw analysisInputError(field, `缺少 ${field}`)
+  return text
+}
+
+/** 可选字符串:null/undefined/空串 → undefined(等价于不传该字段)。 */
+function optionalText(value) {
+  if (typeof value !== 'string') return undefined
+  const text = value.trim()
+  return text === '' ? undefined : text
+}
+
+/** 可选字符串数组:不是数组 → 400;数组项必须非空字符串。 */
+function optionalTextArray(value, field) {
+  if (value === undefined || value === null) return undefined
+  if (!Array.isArray(value)) throw analysisInputError(field, `${field} 必须是字符串数组`)
+  return value.map((item) => {
+    const text = optionalText(item)
+    if (text === undefined) throw analysisInputError(field, `${field} 只能包含非空字符串`)
+    return text
+  })
+}
+
+/** 分析列表的 limit 上限。面板一页最多 500 条,再多没有渲染意义。 */
+const ANALYSIS_LIMIT_MAX = 500
+
+/** GET 的 limit:缺省返回 undefined;给出时解析成整数并夹取 1..500。 */
+function analysisLimit(url) {
+  const raw = (url.searchParams.get('limit') ?? '').trim()
+  if (raw === '') return undefined
+  if (!/^\d+$/.test(raw)) throw analysisInputError('limit', 'limit 必须是 1..500 的整数')
+  return Math.min(ANALYSIS_LIMIT_MAX, Math.max(1, Number(raw)))
+}
+
+/** GET 的 status:空串 → undefined(面板的"全部"就是不传参数)。 */
+function analysisStatus(url) {
+  return optionalText(url.searchParams.get('status'))
+}
+
+/** 时间参数:毫秒时间戳 / ISO 字符串 → 毫秒;两者都不是 → 400。 */
+function analysisTime(value, field) {
+  if (value === undefined || value === null || value === '') return undefined
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string') {
+    const numeric = Number(value)
+    if (Number.isFinite(numeric)) return numeric
+    const parsed = Date.parse(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  throw analysisInputError(field, `${field} 必须是毫秒时间戳或 ISO 时间`)
+}
+
+/** 该字段存在就原样转发(如冲突解决结果可能是对象,不能当字符串丢)。 */
+function copyDefined(target, source, field) {
+  if (source?.[field] !== undefined) target[field] = source[field]
+  return target
+}
+
 async function handle(ctx, routePath, req, res) {
   const url = new URL(req.url ?? '/', 'http://dsh.local')
   const path = url.pathname.slice(routePath.length) || '/'
@@ -1235,6 +1320,152 @@ async function handle(ctx, routePath, req, res) {
         return
       }
       writeJson(res, { ok: true, value: { ...memory.restoreBackup(name), restoredFrom: name } })
+      return
+    }
+    // -----------------------------------------------------------------------
+    // 智能关系分析(0.50.0):GET 用 url.searchParams、POST 用 readJsonBody,
+    // 校验完原样转发 provider;响应统一 { ok: true, value }。
+    // -----------------------------------------------------------------------
+    if (method === 'GET' && path === '/analysis/overview') {
+      writeJson(res, { ok: true, value: await analysisMethod(memory, 'analysisOverview').call(memory) })
+      return
+    }
+    if (method === 'GET' && path === '/analysis/tasks/latest') {
+      const latest = await analysisMethod(memory, 'analysisLatestTask').call(memory)
+      // 还没跑过分析 = null(面板据此显示"尚未分析"),不是空对象。
+      writeJson(res, { ok: true, value: latest ?? null })
+      return
+    }
+    if (method === 'POST' && path === '/analysis/run') {
+      const run = analysisMethod(memory, 'analysisRun')
+      const body = await readJsonBody(req)
+      const mode = requireText(body?.mode, 'mode')
+      if (mode !== 'incremental' && mode !== 'full') {
+        throw analysisInputError('mode', "mode 必须是 'incremental' 或 'full'")
+      }
+      const input = { mode }
+      const scopes = optionalTextArray(body?.scopes, 'scopes')
+      if (scopes !== undefined) input.scopes = scopes
+      const entityTypes = optionalTextArray(body?.entityTypes, 'entityTypes')
+      if (entityTypes !== undefined) input.entityTypes = entityTypes
+      const since = analysisTime(body?.since, 'since')
+      if (since !== undefined) input.since = since
+      const until = analysisTime(body?.until, 'until')
+      if (until !== undefined) input.until = until
+      writeJson(res, { ok: true, value: await run.call(memory, input) })
+      return
+    }
+    if (method === 'POST' && path === '/analysis/pause') {
+      writeJson(res, { ok: true, value: await analysisMethod(memory, 'analysisPause').call(memory) })
+      return
+    }
+    if (method === 'GET' && path === '/analysis/relations') {
+      const relations = analysisMethod(memory, 'analysisRelations')
+      const input = {}
+      const status = analysisStatus(url)
+      if (status !== undefined) input.status = status
+      const limit = analysisLimit(url)
+      if (limit !== undefined) input.limit = limit
+      writeJson(res, { ok: true, value: { relations: await relations.call(memory, input) } })
+      return
+    }
+    if (method === 'POST' && path === '/analysis/relations/action') {
+      const actionFn = analysisMethod(memory, 'analysisRelationAction')
+      const body = await readJsonBody(req)
+      const id = requireText(body?.id, 'id')
+      const action = requireText(body?.action, 'action')
+      const allowed = ['confirm', 'reject', 'ignore', 'reopen']
+      if (!allowed.includes(action)) {
+        throw analysisInputError('action', `action 必须是 ${allowed.join(' / ')} 之一`)
+      }
+      const input = { id, action }
+      const relationshipType = optionalText(body?.relationshipType)
+      if (relationshipType !== undefined) input.relationshipType = relationshipType
+      const note = optionalText(body?.note)
+      if (note !== undefined) input.note = note
+      writeJson(res, { ok: true, value: await actionFn.call(memory, input) })
+      return
+    }
+    if (method === 'POST' && path === '/analysis/relations/create') {
+      const create = analysisMethod(memory, 'analysisCreateRelation')
+      const body = await readJsonBody(req)
+      const input = {
+        sourceEntityId: requireText(body?.sourceEntityId, 'sourceEntityId'),
+        targetEntityId: requireText(body?.targetEntityId, 'targetEntityId'),
+        relationshipType: requireText(body?.relationshipType, 'relationshipType'),
+      }
+      const evidenceText = optionalText(body?.evidenceText)
+      if (evidenceText !== undefined) input.evidenceText = evidenceText
+      const sourceMemoryIds = optionalTextArray(body?.sourceMemoryIds, 'sourceMemoryIds')
+      if (sourceMemoryIds !== undefined) input.sourceMemoryIds = sourceMemoryIds
+      writeJson(res, { ok: true, value: await create.call(memory, input) })
+      return
+    }
+    if (method === 'GET' && path === '/analysis/conflicts') {
+      const conflicts = analysisMethod(memory, 'analysisConflicts')
+      const input = {}
+      const status = analysisStatus(url)
+      if (status !== undefined) input.status = status
+      const limit = analysisLimit(url)
+      if (limit !== undefined) input.limit = limit
+      writeJson(res, { ok: true, value: { conflicts: await conflicts.call(memory, input) } })
+      return
+    }
+    if (method === 'POST' && path === '/analysis/conflicts/action') {
+      const actionFn = analysisMethod(memory, 'analysisConflictAction')
+      const body = await readJsonBody(req)
+      const id = requireText(body?.id, 'id')
+      const action = requireText(body?.action, 'action')
+      const allowed = ['confirmed', 'resolved', 'ignored']
+      if (!allowed.includes(action)) {
+        throw analysisInputError('action', `action 必须是 ${allowed.join(' / ')} 之一`)
+      }
+      const input = copyDefined({ id, action }, body, 'resolution')
+      writeJson(res, { ok: true, value: await actionFn.call(memory, input) })
+      return
+    }
+    if (method === 'GET' && path === '/analysis/clusters') {
+      writeJson(res, { ok: true, value: { clusters: await analysisMethod(memory, 'analysisClusters').call(memory) } })
+      return
+    }
+    if (method === 'GET' && path === '/analysis/evolution') {
+      const evolution = analysisMethod(memory, 'analysisEvolution')
+      // entity 可选:面板的「演化」视图默认要看全部实体的轨迹(不传 entity),
+      // 选中某个实体时才收窄到单条。
+      const input = {}
+      const entity = optionalText(url.searchParams.get('entity'))
+      if (entity !== undefined) input.entity = entity
+      const limit = analysisLimit(url)
+      if (limit !== undefined) input.limit = limit
+      writeJson(res, { ok: true, value: { tracks: await evolution.call(memory, input) } })
+      return
+    }
+    if (method === 'GET' && path === '/analysis/paths') {
+      const paths = analysisMethod(memory, 'analysisPaths')
+      const input = {
+        from: requireText(url.searchParams.get('from'), 'from'),
+        to: requireText(url.searchParams.get('to'), 'to'),
+      }
+      const rawHops = (url.searchParams.get('maxHops') ?? '').trim()
+      if (rawHops !== '') {
+        if (!/^\d+$/.test(rawHops) || Number(rawHops) < 1) {
+          throw analysisInputError('maxHops', 'maxHops 必须是 ≥1 的整数')
+        }
+        input.maxHops = Number(rawHops)
+      }
+      writeJson(res, { ok: true, value: await paths.call(memory, input) })
+      return
+    }
+    if (method === 'GET' && path === '/analysis/graph') {
+      writeJson(res, { ok: true, value: await analysisMethod(memory, 'analysisGraph').call(memory) })
+      return
+    }
+    if (method === 'GET' && path === '/analysis/history') {
+      const history = analysisMethod(memory, 'analysisHistory')
+      const input = {}
+      const limit = analysisLimit(url)
+      if (limit !== undefined) input.limit = limit
+      writeJson(res, { ok: true, value: { tasks: await history.call(memory, input) } })
       return
     }
     if (method === 'GET' && path === '/records') {

@@ -386,6 +386,70 @@ window.__ModuleLoader__.load({
       '@keyframes kgDetailIn{from{opacity:0;transform:translateX(10px)}to{opacity:1;transform:translateX(0)}}',
       '@keyframes memFadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}',
       '.memp .tabs .tab{transition:background .16s ease,color .16s ease}',
+      '.memp .ana{display:flex;flex-direction:column;gap:12px;padding:2px}',
+      '.memp .ana-overview{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}',
+      '.memp .ana-card{display:flex;flex-direction:column;gap:2px;padding:10px 11px;border:1px solid var(--dsw-alias-border-l1);border-radius:11px;background:var(--dsw-alias-bg-layer-1)}',
+      '.memp .ana-card b{font-size:19px;line-height:1.1;color:var(--dsw-alias-label-primary)}',
+      '.memp .ana-card span{font-size:10.5px;color:var(--dsw-alias-label-secondary)}',
+      '.memp .ana-meta{display:flex;flex-wrap:wrap;gap:4px;font-size:10.5px;color:var(--dsw-alias-label-secondary)}',
+      '.memp .ana-msg{color:var(--dsw-alias-brand-primary)}',
+      '.memp .ana-console{display:flex;flex-direction:column;gap:8px;padding:10px;border:1px solid var(--dsw-alias-border-l1);border-radius:11px;background:var(--dsw-alias-bg-layer-1)}',
+      '.memp .ana-console-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}',
+      '.memp .ana-console-row button,.memp .ana-relation-actions button,.memp .ana-paths button{padding:4px 9px;border-radius:7px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);font-size:11px;color:var(--dsw-alias-label-primary)}',
+      '.memp .ana-primary{color:var(--dsw-alias-brand-primary)!important;border-color:var(--dsw-alias-brand-primary)!important}',
+      '.memp .ana-progress{position:relative;height:22px;border-radius:999px;background:var(--dsw-alias-bg-layer-2);overflow:hidden}',
+      '.memp .ana-progress-bar{position:absolute;left:0;top:0;bottom:0;background:color-mix(in srgb,var(--dsw-alias-brand-primary) 30%,transparent);transition:width .3s ease}',
+      '.memp .ana-progress span{position:relative;display:block;line-height:22px;text-align:center;font-size:10.5px;color:var(--dsw-alias-label-primary)}',
+      '.memp .ana-history summary{cursor:pointer;font-size:11px;color:var(--dsw-alias-label-secondary)}',
+      '.memp .ana-history-row{display:flex;gap:8px;flex-wrap:wrap;font-size:10.5px;padding:3px 0}',
+      '.memp .ana-views{display:flex;gap:4px;flex-wrap:wrap}',
+      '.memp .ana-viewtab{padding:5px 12px;border-radius:8px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);font-size:11.5px;color:var(--dsw-alias-label-secondary)}',
+      '.memp .ana-viewtab.on{color:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 8%,transparent)}',
+      '.memp .ana-section{display:flex;flex-direction:column;gap:8px}',
+      '.memp .ana-chips{display:flex;gap:5px;flex-wrap:wrap;align-items:center}',
+      '.memp .ana-empty{padding:18px;text-align:center;font-size:11.5px;color:var(--dsw-alias-label-secondary);border:1px dashed var(--dsw-alias-border-l1);border-radius:10px}',
+      '.memp .ana-relation{display:flex;gap:8px;align-items:flex-start;padding:9px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1)}',
+      '.memp .ana-relation-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}',
+      '.memp .ana-relation-title{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:11.5px}',
+      '.memp .ana-arrow{color:var(--dsw-alias-label-secondary)}',
+      '.memp .ana-badge{font-size:9.5px;padding:1px 6px;border-radius:999px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary)}',
+      '.memp .ana-badge.strong{color:#059669;background:color-mix(in srgb,#059669 12%,transparent)}',
+      '.memp .ana-badge.update{color:#2563eb;background:color-mix(in srgb,#2563eb 12%,transparent)}',
+      '.memp .ana-badge.contradiction{color:#dc2626;background:color-mix(in srgb,#dc2626 12%,transparent)}',
+      '.memp .ana-status{font-size:9.5px;padding:1px 6px;border-radius:999px;background:var(--dsw-alias-bg-layer-2)}',
+      '.memp .ana-status.confirmed{color:#059669}.memp .ana-status.rejected,.memp .ana-status.ignored{color:#6b7280}.memp .ana-status.pending_review{color:#d97706}',
+      '.memp .ana-evidence{font-size:10px;display:flex;flex-direction:column;gap:1px}',
+      '.memp .ana-detail{font-size:10.5px;display:flex;flex-direction:column;gap:2px;border-top:1px dashed var(--dsw-alias-border-l1);padding-top:4px}',
+      '.memp .ana-memory-row{display:flex;gap:6px;font-size:10.5px;padding:2px 0;align-items:flex-start}',
+      '.memp .ana-memory-text{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}',
+      '.memp .ana-relation-actions{display:flex;flex-direction:column;gap:4px;flex:none}',
+      '.memp .ana-conflict{display:flex;flex-direction:column;gap:5px;padding:9px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1)}',
+      '.memp .ana-conflict-head{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:11px}',
+      '.memp .ana-conflict-pair{display:flex;flex-direction:column;gap:3px;font-size:10.5px}',
+      '.memp .ana-network{overflow:auto;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1)}',
+      '.memp .ana-svg{display:block}',
+      '.memp .ana-edge.confirmed{stroke:#059669}.memp .ana-edge.suggested{stroke:#d97706}.memp .ana-edge.other{stroke:#9ca3af;opacity:.4}',
+      '.memp .ana-legend{display:flex;gap:10px;padding:6px 10px;font-size:10px;color:var(--dsw-alias-label-secondary)}',
+      '.memp .ana-key::before{content:"";display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:3px;vertical-align:-1px}',
+      '.memp .ana-key.confirmed::before{background:#059669}.memp .ana-key.suggested::before{background:#d97706}.memp .ana-key.other::before{background:#9ca3af}',
+      '.memp .ana-node-label{font-size:9.5px;fill:var(--dsw-alias-label-secondary);paint-order:stroke;stroke:var(--dsw-alias-bg-layer-1);stroke-width:2px}',
+      '.memp .ana-clusters{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px}',
+      '.memp .ana-cluster{border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1);overflow:hidden}',
+      '.memp .ana-cluster-head{display:flex;gap:6px;align-items:center;padding:8px 10px;cursor:pointer;font-size:11.5px}',
+      '.memp .ana-cluster-body{border-top:1px dashed var(--dsw-alias-border-l1);padding:6px 10px;display:flex;flex-direction:column;gap:3px}',
+      '.memp .ana-chip{font-size:10px;padding:1px 7px;border-radius:999px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary)}',
+      '.memp .ana-timeline{display:flex;flex-direction:column;gap:10px}',
+      '.memp .ana-track h4{margin:0 0 4px;font-size:12px}',
+      '.memp .ana-events{display:flex;flex-direction:column;gap:4px;border-left:2px solid var(--dsw-alias-border-l1);padding-left:10px}',
+      '.memp .ana-event{display:flex;gap:6px;align-items:flex-start;font-size:10.5px}',
+      '.memp .ana-event-dot{width:8px;height:8px;border-radius:50%;background:var(--dsw-alias-brand-primary);margin-top:4px;flex:none}',
+      '.memp .ana-event-dot.superseded,.memp .ana-event-dot.invalidated{background:#9ca3af}.memp .ana-event-dot.decision{background:#d97706}',
+      '.memp .ana-event-date{color:var(--dsw-alias-label-secondary);flex:none;font-size:9.5px}',
+      '.memp .ana-event-kind{font-size:9.5px;padding:0 5px;border-radius:999px;background:var(--dsw-alias-bg-layer-2)}',
+      '.memp .ana-paths{display:flex;flex-direction:column;gap:8px}',
+      '.memp .ana-path{padding:8px 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1);display:flex;flex-direction:column;gap:4px}',
+      '.memp .ana-path-hops{font-size:11px}',
+      '.memp .ana-overview-detail{font-size:11px;line-height:1.6}',
       '.memp .tree-tab,.memp .memp-body{animation:memFadeIn .18s ease-out both}',
       '.memp .tree-canvas{transition:transform .1s ease-out}',
       '.memp .kg-node{transition:transform .45s cubic-bezier(.2,.8,.2,1),opacity .2s ease}',
@@ -4638,6 +4702,223 @@ window.__ModuleLoader__.load({
       )
     }
 
+    // 0.50.0：智能关系分析（真实 /analysis API；六引擎结果 + 五区域 UI）
+    const A_REL_STATUS = [['suggested','推荐'],['pending_review','待确认'],['confirmed','已确认'],['rejected','已拒绝'],['ignored','已忽略']]
+    const A_CF_STATUS = [['new','新发现'],['pending_review','待确认'],['confirmed','已确认'],['resolved','已解决'],['ignored','已忽略']]
+    const A_STRENGTH = { strong:'强关联', medium:'中等关联', weak:'弱关联', unverified:'待验证' }
+    const A_REL_TYPE = { semantic:'语义关联', entity:'实体关联', temporal:'时间关联', reasoning:'推理关联', manual:'手动关系' }
+    const entityLabelOf = (id) => {
+      const text = String(id ?? ''); const i = text.indexOf(':')
+      if (i <= 0) return text
+      const meta = KG_TYPE_META[text.slice(0, i)]
+      return meta ? `${meta.label} · ${text.slice(i + 1)}` : text.slice(i + 1)
+    }
+
+    function AnalysisTab({ api, records, scopes }) {
+      const [overview, setOverview] = React.useState(null)
+      const [task, setTask] = React.useState(null)
+      const [history, setHistory] = React.useState([])
+      const [view, setView] = React.useState('overview')
+      const [relStatus, setRelStatus] = React.useState('suggested')
+      const [relations, setRelations] = React.useState([])
+      const [checked, setChecked] = React.useState(new Set())
+      const [expanded, setExpanded] = React.useState(null)
+      const [cfStatus, setCfStatus] = React.useState('new')
+      const [conflicts, setConflicts] = React.useState([])
+      const [graph, setGraph] = React.useState(null)
+      const [clusters, setClusters] = React.useState([])
+      const [tracks, setTracks] = React.useState([])
+      const [visual, setVisual] = React.useState('network')
+      const [paths, setPaths] = React.useState([])
+      const [pathFrom, setPathFrom] = React.useState('')
+      const [pathTo, setPathTo] = React.useState('')
+      const [scope, setScope] = React.useState('')
+      const [entityType, setEntityType] = React.useState('')
+      const [sinceDays, setSinceDays] = React.useState(0)
+      const [busy, setBusy] = React.useState(false)
+      const [msg, setMsg] = React.useState('')
+      const recordById = new Map()
+      for (const rec of records ?? []) recordById.set(rec.id, rec)
+      const safe = async (fn) => { try { return await fn() } catch (e) { setMsg(String(e.message || e)); return null } }
+
+      const loadOverview = async () => {
+        const data = await safe(() => api('analysis/overview')); if (data) setOverview(data)
+        const latest = await safe(() => api('analysis/tasks/latest')); if (latest !== null) setTask(latest)
+        const hist = await safe(() => api('analysis/history?limit=10')); if (hist) setHistory(hist.tasks ?? [])
+      }
+      const loadRelations = async () => { const data = await safe(() => api(`analysis/relations?status=${encodeURIComponent(relStatus)}&limit=200`)); if (data) setRelations(data.relations ?? []) }
+      const loadConflicts = async () => { const data = await safe(() => api(`analysis/conflicts?status=${encodeURIComponent(cfStatus)}&limit=200`)); if (data) setConflicts(data.conflicts ?? []) }
+      const loadVisual = async () => {
+        const [g, c, e] = await Promise.all([safe(() => api('analysis/graph')), safe(() => api('analysis/clusters')), safe(() => api('analysis/evolution?limit=200'))])
+        if (g) setGraph(g); if (c) setClusters(c.clusters ?? []); if (e) setTracks(e.tracks ?? [])
+      }
+      React.useEffect(() => { void loadOverview() }, [])
+      React.useEffect(() => { void loadRelations() }, [relStatus])
+      React.useEffect(() => { void loadConflicts() }, [cfStatus])
+      React.useEffect(() => { if (view === 'visual') void loadVisual() }, [view])
+      React.useEffect(() => {
+        if (task === null || (task.status !== 'running' && task.status !== 'queued')) return undefined
+        const timer = setInterval(() => { void loadOverview() }, 1500)
+        return () => clearInterval(timer)
+      }, [task?.status])
+
+      const run = async (mode) => {
+        setBusy(true); setMsg('')
+        try {
+          const body = { mode, ...(scope !== '' ? { scopes: [scope] } : {}), ...(entityType !== '' ? { entityTypes: [entityType] } : {}), ...(sinceDays > 0 ? { since: Date.now() - sinceDays * 86400000 } : {}) }
+          const started = await api('analysis/run', body); setTask(started); setMsg(mode === 'full' ? '全量分析已启动' : '增量分析已启动')
+        } catch (e) { setMsg(`启动失败：${String(e.message || e)}`) } finally { setBusy(false) }
+      }
+      const pause = async () => { try { await api('analysis/pause', {}); setMsg('已请求暂停') } catch (e) { setMsg(String(e.message || e)) } }
+      const relAction = async (id, action) => { try { await api('analysis/relations/action', { id, action }); setMsg('关系状态已更新'); await loadOverview(); await loadRelations() } catch (e) { setMsg(String(e.message || e)) } }
+      const batch = async (action) => { const ids = [...checked]; if (ids.length === 0) { setMsg('先勾选关系'); return } for (const id of ids) { try { await api('analysis/relations/action', { id, action }) } catch { /* 单条失败继续 */ } } setChecked(new Set()); setMsg(`批量处理 ${ids.length} 条`); await loadOverview(); await loadRelations() }
+      const cfAction = async (id, action) => { try { await api('analysis/conflicts/action', { id, action }); setMsg('冲突状态已更新'); await loadOverview(); await loadConflicts() } catch (e) { setMsg(String(e.message || e)) } }
+      const findPaths = async () => {
+        if (pathFrom === '' || pathTo === '') { setMsg('请选择起点和终点'); return }
+        try { const data = await api(`analysis/paths?from=${encodeURIComponent(pathFrom)}&to=${encodeURIComponent(pathTo)}&maxHops=3`); setPaths(data.paths ?? []) } catch (e) { setMsg(String(e.message || e)) }
+      }
+      const confirmPath = async (path) => {
+        const labels = Array.isArray(path.labels) ? path.labels : (path.hops ?? []).map((hop) => hop.label ?? hop.entityId)
+        try { await api('analysis/relations/create', { sourceEntityId: path.fromEntityId, targetEntityId: path.toEntityId, relationshipType: 'reasoning', evidenceText: `多跳推理：${labels.join(' → ')}`, sourceMemoryIds: path.sourceMemoryIds ?? [] }); setMsg('已根据推理路径建立关系'); await loadOverview() } catch (e) { setMsg(String(e.message || e)) }
+      }
+
+      const running = task !== null && (task.status === 'running' || task.status === 'queued')
+      const cards = [['已分析记忆', overview?.analyzedMemories ?? 0], ['已建立关系', overview?.relations ?? 0], ['潜在关系', overview?.suggested ?? 0], ['待确认冲突', overview?.conflictsPending ?? 0], ['知识簇', overview?.clusters ?? 0], ['分析版本', overview?.analysisVersion ?? '—']]
+      const nodeOptions = (graph?.nodes ?? []).map((node) => ({ value: node.id, label: node.label }))
+
+      const renderNetwork = () => {
+        const nodes = graph?.nodes ?? [], edges = graph?.edges ?? []
+        if (nodes.length === 0) return h('div', { className: 'ana-empty' }, '还没有关系图谱，先运行分析。')
+        const layout = kgLayout(nodes, edges, 900, 500)
+        return h('div', { className: 'ana-network' },
+          h('div', { className: 'ana-legend' }, h('span', { className: 'ana-key confirmed' }, '已确认'), h('span', { className: 'ana-key suggested' }, '推荐'), h('span', { className: 'ana-key other' }, '其他'), h('span', { className: 'muted' }, '虚线 = 推理')),
+          h('svg', { width: 900, height: 500, viewBox: '0 0 900 500', className: 'ana-svg' },
+            edges.map((edge) => {
+              const a = layout.pos.get(edge.a), b = layout.pos.get(edge.b)
+              if (!a || !b) return null
+              const cls = edge.status === 'confirmed' ? 'confirmed' : edge.status === 'suggested' ? 'suggested' : 'other'
+              return h('line', { key: `${edge.a}|${edge.b}`, className: `ana-edge ${cls}`, x1: a.x, y1: a.y, x2: b.x, y2: b.y, strokeWidth: 0.8 + Math.min(3, (Number(edge.confidence) || 0.4) * 3), strokeDasharray: edge.inferred ? '4 3' : undefined })
+            }),
+            nodes.map((node) => {
+              const pos = layout.pos.get(node.id)
+              if (!pos) return null
+              const meta = KG_TYPE_META[node.type] ?? { label: node.type, color: '#6b7280' }
+              const r = 7 + Math.min(14, Math.log(1 + (Number(node.count) || 1)) * 4)
+              return h('g', { key: node.id, className: 'ana-node', transform: `translate(${pos.x},${pos.y})` },
+                h('circle', { r, fill: meta.color, fillOpacity: 0.85 }),
+                h('text', { y: r + 12, className: 'ana-node-label', textAnchor: 'middle' }, String(node.label).slice(0, 20)),
+                h('title', null, `${meta.label} · ${node.label}`),
+              )
+            }),
+          ),
+        )
+      }
+      const renderClusters = () => {
+        if (clusters.length === 0) return h('div', { className: 'ana-empty' }, '还没有知识簇，先运行分析。')
+        return h('div', { className: 'ana-clusters' }, clusters.map((cluster) => h('section', { key: cluster.id, className: 'ana-cluster' },
+          h('div', { className: 'ana-cluster-head' }, h('b', null, cluster.topic), h('span', { className: 'muted' }, `${cluster.count} 条记忆`)),
+          h('div', { className: 'ana-chips' }, (cluster.topEntities ?? []).map((entity) => h('span', { key: entity.id, className: 'ana-chip' }, entity.label))),
+          (cluster.memoryIds ?? []).slice(0, 5).map((id) => h('div', { key: id, className: 'ana-memory-row' }, h('span', { className: 'muted' }, id.slice(0, 6)), h('span', { className: 'ana-memory-text' }, recordById.get(id)?.content ?? id))),
+        )))
+      }
+      const renderTimeline = () => {
+        if (tracks.length === 0) return h('div', { className: 'ana-empty' }, '还没有演化数据，先运行分析。')
+        const kindText = { created: '新增', updated: '更新', superseded: '被替代', invalidated: '失效', decision: '决策' }
+        return h('div', { className: 'ana-timeline' }, tracks.map((track) => h('section', { key: track.entityId, className: 'ana-track' },
+          h('h4', null, track.label ?? track.entityLabel ?? entityLabelOf(track.entityId), h('span', { className: 'muted' }, ` ${(track.events ?? []).length} 个节点`)),
+          h('div', { className: 'ana-events' }, (track.events ?? []).map((event, index) => h('div', { key: `${track.entityId}:${index}`, className: 'ana-event' },
+            h('span', { className: 'ana-event-dot ' + (event.type ?? event.kind) }),
+            h('span', { className: 'ana-event-date' }, fmtTime(event.at)),
+            h('span', { className: 'ana-event-kind ' + (event.type ?? event.kind) }, kindText[event.type ?? event.kind] ?? event.type ?? event.kind),
+            h('span', { className: 'ana-event-text' }, recordById.get(event.memoryId)?.content ?? event.detail ?? event.memoryId),
+          ))),
+        )))
+      }
+      const renderPaths = () => h('div', { className: 'ana-paths' },
+        h('div', { className: 'ana-console-row' },
+          h(Dropdown, { items: [{ value: '', label: '起点实体' }, ...nodeOptions], value: pathFrom, onChange: setPathFrom }),
+          h(Dropdown, { items: [{ value: '', label: '终点实体' }, ...nodeOptions], value: pathTo, onChange: setPathTo }),
+          h('button', { onClick: () => void findPaths() }, '查找路径'),
+        ),
+        paths.length === 0 ? h('div', { className: 'ana-empty' }, '选择两个实体，查找 2~3 跳推理路径。') : null,
+        paths.map((path) => {
+          const labels = Array.isArray(path.labels) ? path.labels : (path.hops ?? []).map((hop) => hop.label ?? hop.entityId)
+          const confidence = Number(path.confidence ?? path.confidenceScore) || 0
+          return h('div', { key: path.id, className: 'ana-path' },
+            h('div', { className: 'ana-path-hops' }, labels.join(' → ')),
+            h('div', { className: 'muted' }, `置信度 ${Math.round(confidence * 100)}%${path.inferred ? ' · 推断（非事实）' : ''}`),
+            h('div', { className: 'ana-relation-actions' }, h('button', { onClick: () => void confirmPath(path) }, '确认并建立关系')),
+          )
+        }),
+      )
+
+      return h('div', { className: 'ana' },
+        h('div', { className: 'ana-overview' }, cards.map(([label, value]) => h('div', { key: label, className: 'ana-card' }, h('b', null, String(value)), h('span', null, label)))),
+        h('div', { className: 'ana-meta' },
+          h('span', null, `最近分析：${overview?.lastAnalyzedAt ? fmtTime(overview.lastAnalyzedAt) : '尚未分析'}`),
+          running ? h('span', { className: 'muted' }, ` · ${task.status} ${task.analyzed ?? 0}/${task.total ?? 0}`) : null,
+          msg !== '' ? h('span', { className: 'ana-msg' }, ` · ${msg}`) : null,
+        ),
+        h('div', { className: 'ana-console' },
+          h('div', { className: 'ana-console-row' },
+            h('button', { className: 'ana-primary', disabled: busy || running, onClick: () => void run('incremental') }, '增量分析'),
+            h('button', { disabled: busy || running, onClick: () => void run('full') }, '全量分析'),
+            h('button', { disabled: !running, onClick: () => void pause() }, '暂停'),
+            h('span', { className: 'spacer' }),
+            h('span', { className: 'muted' }, '范围'),
+            h(Dropdown, { items: [{ value: '', label: '全部作用域' }, ...(scopes ?? []).map((entry) => ({ value: entry.scope, label: entry.label ?? entry.scope }))], value: scope, onChange: setScope }),
+            h(Dropdown, { items: [{ value: '', label: '全部实体' }, ...Object.entries(KG_TYPE_META).map(([value, meta]) => ({ value, label: meta.label }))], value: entityType, onChange: setEntityType }),
+            h(Dropdown, { items: [{ value: 0, label: '全部时间' }, { value: 7, label: '近 7 天' }, { value: 30, label: '近 30 天' }], value: sinceDays, onChange: setSinceDays }),
+          ),
+          running ? h('div', { className: 'ana-progress' }, h('div', { className: 'ana-progress-bar', style: { width: `${Math.round((Number(task.progress) || 0) * 100)}%` } }), h('span', null, `${Math.round((Number(task.progress) || 0) * 100)}% · ${task.mode === 'full' ? '全量' : '增量'}分析中`)) : null,
+          h('details', { className: 'ana-history' }, h('summary', null, `分析历史（${history.length}）`),
+            history.map((item) => h('div', { key: item.id, className: 'ana-history-row' }, h('span', { className: `ana-status ${item.status}` }, item.status), h('span', null, item.mode === 'full' ? '全量' : '增量'), h('span', { className: 'muted' }, fmtTime(item.startedAt)), h('span', { className: 'muted' }, item.error ? `失败：${item.error}` : `${item.analyzed ?? 0}/${item.total ?? 0}`))),
+          ),
+        ),
+        h('div', { className: 'ana-views' }, [['overview','分析概览'],['relations','关系发现'],['conflicts','冲突中心'],['visual','可视化']].map(([value, label]) => h('button', { key: value, className: 'ana-viewtab' + (view === value ? ' on' : ''), onClick: () => setView(value) }, label))),
+
+        view === 'overview' ? h('div', { className: 'ana-section ana-overview-detail' },
+          h('div', null, h('b', null, '关系发现'), h('p', { className: 'muted' }, '基于语义相似、实体共现、时间相关性与来源可信度给出推荐；语义相似不等于真实关系，推荐需人工确认。')),
+          h('div', null, h('b', null, '冲突检测'), h('p', { className: 'muted' }, '区分信息更新、真实冲突与不同语境；不确定的标记为待确认，绝不自动删除旧记忆。')),
+          h('div', null, h('b', null, '安全机制'), h('p', { className: 'muted' }, '推断关系与事实关系分开存储；原始记忆不可被静默覆盖；确认/拒绝/忽略全部留痕。')),
+        ) : null,
+
+        view === 'relations' ? h('div', { className: 'ana-section' },
+          h('div', { className: 'ana-chips' }, A_REL_STATUS.map(([value, label]) => h('button', { key: value, className: 'kchip' + (relStatus === value ? ' on' : ' off'), onClick: () => setRelStatus(value) }, label)), h('span', { className: 'spacer' }), h('button', { disabled: checked.size === 0, onClick: () => void batch('confirm') }, `批量确认（${checked.size}）`), h('button', { disabled: checked.size === 0, onClick: () => void batch('reject') }, '批量拒绝')),
+          relations.length === 0 ? h('div', { className: 'ana-empty' }, '该状态下没有关系。') : null,
+          relations.map((relation) => h('div', { key: relation.id, className: 'ana-relation' },
+            h('input', { type: 'checkbox', checked: checked.has(relation.id), onChange: () => setChecked((prev) => { const next = new Set(prev); if (next.has(relation.id)) next.delete(relation.id); else next.add(relation.id); return next }) }),
+            h('div', { className: 'ana-relation-main' },
+              h('div', { className: 'ana-relation-title' }, h('b', null, entityLabelOf(relation.sourceEntityId)), h('span', { className: 'ana-arrow' }, '⇄'), h('b', null, entityLabelOf(relation.targetEntityId)), h('span', { className: 'ana-badge' }, A_REL_TYPE[relation.relationshipType] ?? relation.relationshipType), h('span', { className: 'ana-badge strong' }, A_STRENGTH[relation.strength] ?? relation.strength), h('span', { className: 'ana-badge' }, `${Math.round((Number(relation.confidenceScore) || 0) * 100)}%`), h('span', { className: `ana-status ${relation.status}` }, relation.status)),
+              (relation.evidence ?? []).slice(0, 2).map((evidence, index) => h('div', { key: index, className: 'ana-evidence' }, `• ${evidence.text}`)),
+              expanded === relation.id ? h('div', { className: 'ana-detail' }, (relation.sourceMemoryIds ?? []).slice(0, 6).map((id) => h('div', { key: id, className: 'ana-memory-row' }, h('span', { className: 'muted' }, id.slice(0, 8)), h('span', { className: 'ana-memory-text' }, recordById.get(id)?.content ?? id)))) : null,
+            ),
+            h('div', { className: 'ana-relation-actions' }, h('button', { onClick: () => void relAction(relation.id, 'confirm') }, '确认'), h('button', { onClick: () => void relAction(relation.id, 'reject') }, '拒绝'), h('button', { onClick: () => void relAction(relation.id, 'ignore') }, '忽略'), h('button', { className: 'linkbtn', onClick: () => setExpanded((current) => current === relation.id ? null : relation.id) }, '详情')),
+          )),
+        ) : null,
+
+        view === 'conflicts' ? h('div', { className: 'ana-section' },
+          h('div', { className: 'ana-chips' }, A_CF_STATUS.map(([value, label]) => h('button', { key: value, className: 'kchip' + (cfStatus === value ? ' on' : ' off'), onClick: () => setCfStatus(value) }, label))),
+          conflicts.length === 0 ? h('div', { className: 'ana-empty' }, '该状态下没有冲突。') : null,
+          conflicts.map((conflict) => {
+            const oldRec = recordById.get(conflict.oldMemoryId), newRec = recordById.get(conflict.newMemoryId)
+            return h('div', { key: conflict.id, className: 'ana-conflict' },
+              h('div', { className: 'ana-conflict-head' }, h('span', { className: 'ana-badge update' }, conflict.kind === 'update' ? '信息更新' : conflict.kind === 'contradiction' ? '真实冲突' : conflict.kind === 'context' ? '不同语境' : '未知'), h('span', { className: 'ana-badge' }, `相似 ${Math.round((Number(conflict.similarity) || 0) * 100)}%`), h('span', { className: 'ana-badge' }, `矛盾 ${Math.round((Number(conflict.contradiction) || 0) * 100)}%`), h('span', { className: `ana-status ${conflict.status}` }, conflict.status)),
+              h('div', { className: 'ana-conflict-pair' }, h('div', null, h('span', { className: 'muted' }, '旧：'), oldRec ? oldRec.content : conflict.oldMemoryId), h('div', null, h('span', { className: 'muted' }, '新：'), newRec ? newRec.content : conflict.newMemoryId)),
+              h('div', { className: 'muted' }, conflict.summary ?? ''),
+              h('div', { className: 'ana-relation-actions' }, h('button', { onClick: () => void cfAction(conflict.id, 'confirmed') }, '确认冲突'), h('button', { onClick: () => void cfAction(conflict.id, 'resolved') }, '标记已解决'), h('button', { onClick: () => void cfAction(conflict.id, 'ignored') }, '忽略')),
+            )
+          }),
+        ) : null,
+
+        view === 'visual' ? h('div', { className: 'ana-section' },
+          h('div', { className: 'ana-chips' }, [['network','关系网络'],['clusters','知识聚类'],['timeline','演化时间轴'],['paths','多跳推理']].map(([value, label]) => h('button', { key: value, className: 'kchip' + (visual === value ? ' on' : ' off'), onClick: () => setVisual(value) }, label))),
+          visual === 'network' ? renderNetwork() : visual === 'clusters' ? renderClusters() : visual === 'timeline' ? renderTimeline() : renderPaths(),
+        ) : null,
+
+      )
+    }
+
     function MemoryPanel({ openSession, sessionInfo, audience = 'panel', lockSession } = {}) {
       const [records, setRecords] = React.useState([])
       const [scopes, setScopes] = React.useState([])
@@ -5388,10 +5669,16 @@ window.__ModuleLoader__.load({
             className: 'tab' + (tab === 'tree' ? ' on' : ''),
             onClick: () => { if (tab !== 'tree') load('', ''); setTab('tree') },
           }, '记忆树'),
+          h('button', {
+            className: 'tab' + (tab === 'analysis' ? ' on' : ''),
+            onClick: () => { if (tab !== 'analysis') load('', ''); setTab('analysis') },
+          }, '关系分析'),
           h('button', { className: 'tab' + (tab === 'settings' ? ' on' : ''), onClick: () => setTab('settings') }, '设置'),
           h('button', { className: 'tab' + (tab === 'audit' ? ' on' : ''), onClick: () => setTab('audit') }, '审计'),
         ),
-        tab === 'settings'
+        tab === 'analysis'
+          ? h(AnalysisTab, { api, records, scopes })
+          : tab === 'settings'
           ? h(SettingsTab, {})
           : tab === 'data'
             ? dataBody
@@ -7340,6 +7627,7 @@ window.__ModuleLoader__.load({
       RecordCard: RecordCard,
       MemoryPanel: MemoryPanel,
       MemoryTreeTab: MemoryTreeTab,
+      AnalysisTab: AnalysisTab,
       SettingsTab: SettingsTab,
       AuditTab: AuditTab,
       MemoryVisibilityButton: MemoryVisibilityButton,

@@ -197,6 +197,22 @@ export class CordisMemoryService extends Service {
     return this.impl.consolidateNow()
   }
 
+  // 0.50.0：智能关系分析
+  analysisOverview()                                                     { return this.impl.analysisOverview() }
+  analysisLatestTask()                                                       { return this.impl.analysisLatestTask() }
+  analysisRun(input                                                   )                                                { return this.impl.analysisRun(input) }
+  analysisPause()                                                  { return this.impl.analysisPause() }
+  analysisRelations(input                                                         )                                                      { return this.impl.analysisRelations(input) }
+  analysisRelationAction(input                                                             )                                                           { return this.impl.analysisRelationAction(input) }
+  analysisCreateRelation(input                                                             )                                                           { return this.impl.analysisCreateRelation(input) }
+  analysisConflicts(input                                                         )                                                      { return this.impl.analysisConflicts(input) }
+  analysisConflictAction(input                                                             )                                                           { return this.impl.analysisConflictAction(input) }
+  analysisClusters()                                                     { return this.impl.analysisClusters() }
+  analysisEvolution(input                                                         )                                                      { return this.impl.analysisEvolution(input) }
+  analysisPaths(input                                                    )                                                  { return this.impl.analysisPaths(input) }
+  analysisGraph()                                                  { return this.impl.analysisGraph() }
+  analysisHistory(input                                                       )                                                    { return this.impl.analysisHistory(input) }
+
   /** 0.42.0：知识图谱（实体共现图）。 */
   entityGraph(opts                                                   )                                                {
     return this.impl.entityGraph(opts)

@@ -1,6 +1,6 @@
 {
   "name": "@restregular/dsh-memory",
-  "version": "0.44.1",
+  "version": "0.50.0",
   "description": "DeepSeek Harness 记忆系统(单包单入口):JSONL 存储 + 本地向量检索(BGE-M3)+ 五个模型工具 + 自动召回注入 + 管理面板。",
   "icon": "./icon.svg",
   "type": "module",
