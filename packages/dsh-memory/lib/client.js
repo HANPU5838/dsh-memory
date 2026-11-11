@@ -266,7 +266,7 @@ window.__ModuleLoader__.load({
       '.memp .data{padding-top:4px}',
       '.memp .data .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px}',
       // 数据页:列表在独立滚动容器里,记忆多也不把面板撑长
-      '.memp .scroll{max-height:min(52vh,460px);overflow-y:auto;overscroll-behavior:contain;padding:2px 8px 2px 2px;margin-right:-2px}',
+      '.memp .scroll{max-height:min(52vh,460px);overflow-y:auto;overscroll-behavior:auto;padding:2px 8px 2px 2px;margin-right:-2px}',
       '.memp .scroll.is-empty{max-height:none;overflow:visible;padding-right:0}',
       // 自定义滚动条:细、圆头、透明轨道,hover 才加深;Firefox 用 scrollbar-width/color
       '.memp .scroll{scrollbar-width:thin;scrollbar-color:color-mix(in srgb, var(--dsw-alias-label-secondary) 30%, transparent) transparent}',
@@ -308,8 +308,8 @@ window.__ModuleLoader__.load({
       '.memp .kchip:hover{border-color:var(--k);color:var(--dsw-alias-label-primary)}',
       '.memp .kchip .corr-swatch{width:14px;border-top:1.5px dashed #D9A441}',
       '.memp .tree-matchinfo{font-size:11px;color:var(--dsw-alias-label-secondary);flex:none}',
-      '.memp .tree-wrap{position:relative;height:clamp(300px,48vh,520px);min-height:300px;border:1px solid var(--dsw-alias-border-l1);border-radius:14px;overflow:hidden;background:radial-gradient(circle at 16% 8%,color-mix(in srgb,var(--dsw-alias-brand-primary) 9%,transparent),transparent 44%),radial-gradient(circle at 1px 1px,color-mix(in srgb,var(--dsw-alias-label-secondary) 15%,transparent) 1px,transparent 0) 0 0/22px 22px,var(--dsw-alias-bg-layer-1)}',
-      '.mem-page .memp .tree-wrap{height:calc(100dvh - 430px);min-height:320px}',
+      '.memp .tree-wrap{position:relative;height:clamp(280px,46vh,520px);min-height:280px;border:1px solid var(--dsw-alias-border-l1);border-radius:14px;overflow:hidden;background:radial-gradient(circle at 16% 8%,color-mix(in srgb,var(--dsw-alias-brand-primary) 9%,transparent),transparent 44%),radial-gradient(circle at 1px 1px,color-mix(in srgb,var(--dsw-alias-label-secondary) 15%,transparent) 1px,transparent 0) 0 0/22px 22px,var(--dsw-alias-bg-layer-1)}',
+      '.mem-page .memp .tree-wrap{height:calc(100vh - 420px);height:calc(100dvh - 440px);min-height:240px;max-height:560px}',
       '.memp .tree-scroll{height:100%;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--dsw-alias-label-secondary) 30%,transparent) transparent}',
       '.memp .tree-scroll::-webkit-scrollbar{width:9px;height:9px}',
       '.memp .tree-scroll::-webkit-scrollbar-track{background:transparent}',
@@ -410,7 +410,9 @@ window.__ModuleLoader__.load({
       '.memp .kg-rel-chip:active,.memp .kg-memory:active{transform:scale(.98)}',
       '@media (prefers-reduced-motion: reduce){.memp .tree-tab,.memp .kg-detail,.memp .kg-spinner,.memp .kg-node,.memp .tree-canvas,.memp .tabs .tab{animation:none!important;transition:none!important}}',
       '.memp .kg-legend{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:4px 2px 0;font-size:10.5px;color:var(--dsw-alias-label-secondary)}',
-      '.memp .kg-svg{display:block}',
+      '.memp .kg-svg{display:block;user-select:none}',
+      '.memp .tree-wrap{cursor:grab}',
+      '.memp .tree-wrap:active{cursor:grabbing}',
       '.memp .kg-edge{stroke:var(--dsw-alias-border-l1);stroke-linecap:round}',
       '.memp .kg-node{cursor:pointer}',
       '.memp .kg-node:hover circle{stroke:var(--dsw-alias-label-primary);stroke-width:1.2}',
@@ -1779,13 +1781,18 @@ window.__ModuleLoader__.load({
      *  - 边：二次曲线（避免直线糊成一团），粗细/透明度按共现次数；
      *  - 选中：只保留邻居高亮，其余淡出；悬停：节点与相连边提亮。
      */
-    function EntityGraphCanvas({ graph, layout, zoom, selectedEntityId, hoveredEntityId, onSelectEntity, onHoverEntity }) {
+    function EntityGraphCanvas({ graph, layout, zoom, selectedEntityId, hoveredEntityId, onSelectEntity, onHoverEntity, shouldIgnoreClick }) {
       const [spread, setSpread] = React.useState(false)
+      // 只在「图谱内容变化」时重播展开动画：按稳定签名触发，避免 hover/选中/缩放导致
+      // 全图节点被吸回中心再飞散（P0：这是之前"不流畅"的主因）。
+      const graphKey = graph === null || graph === undefined
+        ? ''
+        : `${graph.nodes.length}|${graph.edges.length}|${graph.nodes[0]?.id ?? ''}|${graph.nodes[graph.nodes.length - 1]?.id ?? ''}`
       React.useEffect(() => {
         setSpread(false)
-        const timer = setTimeout(() => setSpread(true), 30)
+        const timer = setTimeout(() => setSpread(true), 18)
         return () => clearTimeout(timer)
-      }, [graph])
+      }, [graphKey])
       const nodes = graph?.nodes ?? []
       const nodeById = new Map(nodes.map((node) => [node.id, node]))
       const neighborIds = new Set()
@@ -1862,7 +1869,7 @@ window.__ModuleLoader__.load({
           key: `n:${node.id}`,
           className: 'kg-node' + (selected ? ' selected' : '') + (hovered ? ' hovered' : '') + (dimmed ? ' dim' : ''),
           transform: `translate(${px},${py})`,
-          onClick: () => onSelectEntity(node.id === selectedEntityId ? null : node.id),
+          onClick: () => { if (typeof shouldIgnoreClick === 'function' && shouldIgnoreClick()) return; onSelectEntity(node.id === selectedEntityId ? null : node.id) },
           onMouseEnter: () => { if (typeof onHoverEntity === 'function') onHoverEntity(node.id) },
           onMouseLeave: () => { if (typeof onHoverEntity === 'function') onHoverEntity(null) },
           onKeyDown: (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelectEntity(node.id === selectedEntityId ? null : node.id) } },
@@ -1967,7 +1974,7 @@ window.__ModuleLoader__.load({
       const [selectedEntityId, setSelectedEntityId] = React.useState(null)
       const [hoveredEntityId, setHoveredEntityId] = React.useState(null)
       const [kgLimit, setKgLimit] = React.useState(120)
-      const [kgSize, setKgSize] = React.useState({ width: 900, height: 560 })
+      const [kgSize, setKgSize] = React.useState(null)
       const [kgStrongOnly, setKgStrongOnly] = React.useState(false)
       const [zoom, setZoom] = React.useState(loadTreeZoom())
       const zoomRef = React.useRef(zoom)
@@ -2023,68 +2030,73 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         if (viewMode !== 'graph') return undefined
         const wrap = wrapRef.current
-        if (wrap === null || wrap === undefined) return undefined
+        if (wrap === null || wrap === undefined) {
+          // 测试/异常环境没有真实容器：给一个确定尺寸，保证仍可渲染。
+          setKgSize({ width: 900, height: 560 })
+          return undefined
+        }
         const measure = () => {
           const width = Math.max(260, Number(wrap.clientWidth) || 900)
           const height = Math.max(260, Number(wrap.clientHeight) || 560)
-          setKgSize((prev) => (Math.abs(prev.width - width) < 4 && Math.abs(prev.height - height) < 4 ? prev : { width, height }))
+          setKgSize((prev) => (prev !== null && Math.abs(prev.width - width) < 4 && Math.abs(prev.height - height) < 4 ? prev : { width, height }))
         }
         measure()
+        // 下一帧再量一次：首帧可能还在字体/布局 settle 阶段。
+        const raf = typeof requestAnimationFrame === 'function' ? requestAnimationFrame(measure) : 0
         if (typeof ResizeObserver === 'function') {
           const observer = new ResizeObserver(measure)
           observer.observe(wrap)
-          return () => observer.disconnect()
+          return () => { observer.disconnect(); if (raf && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(raf) }
         }
         window.addEventListener('resize', measure)
-        return () => window.removeEventListener('resize', measure)
+        return () => { window.removeEventListener('resize', measure); if (raf && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(raf) }
       }, [viewMode])
+      const skipZoomPersistRef = React.useRef(false)
       React.useEffect(() => {
-        if (viewMode === 'graph') setZoom(1)
+        if (viewMode === 'graph') { skipZoomPersistRef.current = true; setZoom(1) }
       }, [viewMode])
 
-      // 0.50.0：图谱拖动平移 —— 放大后可以上下左右拖（原来只能滚动，像只能左右）。
+      const panMovedRef = React.useRef(0)
+      // 0.50.1：图谱拖动平移（鼠标/触控板）；触屏交给原生滚动，避免与 pinch 双写。
       React.useEffect(() => {
         if (viewMode !== 'graph') return undefined
         const wrap = wrapRef.current
         const scroll = wrap && typeof wrap.querySelector === 'function' ? wrap.querySelector('.tree-scroll') : null
         if (!scroll || typeof scroll.addEventListener !== 'function') return
         let pan = null
-        const start = (x, y) => { pan = { x, y } }
+        const resetSoon = () => { setTimeout(() => { panMovedRef.current = 0 }, 80) }
+        const start = (x, y) => { pan = { x, y }; panMovedRef.current = 0 }
         const move = (x, y) => {
           if (pan === null) return
           const dx = x - pan.x, dy = y - pan.y
-          if (Math.abs(dx) + Math.abs(dy) > 2) {
+          const moved = Math.abs(dx) + Math.abs(dy)
+          if (moved > 0) panMovedRef.current += moved
+          if (moved > 2) {
             scroll.scrollLeft -= dx
             scroll.scrollTop -= dy
             pan = { x, y }
           }
         }
-        const end = () => { pan = null }
+        const end = () => { pan = null; resetSoon() }
         const onMouseDown = (event) => { if (event.button === 0) start(event.clientX, event.clientY) }
         const onMouseMove = (event) => move(event.clientX, event.clientY)
-        const onTouchStart = (event) => { if (event.touches && event.touches.length === 1) start(event.touches[0].clientX, event.touches[0].clientY) }
-        const onTouchMove = (event) => { if (event.touches && event.touches.length === 1) move(event.touches[0].clientX, event.touches[0].clientY) }
         scroll.addEventListener('mousedown', onMouseDown)
         scroll.addEventListener('mousemove', onMouseMove)
         scroll.addEventListener('mouseup', end)
         scroll.addEventListener('mouseleave', end)
-        scroll.addEventListener('touchstart', onTouchStart, { passive: true })
-        scroll.addEventListener('touchmove', onTouchMove, { passive: true })
-        scroll.addEventListener('touchend', end, { passive: true })
         return () => {
           scroll.removeEventListener('mousedown', onMouseDown)
           scroll.removeEventListener('mousemove', onMouseMove)
           scroll.removeEventListener('mouseup', end)
           scroll.removeEventListener('mouseleave', end)
-          scroll.removeEventListener('touchstart', onTouchStart)
-          scroll.removeEventListener('touchmove', onTouchMove)
-          scroll.removeEventListener('touchend', end)
         }
-      }, [viewMode, kgSize.width, kgSize.height])
+      }, [viewMode, kgSize?.width, kgSize?.height])
 
       // 0.42.0：图谱过滤 + 确定性布局（按签名缓存，输入/拖动不重算）
       const graphFiltered = viewMode === 'graph' ? kgFilter(graph, graphTypes, query.trim(), kgLimit, kgStrongOnly) : null
-      const kg = graphFiltered !== null && graphFiltered.nodes.length > 0 ? kgLayoutCached(graphFiltered.nodes, graphFiltered.edges, kgSize.width, kgSize.height) : null
+      const kg = graphFiltered !== null && graphFiltered.nodes.length > 0 && kgSize !== null
+        ? kgLayoutCached(graphFiltered.nodes, graphFiltered.edges, kgSize.width, kgSize.height)
+        : null
       const graphTypeCounts = new Map()
       for (const node of graph?.nodes ?? []) graphTypeCounts.set(node.type, (graphTypeCounts.get(node.type) ?? 0) + 1)
 
@@ -2222,6 +2234,7 @@ window.__ModuleLoader__.load({
 
       // 0.34.1：缩放持久化 —— 下次打开记忆树保持上次的比例。
       React.useEffect(() => {
+        if (skipZoomPersistRef.current) { skipZoomPersistRef.current = false; return }
         try { window.localStorage.setItem(TREE_ZOOM_KEY, String(zoom)) } catch { /* 隐私模式忽略 */ }
       }, [zoom])
 
@@ -2248,8 +2261,10 @@ window.__ModuleLoader__.load({
         const applyZoom = (nextRaw, localX, localY, event) => {
           const old = zoomRef.current
           const next = clampTreeZoom(nextRaw)
+          // 在画布上滚动/双指一律先阻止默认行为：否则到 5%/1000% 边界时
+          // 浏览器会接管成页面级 pinch-zoom 或页面滚动，体验突变。
+          if (event && typeof event.preventDefault === 'function' && event.cancelable !== false) event.preventDefault()
           if (next === old) return false
-          if (event && typeof event.preventDefault === 'function') event.preventDefault()
           const ratio = next / old
           setZoom(next)
           try {
@@ -2258,10 +2273,23 @@ window.__ModuleLoader__.load({
           } catch { /* 滚动位置校正失败不影响缩放 */ }
           return true
         }
-        const point = (event) => {
+        const point = (event, touches) => {
           const rect = typeof scroll.getBoundingClientRect === 'function' ? scroll.getBoundingClientRect() : { left: 0, top: 0 }
-          const x = Number(event.clientX ?? event.touches?.[0]?.clientX ?? 0) - rect.left
-          const y = Number(event.clientY ?? event.touches?.[0]?.clientY ?? 0) - rect.top
+          const list = touches ?? (event.touches && event.touches.length > 0 ? event.touches : null)
+          let clientX, clientY
+          if (list !== null && list.length >= 2) {
+            // 双指：取两指中点作为缩放锚点（原来取第一指会"跟着手指漂"）
+            clientX = (list[0].clientX + list[1].clientX) / 2
+            clientY = (list[0].clientY + list[1].clientY) / 2
+          } else if (list !== null && list.length === 1) {
+            clientX = list[0].clientX
+            clientY = list[0].clientY
+          } else {
+            clientX = event.clientX
+            clientY = event.clientY
+          }
+          const x = Number(clientX ?? 0) - rect.left
+          const y = Number(clientY ?? 0) - rect.top
           return { x: Number.isFinite(x) ? x : 0, y: Number.isFinite(y) ? y : 0 }
         }
         const onWheel = (event) => {
@@ -2275,20 +2303,25 @@ window.__ModuleLoader__.load({
         const distance = (touches) => Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY)
         const onTouchStart = (event) => {
           if (event.touches && event.touches.length === 2) {
-            pinch = { distance: distance(event.touches), zoom: zoomRef.current, center: point(event) }
+            pinch = { distance: distance(event.touches), zoom: zoomRef.current, center: point(event, event.touches) }
+          } else {
+            pinch = null
           }
         }
         const onTouchMove = (event) => {
           if (pinch === null || !event.touches || event.touches.length !== 2) return
+          if (typeof event.preventDefault === 'function' && event.cancelable !== false) event.preventDefault()
           const ratio = distance(event.touches) / Math.max(1, pinch.distance)
           applyZoom(pinch.zoom * ratio, pinch.center.x, pinch.center.y, event)
         }
         const onTouchEnd = () => { pinch = null }
+        const onTouchCancel = () => { pinch = null }
         const onDoubleClick = () => { if (typeof fitViewRef.current === 'function') fitViewRef.current() }
         scroll.addEventListener('wheel', onWheel, { passive: false })
         scroll.addEventListener('touchstart', onTouchStart, { passive: true })
         scroll.addEventListener('touchmove', onTouchMove, { passive: false })
         scroll.addEventListener('touchend', onTouchEnd, { passive: true })
+        scroll.addEventListener('touchcancel', onTouchCancel, { passive: true })
         if (typeof scroll.addEventListener === 'function') scroll.addEventListener('dblclick', onDoubleClick)
         return () => {
           try {
@@ -2296,6 +2329,7 @@ window.__ModuleLoader__.load({
             scroll.removeEventListener('touchstart', onTouchStart)
             scroll.removeEventListener('touchmove', onTouchMove)
             scroll.removeEventListener('touchend', onTouchEnd)
+            scroll.removeEventListener('touchcancel', onTouchCancel)
             scroll.removeEventListener('dblclick', onDoubleClick)
           } catch { /* 忽略 */ }
         }
@@ -2383,6 +2417,22 @@ window.__ModuleLoader__.load({
                   }),
                 }, h('span', { className: 'tdot' }), meta.label, h('b', null, String(count)))
               }),
+            h('span', { className: 'kg-legend-sep' }),
+            h('span', { className: 'muted' }, '显示'),
+            ...[30, 60, 120, 0].map((limit) => h('button', {
+              key: `kglimit:${limit}`,
+              className: 'kchip' + (kgLimit === limit ? ' on' : ' off'),
+              title: limit === 0 ? '显示全部实体（可能很密）' : `只显示出现次数最多的 ${limit} 个实体`,
+              onClick: () => setKgLimit(limit),
+            }, limit === 0 ? '全部' : String(limit))),
+            h('button', {
+              className: 'kchip' + (kgStrongOnly ? ' on' : ' off'),
+              title: '只显示共现 ≥2 次的边',
+              onClick: () => setKgStrongOnly((value) => !value),
+            }, '仅强关系'),
+            graphFiltered !== null
+              ? h('span', { className: 'muted' }, `显示 ${graphFiltered.nodes.length}/${graphFiltered.total}`)
+              : null,
           )
         : null
 
@@ -2548,7 +2598,7 @@ window.__ModuleLoader__.load({
                       h('span', { className: 'muted' }, ` ${meta.label} · ${hovered.count} 条记忆`),
                     )
                   })()
-                : h('span', { className: 'muted' }, '拖动平移 · 悬停看关系 · 点击看详情'),
+                : h('span', { className: 'muted' }, '放大后拖动平移 · 悬停看关系 · 点击看详情'),
             ),
             h('div', { className: 'tree-scroll' },
               kg !== null && graphFiltered !== null
@@ -2567,10 +2617,11 @@ window.__ModuleLoader__.load({
                         hoveredEntityId,
                         onSelectEntity: setSelectedEntityId,
                         onHoverEntity: setHoveredEntityId,
+                        shouldIgnoreClick: () => panMovedRef.current > 4,
                       }),
                     ),
                   )
-                : graphLoading
+                : graphLoading || (graphFiltered !== null && graphFiltered.nodes.length > 0 && kgSize === null)
                   ? h('div', { className: 'tree-empty' },
                       h('div', { className: 'kg-loading' },
                         h('span', { className: 'kg-spinner' }),
@@ -7300,6 +7351,10 @@ window.__ModuleLoader__.load({
       requestRecordFocus: requestRecordFocus,
       takeRecordFocus: takeRecordFocus,
       buildMemoryTree: buildMemoryTree,
+      kgFilter: kgFilter,
+      kgLayout: kgLayout,
+      kgLayoutCached: kgLayoutCached,
+      EntityGraphCanvas: EntityGraphCanvas,
       clampTreeZoom: clampTreeZoom,
       zoomToSlider: zoomToSlider,
       sliderToZoom: sliderToZoom,

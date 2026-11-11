@@ -3561,10 +3561,53 @@ test('知识图谱视图：切换后渲染实体图、类型图例与实体详�
   assert.ok(nodes.length >= 2, `图上有实体节点（实际 ${nodes.length}）`)
   assert.ok(textOf(current).includes('端口') && textOf(current).includes('工具'), '类型图例可见')
   assert.ok(textOf(current).includes('2 实体'), '显示实体数统计')
+  const legendButtons = collect(current).filter((n) => n.tag === 'button').map((n) => textOf(n).trim())
+  assert.ok(legendButtons.includes('120') && legendButtons.includes('全部') && legendButtons.includes('仅强关系'), '图谱有 Top-N / 仅强关系控件')
+  assert.ok(!legendButtons.some((label) => label.includes('自动旋转')), '不再有自动旋转控件')
 
   ;(nodes[0]!.props!.onClick as () => void)()
   hooks.runEffects()
   await tick()
   assert.ok(textOf(current).includes('关联记忆'), '点击实体后显示详情与关联记忆')
   hooks.resetAll()
+})
+
+test('图谱过滤：tag 同名去重 / Top-N / 仅强关系', async () => {
+  const { exports } = await loadBundle()
+  const kgFilter = (exports.__test as { kgFilter: (g: unknown, t: Set<string>, q: string, limit: number, strong: boolean) => { nodes: Array<{ id: string }>; edges: Array<{ a: string; b: string; weight: number }>; total: number } }).kgFilter
+  const nodes = [
+    { id: 'os:termux', type: 'os', label: 'Termux', value: 'Termux', count: 5 },
+    { id: 'tag:termux', type: 'tag', label: 'Termux', value: 'termux', count: 4 },
+    { id: 'tool:npm', type: 'tool', label: 'npm', value: 'npm', count: 1 },
+  ]
+  const edges = [
+    { a: 'os:termux', b: 'tag:termux', weight: 3 },
+    { a: 'os:termux', b: 'tool:npm', weight: 1 },
+  ]
+  const graph = { nodes, edges, stats: { entities: 3, edges: 2, memories: 2 }, memoryIndex: {} }
+  const all = kgFilter(graph, new Set(), '', 0, false)
+  assert.equal(all.nodes.length, 2, 'tag 与 os 同名应被去重')
+  assert.equal(all.nodes.some((n) => n.id === 'tag:termux'), false)
+  assert.equal(all.edges.length, 1, 'tag 的去重边应被合并/去重')
+
+  const limited = kgFilter(graph, new Set(), '', 1, false)
+  assert.equal(limited.nodes.length, 1, 'Top-N 截断')
+  assert.equal(limited.total, 2)
+
+  const strong = kgFilter(graph, new Set(), '', 0, true)
+  assert.equal(strong.edges.length, 0, '仅强关系应过滤 weight=1 的边')
+})
+
+test('图谱布局：确定性且落在画布范围内', async () => {
+  const { exports } = await loadBundle()
+  const kgLayout = (exports.__test as { kgLayout: (nodes: unknown[], edges: unknown[], w?: number, h?: number) => { width: number; height: number; pos: Map<string, { x: number; y: number }> } }).kgLayout
+  const nodes = Array.from({ length: 12 }, (_, i) => ({ id: `n${i}`, type: ['path', 'tool', 'port'][i % 3], label: `n${i}`, value: `n${i}`, count: 1 + (i % 4) }))
+  const edges = [{ a: 'n0', b: 'n1', weight: 2 }, { a: 'n2', b: 'n3', weight: 1 }]
+  const first = kgLayout(nodes, edges, 420, 320)
+  const second = kgLayout(nodes, edges, 420, 320)
+  assert.deepEqual([...first.pos.entries()], [...second.pos.entries()], '同输入布局确定性')
+  for (const [, p] of first.pos) {
+    assert.ok(p.x >= 0 && p.x <= 420, `x 在画布内: ${p.x}`)
+    assert.ok(p.y >= 0 && p.y <= 320, `y 在画布内: ${p.y}`)
+  }
 })
