@@ -186,7 +186,7 @@ window.__ModuleLoader__.load({
       '.memp .dropitem.on .dropname{font-weight:600;color:var(--dsw-alias-brand-primary)}',
       '.memp .warn{font-size:11.5px;color:var(--dsw-alias-label-secondary)}',
       // 面板内的标签栏:分段式按钮(参照宿主设置页的分段控件)
-      '.memp .tabs{display:inline-flex;gap:2px;padding:2px;border-radius:9px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);margin-bottom:14px}',
+      '.memp .tabs{display:inline-flex;gap:2px;padding:2px;border-radius:9px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);margin-bottom:14px;max-width:100%;overflow-x:auto;white-space:nowrap;scrollbar-width:none}','.memp .tabs::-webkit-scrollbar{display:none}',
       '.memp .tab{background:none;border:0;border-radius:7px;padding:4px 14px;color:var(--dsw-alias-label-secondary);cursor:pointer;font-size:13px;line-height:1.6;transition:background .12s ease,color .12s ease}',
       '.memp .tab:hover{color:var(--dsw-alias-label-primary)}',
       '.memp .tab.on{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-brand-primary);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.10)}',
@@ -387,7 +387,7 @@ window.__ModuleLoader__.load({
       '@keyframes memFadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}',
       '.memp .tabs .tab{transition:background .16s ease,color .16s ease}',
       '.memp .ana{display:flex;flex-direction:column;gap:12px;padding:2px}',
-      '.memp .ana-overview{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}',
+      '.memp .ana-overview{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:8px}',
       '.memp .ana-card{display:flex;flex-direction:column;gap:2px;padding:10px 11px;border:1px solid var(--dsw-alias-border-l1);border-radius:11px;background:var(--dsw-alias-bg-layer-1)}',
       '.memp .ana-card b{font-size:19px;line-height:1.1;color:var(--dsw-alias-label-primary)}',
       '.memp .ana-card span{font-size:10.5px;color:var(--dsw-alias-label-secondary)}',
@@ -2459,7 +2459,7 @@ window.__ModuleLoader__.load({
       const toolbar = h('div', { className: 'tree-toolbar' },
         h('input', {
           type: 'text',
-          placeholder: viewMode === 'graph' ? '搜索实体（路径/端口/工具…）' : '搜索内容、类型、标签或作用域',
+          placeholder: viewMode === 'graph' ? '搜索实体或记忆正文' : '搜索内容、类型、标签或作用域',
           value: query,
           onChange: (event) => setQuery(event.target.value),
         }),
@@ -2703,7 +2703,17 @@ window.__ModuleLoader__.load({
           : h('div', { className: 'kg-files-meta' },
               h('span', { className: 'muted' }, `${kgFileMatches} 个实体 · ${kgFileGroups.length} 个类型`),
               h('span', { className: 'spacer' }),
-              h('span', { className: 'muted' }, '点击类型/文件展开'),
+              h('button', {
+                className: 'linkbtn',
+                onClick: () => {
+                  setKgOpenGroups(new Set(kgFileGroups.map((group) => group.type)))
+                  setKgOpenEntities(new Set(kgFileGroups.flatMap((group) => group.entries.map((entry) => entry.node.id))))
+                },
+              }, '全部展开'),
+              h('button', {
+                className: 'linkbtn',
+                onClick: () => { setKgOpenGroups(new Set()); setKgOpenEntities(new Set()) },
+              }, '全部收起'),
             ),
         kgFileGroups.map((group) => {
           const meta = KG_TYPE_META[group.type] ?? { label: group.type, color: '#6b7280' }

@@ -2,7 +2,7 @@
   <img src="https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/preview/icon-128.png" width="84" alt="记忆系统">
 </p>
 
-> ### 📦 本仓库在上游基础上持续维护（v0.54.0）
+> ### 📦 本仓库在上游基础上持续维护（v0.55.0）
 >
 > 本项目是 **DSH 记忆系统**（npm 包 `@restregular/dsh-memory`，MIT）的分支维护版：
 > 在上游 v0.30.1 之上做了平台适配、插件化、可靠性加固、语义认知层与嵌入性能优化，并在 **0.40/0.41 补上 BM25+RRF、记忆健康度、冲突自动裁决、可疑写入隔离、本地备份与离线评测**。
@@ -10,7 +10,7 @@
 > | 项目 | 说明 |
 > | --- | --- |
 > | 原作者 | **RestRegular**（上游原项目 [RestRegular/dsh-memory](https://github.com/RestRegular/dsh-memory)，MIT）；本项目在其 v0.30.1 基础上维护 |
-> | 本仓库 | **v0.54.0** = 上游 v0.30.1 + 平台/可靠性改进 + 语义认知层 + 检索整形（BM25/RRF/MMR）+ 嵌入性能 + 记忆强度算法 + **智能关系分析（关系发现/冲突/聚类/演化/推理）** + **知识图谱（文件视图/画布，落盘 graph.json）**。完整清单见 [IMPROVEMENTS.md](IMPROVEMENTS.md)，架构见 [docs/architecture.md](docs/architecture.md) |
+> | 本仓库 | **v0.55.0** = 上游 v0.30.1 + 平台/可靠性改进 + 语义认知层 + 检索整形（BM25/RRF/MMR）+ 嵌入性能 + 记忆强度算法 + **智能关系分析（关系发现/冲突/聚类/演化/推理）** + **知识图谱（文件视图/画布，落盘 graph.json）**。完整清单见 [IMPROVEMENTS.md](IMPROVEMENTS.md)，架构见 [docs/architecture.md](docs/architecture.md) |
 > | 许可 | **MIT**，版权归原作者所有，见 [LICENSE](LICENSE)；转载、分发请保留原始版权声明 |
 > | 更新与反馈 | Issue / PR / 反馈请到 **[本仓库 Issues](https://github.com/HANPU5838/dsh-memory/issues)**；与上游的差异集中在 `IMPROVEMENTS.md` |
 >
@@ -25,7 +25,7 @@
 
 JSONL 落盘 · 本机向量检索 · 六个模型工具 · 自动召回 · 硬性规则 · 可视化管理面板
 
-[![version](https://img.shields.io/badge/version-v0.54.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![version](https://img.shields.io/badge/version-v0.55.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/HANPU5838/dsh-memory/blob/main/LICENSE)
 [![ci](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.13-5FA04E.svg)](https://nodejs.org/)
@@ -125,7 +125,7 @@ JSONL 落盘 · 本机向量检索 · 六个模型工具 · 自动召回 · 硬�
 | --- | --- | --- | --- | --- | --- | --- |
 | 部署形态 | **本地零依赖插件**（JSONL + 可选本地 llama.cpp） | 云 / 自托管，向量库+图 | 云 / Graphiti + 图数据库 | Agent 运行时 | 自托管（内嵌 Postgres） | LangGraph 生态 |
 | 默认是否联网 | **不联网**（本地嵌入，断网可退化为纯词法） | 需嵌入服务 | 需图库+LLM | 需 LLM 运行时 | 需 LLM（可本地） | 需嵌入服务 |
-| 检索方式 | **BM25 + 向量 + 可选查询变体/本地重排**，RRF 融合 + 强度排序 + 地板分/去重/MMR | 向量+图 | 向量+时序图 | 向量+分层上下文 | 四路并行（语义/BM25/图/时序）+ cross-encoder | 向量 |
+| 检索方式 | **BM25 + 向量 + 可选查询变体**，RRF 融合 + 强度排序 + 地板分/去重/MMR | 向量+图 | 向量+时序图 | 向量+分层上下文 | 四路并行（语义/BM25/图/时序）+ cross-encoder | 向量 |
 | 语义去重 / 合并 | **✅ 余弦+关键细节双条件**（0.32.0） | 部分（依赖 LLM 抽取） | 实体消解 | 由 Agent 自己决定 | ✅ 抽取+实体消解 | 后台 manager（可选） |
 | 冲突检测 | **✅ 自动裁决**（矛盾度+证据+来源+时间 → 失效/合并/保留），面板可复核 | 依赖 LLM | 时序有效期 | 依赖 Agent | 依赖 LLM | ❌ |
 | 生命周期 | **✅ 休眠 / 软删可恢复 / 快照回滚** | 部分 | 时序窗口 | 分层+归档 | 抽取式 | ❌ |
@@ -150,7 +150,7 @@ JSONL 落盘 · 本机向量检索 · 六个模型工具 · 自动召回 · 硬�
 - 认知：语义合并、冲突检测 + 自动裁决、时间有效性、谱系、休眠/软删/恢复、周期巩固。
 - 运维：0–100 健康分、冲突中心、本地备份/恢复、审计事件、CI 门禁。
 - 安全：可疑写入扫描（指令注入/凭据/零宽字符）+ 自动隔离；作用域审批与只读授权。
-- 工程：零运行时依赖、**1094 例测试 / 0 fail**、GitHub Actions（测试 + 构建 + 合成集评测门禁）。
+- 工程：零运行时依赖、**1080 例测试 / 0 fail**、GitHub Actions（测试 + 构建 + 合成集评测门禁）。
 - 分析：六引擎（关系发现/冲突/聚类/演化/推理/校验）+ 关系状态机 + 证据与审核；知识图谱文件视图/画布、`analysis/graph.json` 落盘。
 
 **还没做到 / 明确不做**
@@ -162,7 +162,7 @@ JSONL 落盘 · 本机向量检索 · 六个模型工具 · 自动召回 · 硬�
 | LLM 抽取式记忆整理 | ❌ 不做（零依赖、默认不联网；用向量+规则代替 LLM 抽取） |
 | 多设备同步 / 多用户隔离 | ❌ 不做（本地优先，单进程） |
 | 多模态（图片/音频记忆） | ❌ 未做 |
-| ANN / 本地重排 / 查询变体 | ⚠️ 模块已就绪，**默认关**（需按真实库评测后再开） |
+| ANN / 查询变体 | ⚠️ 模块已就绪，**默认关**（需按真实库评测后再开） |
 | 大规模生产验证 | ⚠️ 单机压测到 2 万合成向量；没有分布式/多租户验证 |
 
 **结论**：在「DSH 插件 / 本地优先 / 零依赖」这个定位里，它的功能闭环和工程实践（测试、CI、评测、生命周期、冲突裁决、健康度）比多数同类插件完整；但**不能声称在所有维度超过 Mem0 / Zep / Hindsight 等系统**——它们在图记忆、LLM 抽取、规模和多模态上更强。是否"比别人好"取决于你的场景：要本地、离线、和 DSH 深度集成，这个仓库更合适；要图谱/多跳/云端规模，选它们。
@@ -179,7 +179,7 @@ bge-m3 1024 维，llama-server CPU 6 线程，2026-11-10）：
 | 批量嵌入（batch=8 vs 1） | 3.8 rec/s vs 2.8 rec/s（≈1.4×，CPU 上省的是调度） |
 | 回填 | batch=8 3.2 rec/s；单条失败只留 null，不拖垮整批 |
 | ANN（纯 JS HNSW，合成 128 维） | 2k：P50 1.3ms/召回 100%；10k：1.15ms/98%（10.4×）；20k：1.73ms/94%（14.6×） |
-| 测试 | **1094 例 / 1093 pass / 1 skip / 0 fail** |
+| 测试 | **1080 例 / 1079 pass / 1 skip / 0 fail** |
 | 检索评测（合成集 94 条 / 48 查询，真实 bge-m3） | base recall@5 0.7708 → **产品默认 0.9167**；MRR 0.7483 / nDCG 0.7912（方法见 [docs/benchmark.md](docs/benchmark.md)） |
 
 复现：`node tools/bench/run.mjs`（live 模式需本地嵌入服务；无服务时自动合成数据）。
