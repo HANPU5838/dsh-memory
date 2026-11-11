@@ -473,6 +473,23 @@ window.__ModuleLoader__.load({
       '.memp .kg-rel-chip,.memp .kg-memory{transition:background .15s ease,transform .1s ease}',
       '.memp .kg-rel-chip:active,.memp .kg-memory:active{transform:scale(.98)}',
       '@media (prefers-reduced-motion: reduce){.memp .tree-tab,.memp .kg-detail,.memp .kg-spinner,.memp .kg-node,.memp .tree-canvas,.memp .tabs .tab{animation:none!important;transition:none!important}}',
+      '.memp .kg-files{display:flex;flex-direction:column;gap:8px}',
+      '.memp .kg-files-meta{display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--dsw-alias-label-secondary);padding:2px 2px 0}',
+      '.memp .kg-folder{border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1);overflow:hidden}',
+      '.memp .kg-folder-head{display:flex;align-items:center;gap:7px;padding:8px 10px;cursor:pointer;user-select:none;font-size:11.5px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-2) 55%,transparent)}',
+      '.memp .kg-folder-caret,.memp .kg-file-caret{width:12px;color:var(--dsw-alias-label-secondary);font-size:10px;flex:none}',
+      '.memp .kg-folder-body{border-top:1px solid var(--dsw-alias-border-l1);padding:4px 6px 6px}',
+      '.memp .kg-file-block{border-bottom:1px dashed color-mix(in srgb,var(--dsw-alias-border-l1) 60%,transparent)}',
+      '.memp .kg-file-block:last-child{border-bottom:0}',
+      '.memp .kg-file{display:flex;align-items:center;gap:7px;padding:6px 7px;border-radius:7px;cursor:pointer;user-select:none;font-size:11.5px;min-width:0}',
+      '.memp .kg-file:hover{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 7%,transparent)}',
+      '.memp .kg-file-icon{font-size:11px;flex:none}',
+      '.memp .kg-file-name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.memp .kg-file-value{font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:38%}',
+      '.memp .kg-file-memories{margin:0 0 6px 20px;display:flex;flex-direction:column;gap:3px}',
+      '.memp .kg-file-memory{display:flex;gap:6px;align-items:flex-start;font-size:10.5px;padding:3px 6px;border-radius:6px;background:var(--dsw-alias-bg-layer-2)}',
+      '.memp .kg-file-memory-kind{flex:none;color:var(--dsw-alias-label-secondary)}',
+      '.memp .kg-file-memory-text{flex:1;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}',
       '.memp .kg-selbar{position:absolute;left:50%;top:10px;transform:translateX(-50%);z-index:4;display:flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 92%,transparent);color:var(--dsw-alias-label-primary);font-size:11px;backdrop-filter:blur(6px);white-space:nowrap;box-shadow:0 2px 10px rgba(0,0,0,.08)}',
       '.memp .kg-selbar .linkbtn{color:var(--dsw-alias-brand-primary)}',
       '.memp .kg-legend{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:4px 2px 0;font-size:10.5px;color:var(--dsw-alias-label-secondary)}',
@@ -1996,6 +2013,14 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function loadKgDisplay() {
+      try {
+        const saved = window.localStorage.getItem('dsh-memory:kg-display')
+        if (saved === 'files' || saved === 'canvas') return saved
+      } catch { /* 隐私模式 */ }
+      return 'files'
+    }
+
     function loadTreeMode() {
       try {
         const saved = window.localStorage.getItem('dsh-memory:tree-mode')
@@ -2024,6 +2049,10 @@ window.__ModuleLoader__.load({
       const [selectedEntityId, setSelectedEntityId] = React.useState(null)
       const [hoveredEntityId, setHoveredEntityId] = React.useState(null)
       const [kgLimit, setKgLimit] = React.useState(60)
+      // 0.53.0：图谱默认以「文件」形式展示（一个实体一行，可展开记忆），可切回图谱。
+      const [kgDisplay, setKgDisplay] = React.useState(loadKgDisplay())
+      const [kgOpenGroups, setKgOpenGroups] = React.useState(new Set())
+      const [kgOpenEntities, setKgOpenEntities] = React.useState(new Set())
       const [kgSize, setKgSize] = React.useState(null)
       const [kgStrongOnly, setKgStrongOnly] = React.useState(false)
       const [zoom, setZoom] = React.useState(loadTreeZoom())
@@ -2032,6 +2061,9 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         try { window.localStorage.setItem('dsh-memory:tree-mode', viewMode) } catch { /* 隐私模式 */ }
       }, [viewMode])
+      React.useEffect(() => {
+        try { window.localStorage.setItem('dsh-memory:kg-display', kgDisplay) } catch { /* 隐私模式 */ }
+      }, [kgDisplay])
       const [autoFitDone, setAutoFitDone] = React.useState(false)
       const wrapRef = React.useRef(null)
 
@@ -2149,6 +2181,32 @@ window.__ModuleLoader__.load({
         : null
       const graphTypeCounts = new Map()
       for (const node of graph?.nodes ?? []) graphTypeCounts.set(node.type, (graphTypeCounts.get(node.type) ?? 0) + 1)
+      // 0.53.0：文件视图数据 —— 按实体类型分组，每个实体一行（可展开关联记忆）。
+      const kgFileGroups = (() => {
+        if (viewMode !== 'graph' || graph === null) return []
+        const needle = query.trim().toLowerCase()
+        const groups = new Map()
+        for (const node of graph.nodes ?? []) {
+          if (graphTypes.size > 0 && !graphTypes.has(node.type)) continue
+          const nodeText = `${node.label} ${node.value ?? ''} ${node.type}`.toLowerCase()
+          const nodeMatch = needle === '' || nodeText.includes(needle)
+          const memories = ((graph.memoryIndex ?? {})[node.id] ?? []).map((id) => recordById.get(id)).filter(Boolean)
+          let matchedMemories = memories
+          if (needle !== '') {
+            matchedMemories = memories.filter((rec) => rec.content.toLowerCase().includes(needle))
+            if (!nodeMatch && matchedMemories.length === 0) continue
+          }
+          if (!groups.has(node.type)) groups.set(node.type, [])
+          groups.get(node.type).push({ node, memories: matchedMemories, nodeMatch })
+        }
+        return [...groups.entries()]
+          .map(([type, entries]) => ({
+            type,
+            entries: entries.sort((a, b) => (b.node.count ?? 0) - (a.node.count ?? 0) || String(a.node.label).localeCompare(String(b.node.label))),
+          }))
+          .sort((a, b) => b.entries.length - a.entries.length)
+      })()
+      const kgFileMatches = kgFileGroups.reduce((total, group) => total + group.entries.length, 0)
 
       const layout = buildMemoryTree(treeRecords, {
         labels, collapsed, activeKinds, scopeFilter, query,
@@ -2441,6 +2499,10 @@ window.__ModuleLoader__.load({
       // 0.42.0：图谱类型图例 = 类型筛选（空集合 = 全部）
       const graphLegend = viewMode === 'graph'
         ? h('div', { className: 'kg-legend' },
+            h('div', { className: 'tree-mode-toggle' },
+              h('button', { className: kgDisplay === 'files' ? 'on' : '', onClick: () => setKgDisplay('files') }, '文件'),
+              h('button', { className: kgDisplay === 'canvas' ? 'on' : '', onClick: () => setKgDisplay('canvas') }, '图谱'),
+            ),
             graphLoading ? h('span', { className: 'muted' }, '正在构建知识图谱…')
               : graphError !== '' ? h('span', { className: 'muted' }, `图谱不可用：${graphError}`)
                 : h('span', { className: 'muted' }, '类型'),
@@ -2626,6 +2688,64 @@ window.__ModuleLoader__.load({
       )
 
       // 0.42.0：知识图谱画布（复用同一套缩放/手势与详情面板）
+      const kgFilesBody = h('div', { className: 'kg-files' },
+        kgFileGroups.length === 0
+          ? h('div', { className: 'ana-empty' }, query.trim() !== '' ? '没有匹配的文件。' : '还没有可展示的实体，先运行分析。')
+          : h('div', { className: 'kg-files-meta' },
+              h('span', { className: 'muted' }, `${kgFileMatches} 个实体 · ${kgFileGroups.length} 个类型`),
+              h('span', { className: 'spacer' }),
+              h('span', { className: 'muted' }, '点击类型/文件展开'),
+            ),
+        kgFileGroups.map((group) => {
+          const meta = KG_TYPE_META[group.type] ?? { label: group.type, color: '#6b7280' }
+          const open = query.trim() !== '' || kgOpenGroups.has(group.type)
+          return h('section', { key: group.type, className: 'kg-folder' },
+            h('div', {
+              className: 'kg-folder-head',
+              role: 'button',
+              tabIndex: 0,
+              onClick: () => setKgOpenGroups((prev) => { const next = new Set(prev); if (next.has(group.type)) next.delete(group.type); else next.add(group.type); return next }),
+              onKeyDown: (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setKgOpenGroups((prev) => { const next = new Set(prev); if (next.has(group.type)) next.delete(group.type); else next.add(group.type); return next }) } },
+            },
+              h('span', { className: 'kg-folder-caret' }, open ? '▾' : '▸'),
+              h('span', { className: 'kg-dot', style: { background: meta.color } }),
+              h('b', null, meta.label),
+              h('span', { className: 'muted' }, `${group.entries.length} 个文件`),
+            ),
+            open
+              ? h('div', { className: 'kg-folder-body' }, group.entries.map((entry) => {
+                  const entityOpen = query.trim() !== '' ? entry.memories.length > 0 : kgOpenEntities.has(entry.node.id)
+                  return h('div', { key: entry.node.id, className: 'kg-file-block' },
+                    h('div', {
+                      className: 'kg-file',
+                      role: 'button',
+                      tabIndex: 0,
+                      onClick: () => setKgOpenEntities((prev) => { const next = new Set(prev); if (next.has(entry.node.id)) next.delete(entry.node.id); else next.add(entry.node.id); return next }),
+                      onKeyDown: (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setKgOpenEntities((prev) => { const next = new Set(prev); if (next.has(entry.node.id)) next.delete(entry.node.id); else next.add(entry.node.id); return next }) } },
+                    },
+                      h('span', { className: 'kg-file-caret' }, entityOpen ? '▾' : '▸'),
+                      h('span', { className: 'kg-file-icon', style: { color: meta.color } }, '▤'),
+                      h('span', { className: 'kg-file-name' }, entry.node.label),
+                      entry.node.value !== entry.node.label ? h('span', { className: 'kg-file-value muted' }, entry.node.value) : null,
+                      h('span', { className: 'spacer' }),
+                      h('span', { className: 'ana-chip' }, `${entry.node.count ?? 0} 条记忆`),
+                    ),
+                    entityOpen
+                      ? h('div', { className: 'kg-file-memories' }, entry.memories.length === 0
+                          ? h('div', { className: 'muted' }, '该实体暂无关联记忆。')
+                          : entry.memories.slice(0, 20).map((rec) => h('div', { key: rec.id, className: 'kg-file-memory' },
+                              h('span', { className: 'kg-file-memory-kind' }, kindMeta(rec.kind).label),
+                              h('span', { className: 'kg-file-memory-text' }, rec.content),
+                              h('span', { className: 'muted' }, shortTime(rec.updatedAt)),
+                            )))
+                      : null,
+                  )
+                }))
+              : null,
+          )
+        }),
+      )
+
       const graphBody = viewMode === 'graph'
         ? h('div', {
             className: 'tree-wrap',
@@ -2720,7 +2840,7 @@ window.__ModuleLoader__.load({
         viewMode === 'tree' ? kindbar : null,
         viewMode === 'tree' ? statusLegend : graphLegend,
         error && records.length > 0 ? h('div', { className: 'err' }, error) : null,
-        viewMode === 'graph' ? graphBody : treeWrap,
+        viewMode === 'graph' ? (kgDisplay === 'files' ? kgFilesBody : graphBody) : treeWrap,
       )
     }
 

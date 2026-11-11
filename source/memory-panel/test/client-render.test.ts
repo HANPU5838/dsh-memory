@@ -3557,6 +3557,28 @@ test('知识图谱视图：切换后渲染实体图、类型图例与实体详�
   hooks.runEffects()
   await tick()
 
+  // 0.53.0：默认「文件」视图
+  assert.ok(collect(current).some((n) => String(n.props?.className ?? '').includes('kg-files')), '默认渲染文件视图')
+  assert.ok(collect(current).some((n) => String(n.props?.className ?? '').includes('kg-folder')), '按类型分文件夹')
+  assert.ok(textOf(current).includes('端口') && textOf(current).includes('工具'), '文件视图有类型分组')
+
+  // 搜索实体/记忆
+  const searchInput = collect(current).find((n) => n.tag === 'input' && String(n.props?.placeholder ?? '').includes('搜索实体'))
+  assert.ok(searchInput, '文件视图可搜索')
+  ;(searchInput!.props!.onChange as (event: { target: { value: string } }) => void)({ target: { value: '8080' } })
+  hooks.runEffects()
+  await tick()
+  assert.ok(textOf(current).includes('8080'), '搜索命中实体')
+  ;(searchInput!.props!.onChange as (event: { target: { value: string } }) => void)({ target: { value: '' } })
+  hooks.runEffects()
+  await tick()
+
+  const canvasBtn = collect(current).find((n) => n.tag === 'button' && textOf(n).trim() === '图谱')
+  assert.ok(canvasBtn, '有「文件 / 图谱」切换')
+  ;(canvasBtn!.props!.onClick as () => void)()
+  hooks.runEffects()
+  await tick()
+
   const svg = collect(current).find((n) => String(n.props?.className ?? '') === 'kg-svg')
   assert.ok(svg, '切换到图谱后渲染 SVG 画布')
   const nodes = collect(current).filter((n) => String(n.props?.className ?? '').includes('kg-node'))
