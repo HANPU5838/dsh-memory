@@ -382,6 +382,26 @@ window.__ModuleLoader__.load({
       '.memp .tree-mode-toggle{display:inline-flex;gap:2px}',
       '.memp .tree-mode-toggle button{padding:3px 9px;border-radius:7px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);font-size:11.5px;color:var(--dsw-alias-label-secondary)}',
       '.memp .tree-mode-toggle button.on{color:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 10%,transparent)}',
+      '@keyframes kgSpin{to{transform:rotate(360deg)}}',
+      '@keyframes kgDetailIn{from{opacity:0;transform:translateX(10px)}to{opacity:1;transform:translateX(0)}}',
+      '@keyframes memFadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}',
+      '.memp .tabs .tab{transition:background .16s ease,color .16s ease}',
+      '.memp .tree-tab,.memp .memp-body{animation:memFadeIn .18s ease-out both}',
+      '.memp .tree-canvas{transition:transform .1s ease-out}',
+      '.memp .kg-node{transition:transform .45s cubic-bezier(.2,.8,.2,1),opacity .2s ease}',
+      '.memp .kg-node circle{transition:fill-opacity .18s ease,stroke-width .18s ease}',
+      '.memp .kg-node:hover circle{fill-opacity:.95}',
+      '.memp .kg-node.hovered circle{fill-opacity:1;stroke:var(--dsw-alias-label-primary);stroke-width:1.2}',
+      '.memp .kg-edge{transition:stroke .18s ease,stroke-opacity .18s ease,stroke-width .18s ease}',
+      '.memp .kg-edge.lit{stroke:var(--dsw-alias-brand-primary);stroke-opacity:.85}',
+      '.memp .kg-detail{animation:kgDetailIn .2s ease-out both}',
+      '.memp .kg-loading{display:flex;align-items:center;justify-content:center;gap:9px;padding:26px 0;font-size:11.5px;color:var(--dsw-alias-label-secondary)}',
+      '.memp .kg-spinner{width:18px;height:18px;border-radius:50%;border:2px solid var(--dsw-alias-border-l1);border-top-color:var(--dsw-alias-brand-primary);animation:kgSpin .8s linear infinite}',
+      '.memp .kchip,.memp .tree-mode-toggle button,.memp .tree-toolbar button,.memp .tree-zoom button{transition:background .15s ease,color .15s ease,border-color .15s ease,transform .1s ease}',
+      '.memp .kchip:active,.memp .tree-mode-toggle button:active,.memp .tree-toolbar button:active,.memp .tree-zoom button:active{transform:scale(.96)}',
+      '.memp .kg-rel-chip,.memp .kg-memory{transition:background .15s ease,transform .1s ease}',
+      '.memp .kg-rel-chip:active,.memp .kg-memory:active{transform:scale(.98)}',
+      '@media (prefers-reduced-motion: reduce){.memp .tree-tab,.memp .kg-detail,.memp .kg-spinner,.memp .kg-node,.memp .tree-canvas,.memp .tabs .tab{animation:none!important;transition:none!important}}',
       '.memp .kg-legend{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:4px 2px 0;font-size:10.5px;color:var(--dsw-alias-label-secondary)}',
       '.memp .kg-svg{display:block}',
       '.memp .kg-edge{stroke:var(--dsw-alias-border-l1);stroke-linecap:round}',
@@ -1681,16 +1701,24 @@ window.__ModuleLoader__.load({
     }
 
     /** 图谱画布（纯展示）：节点颜色按类型、大小按出现次数、边粗细按共现次数。 */
-    function EntityGraphCanvas({ graph, layout, zoom, selectedEntityId, onSelectEntity }) {
+    function EntityGraphCanvas({ graph, layout, zoom, selectedEntityId, hoveredEntityId, onSelectEntity, onHoverEntity }) {
+      // 0.42.1：首帧先聚在中心，30ms 后散开 → 节点有"展开"动画；换图/筛选时重播。
+      const [spread, setSpread] = React.useState(false)
+      React.useEffect(() => {
+        setSpread(false)
+        const timer = setTimeout(() => setSpread(true), 30)
+        return () => clearTimeout(timer)
+      }, [graph])
       const nodeById = new Map((graph?.nodes ?? []).map((node) => [node.id, node]))
       const edgeEls = []
       for (const edge of graph?.edges ?? []) {
         const a = layout.pos.get(edge.a), b = layout.pos.get(edge.b)
         if (!a || !b) continue
         const weight = Math.min(6, Math.max(1, Number(edge.weight) || 1))
+        const lit = hoveredEntityId !== null && hoveredEntityId !== undefined && (edge.a === hoveredEntityId || edge.b === hoveredEntityId)
         edgeEls.push(h('line', {
           key: `e:${edge.a}:${edge.b}`,
-          className: 'kg-edge',
+          className: 'kg-edge' + (lit ? ' lit' : ''),
           x1: a.x, y1: a.y, x2: b.x, y2: b.y,
           strokeWidth: Math.min(3.2, 0.6 + weight * 0.35),
           strokeOpacity: Math.min(0.75, 0.18 + weight * 0.1),
@@ -1703,14 +1731,24 @@ window.__ModuleLoader__.load({
         const meta = KG_TYPE_META[node.type] ?? { label: node.type, color: '#6b7280' }
         const r = layout.radius.get(node.id) ?? 8
         const selected = node.id === selectedEntityId
+        const hovered = node.id === hoveredEntityId
+        const px = spread ? p.x : layout.width / 2
+        const py = spread ? p.y : layout.height / 2
         nodeEls.push(h('g', {
           key: `n:${node.id}`,
-          className: 'kg-node' + (selected ? ' selected' : ''),
+          className: 'kg-node' + (selected ? ' selected' : '') + (hovered ? ' hovered' : ''),
+          transform: `translate(${px},${py})`,
           onClick: () => onSelectEntity(node.id === selectedEntityId ? null : node.id),
+          onMouseEnter: () => { if (typeof onHoverEntity === 'function') onHoverEntity(node.id) },
+          onMouseLeave: () => { if (typeof onHoverEntity === 'function') onHoverEntity(null) },
+          onKeyDown: (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelectEntity(node.id === selectedEntityId ? null : node.id) } },
+          role: 'button',
+          tabIndex: 0,
+          'aria-label': `${meta.label} ${node.label}`,
           style: { '--c': meta.color },
         },
-          h('circle', { cx: p.x, cy: p.y, r: selected ? r + 2 : r, fill: meta.color, fillOpacity: selected ? 0.95 : 0.78, stroke: selected ? '#111827' : 'none', strokeWidth: selected ? 1.5 : 0 }),
-          (r >= 12 || selected) ? h('text', { x: p.x, y: p.y - r - 5, className: 'kg-label', textAnchor: 'middle' }, node.label) : null,
+          h('circle', { cx: 0, cy: 0, r: selected ? r + 2 : r, fill: meta.color, fillOpacity: selected ? 0.95 : 0.78, stroke: selected ? '#111827' : 'none', strokeWidth: selected ? 1.5 : 0 }),
+          (r >= 12 || selected || hovered) ? h('text', { x: 0, y: -r - 5, className: 'kg-label', textAnchor: 'middle' }, node.label) : null,
           h('title', null, `${meta.label} · ${node.value}\n出现在 ${node.count} 条记忆里`),
         ))
       }
@@ -1799,6 +1837,7 @@ window.__ModuleLoader__.load({
       const [graphRefresh, setGraphRefresh] = React.useState(0)
       const [graphTypes, setGraphTypes] = React.useState(new Set())
       const [selectedEntityId, setSelectedEntityId] = React.useState(null)
+      const [hoveredEntityId, setHoveredEntityId] = React.useState(null)
       const [zoom, setZoom] = React.useState(loadTreeZoom())
       const zoomRef = React.useRef(zoom)
       zoomRef.current = zoom
@@ -2317,16 +2356,23 @@ window.__ModuleLoader__.load({
                         layout: kg,
                         zoom,
                         selectedEntityId,
+                        hoveredEntityId,
                         onSelectEntity: setSelectedEntityId,
+                        onHoverEntity: setHoveredEntityId,
                       }),
                     ),
                   )
-                : h('div', { className: 'tree-empty' },
-                    h('span', { className: 'big' }, '🕸️'),
-                    h('span', null, graphLoading ? '正在构建知识图谱…'
-                      : graphError !== '' ? `图谱不可用：${graphError}`
-                        : '还没有可提取的实体（端口/路径/版本/工具/标签等会出现在这里）。'),
-                  ),
+                : graphLoading
+                  ? h('div', { className: 'tree-empty' },
+                      h('div', { className: 'kg-loading' },
+                        h('span', { className: 'kg-spinner' }),
+                        h('span', null, '正在构建知识图谱…'),
+                      ),
+                    )
+                  : h('div', { className: 'tree-empty' },
+                      h('span', { className: 'big' }, graphError !== '' ? '⚠️' : '🕸️'),
+                      h('span', null, graphError !== '' ? `图谱不可用：${graphError}` : '还没有可提取的实体（端口/路径/版本/工具/标签等会出现在这里）。'),
+                    ),
             ),
             zoomBar,
             h(EntityGraphDetail, {
