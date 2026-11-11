@@ -465,7 +465,7 @@ window.__ModuleLoader__.load({
       '.memp .kg-node{opacity:1;transition:opacity .2s ease,transform .45s cubic-bezier(.2,.8,.2,1)}',
       '.memp .kg-node.dim{opacity:.24}',
       '.memp .kg-halo{transition:fill-opacity .2s ease}',
-      '.memp .kg-label{font-size:10px;font-weight:500}',
+      '.memp .kg-label{font-size:9px;font-weight:500}',
       '.memp .kg-loading{display:flex;align-items:center;justify-content:center;gap:9px;padding:26px 0;font-size:11.5px;color:var(--dsw-alias-label-secondary)}',
       '.memp .kg-spinner{width:18px;height:18px;border-radius:50%;border:2px solid var(--dsw-alias-border-l1);border-top-color:var(--dsw-alias-brand-primary);animation:kgSpin .8s linear infinite}',
       '.memp .kchip,.memp .tree-mode-toggle button,.memp .tree-toolbar button,.memp .tree-zoom button{transition:background .15s ease,color .15s ease,border-color .15s ease,transform .1s ease}',
@@ -1721,7 +1721,7 @@ window.__ModuleLoader__.load({
       const n = list.length
       if (n === 0) return { width, height, pos: new Map(), radius: new Map() }
       const cx = width / 2, cy = height / 2, area = width * height
-      const k = Math.sqrt(area / Math.max(1, n)) * 0.56
+      const k = Math.sqrt(area / Math.max(1, n)) * 0.66
       const index = new Map()
       const pos = new Map()
       const vel = []
@@ -1743,7 +1743,7 @@ window.__ModuleLoader__.load({
         vel.push({ x: 0, y: 0 })
       }
       const edgeList = edges.filter((edge) => index.has(edge.a) && index.has(edge.b))
-      const iterations = 380
+      const iterations = 340
       const margin = 40
       for (let step = 0; step < iterations; step++) {
         const cooling = 1 - step / iterations
@@ -1782,8 +1782,8 @@ window.__ModuleLoader__.load({
           const f = force.get(node.id)
           const anchor = typeAnchor.get(node.type) ?? { x: cx, y: cy }
           // 类型锚点引力 > 中心引力：同类型抱团，整体仍向中心收拢
-          f.x += (anchor.x - p.x) * 0.034
-          f.y += (anchor.y - p.y) * 0.034
+          f.x += (anchor.x - p.x) * 0.026
+          f.y += (anchor.y - p.y) * 0.026
           f.x += (cx - p.x) * 0.0012
           f.y += (cy - p.y) * 0.0012
           const v = vel[index.get(node.id)]
@@ -1805,7 +1805,7 @@ window.__ModuleLoader__.load({
         if (p.x > maxX) maxX = p.x
         if (p.y > maxY) maxY = p.y
       }
-      const pad = 64
+      const pad = 44
       const spanX = Math.max(1, maxX - minX)
       const spanY = Math.max(1, maxY - minY)
       const fit = Math.min((width - 2 * pad) / spanX, (height - 2 * pad) / spanY)
@@ -1821,8 +1821,8 @@ window.__ModuleLoader__.load({
       const maxCount = Math.max(1, ...list.map((node) => Number(node.count) || 1))
       for (const node of list) {
         const count = Math.max(1, Number(node.count) || 1)
-        // 9 ~ 34：出现越多越大（对数），最少也是"看得见"的圆
-        radius.set(node.id, 9 + 6 * Math.log(1 + count) / Math.log(1 + maxCount) * 2)
+        // 5 ~ 13：小节点 + 标签才看得清结构；原来 9~21 在 120 节点时会糊成一坨
+        radius.set(node.id, 5 + 8 * Math.log(1 + count) / Math.log(1 + maxCount))
       }
       return { width, height, pos, radius }
     }
@@ -1900,8 +1900,8 @@ window.__ModuleLoader__.load({
       const labelledIds = new Set()
       const labelBoxOf = (node, r, above) => {
         const p = layout.pos.get(node.id)
-        const text = String(node.label).length > 18 ? `${String(node.label).slice(0, 17)}…` : String(node.label)
-        const width = Math.min(120, Math.max(18, text.length * 6.4))
+        const text = String(node.label).length > 14 ? `${String(node.label).slice(0, 13)}…` : String(node.label)
+        const width = Math.min(96, Math.max(14, text.length * 5.2))
         const centerY = above ? p.y - (r + 8) : p.y + r + 9
         return { x: p.x - width / 2, y: centerY - 6, w: width, h: 12 }
       }
@@ -1926,7 +1926,7 @@ window.__ModuleLoader__.load({
         const selected = node.id === selectedEntityId
         const hovered = node.id === hoveredEntityId
         const dimmed = focusActive && !neighborIds.has(node.id)
-        const labelVisible = (showAllLabels || r >= 18 || selected || hovered) && (labelledIds.has(node.id) || selected || hovered)
+        const labelVisible = (showAllLabels || r >= 14 || selected || hovered) && (labelledIds.has(node.id) || selected || hovered)
         const px = spread ? p.x : layout.width / 2
         const py = spread ? p.y : layout.height / 2
         nodeEls.push(h('g', {
@@ -1942,11 +1942,11 @@ window.__ModuleLoader__.load({
           'aria-label': `${meta.label} ${node.label}`,
           style: { '--c': meta.color },
         },
-          h('circle', { className: 'kg-halo', cx: 0, cy: 0, r: r * 1.75, fill: meta.color, fillOpacity: selected || hovered ? 0.22 : 0.10 }),
+          h('circle', { className: 'kg-halo', cx: 0, cy: 0, r: r * 1.35, fill: meta.color, fillOpacity: selected || hovered ? 0.20 : 0.07 }),
           h('circle', { className: 'kg-core', cx: 0, cy: 0, r: selected ? r + 3 : r, fill: meta.color, fillOpacity: selected ? 0.98 : 0.86 }),
           selected ? h('circle', { cx: 0, cy: 0, r: r + 6, fill: 'none', stroke: meta.color, strokeWidth: 1.6, strokeDasharray: '3 3', strokeOpacity: 0.9 }) : null,
           labelVisible
-            ? h('text', { x: 0, y: r + 15, className: 'kg-label', textAnchor: 'middle' }, String(node.label).length > 18 ? `${String(node.label).slice(0, 17)}…` : node.label)
+            ? h('text', { x: 0, y: r + 11, className: 'kg-label', textAnchor: 'middle' }, String(node.label).length > 14 ? `${String(node.label).slice(0, 13)}…` : node.label)
             : null,
           h('title', null, `${meta.label} · ${node.value}\n出现在 ${node.count} 条记忆里`),
         ))
@@ -2037,7 +2037,7 @@ window.__ModuleLoader__.load({
       const [graphTypes, setGraphTypes] = React.useState(new Set())
       const [selectedEntityId, setSelectedEntityId] = React.useState(null)
       const [hoveredEntityId, setHoveredEntityId] = React.useState(null)
-      const [kgLimit, setKgLimit] = React.useState(120)
+      const [kgLimit, setKgLimit] = React.useState(60)
       const [kgSize, setKgSize] = React.useState(null)
       const [kgStrongOnly, setKgStrongOnly] = React.useState(false)
       const [zoom, setZoom] = React.useState(loadTreeZoom())
@@ -2598,7 +2598,8 @@ window.__ModuleLoader__.load({
         h('span', null, h('i', { style: { background: 'var(--dsw-alias-brand-primary)' } }), '强度条：越高越稳（1~3 格）'),
       )
 
-      const zoomBar = showEmpty ? null : h('div', { className: 'tree-zoom' },
+      // 0.50.2：图谱只用滚轮/双指/双击手势，不再显示底部缩放条（避免遮挡图谱）。
+      const zoomBar = showEmpty || viewMode === 'graph' ? null : h('div', { className: 'tree-zoom' },
         h('button', { title: '缩小（滚轮/双指也可缩放）', onClick: () => stepZoom(-1) }, '−'),
         h('span', { className: 'zoomval' }, `${Math.round(zoom * 100)}%`),
         h('button', { title: '放大（滚轮/双指也可缩放）', onClick: () => stepZoom(1) }, '+'),
@@ -2649,7 +2650,18 @@ window.__ModuleLoader__.load({
 
       // 0.42.0：知识图谱画布（复用同一套缩放/手势与详情面板）
       const graphBody = viewMode === 'graph'
-        ? h('div', { className: 'tree-wrap', ref: wrapRef },
+        ? h('div', {
+            className: 'tree-wrap',
+            ref: wrapRef,
+            tabIndex: 0,
+            onKeyDown: (event) => {
+              // 0.50.2：图谱不显示缩放条，键盘也能缩放：+ / − / 0（复位）/ F（适应）。
+              if (event.key === '+' || event.key === '=') { event.preventDefault(); setZoom((value) => clampTreeZoom(value * 1.25)) }
+              else if (event.key === '-' || event.key === '_') { event.preventDefault(); setZoom((value) => clampTreeZoom(value / 1.25)) }
+              else if (event.key === '0') { event.preventDefault(); setZoom(1) }
+              else if (event.key === 'f' || event.key === 'F') { event.preventDefault(); if (fitViewRef.current) fitViewRef.current() }
+            },
+          },
             h('div', { className: 'kg-hoverbar' },
               hoveredEntityId !== null
                 ? (() => {

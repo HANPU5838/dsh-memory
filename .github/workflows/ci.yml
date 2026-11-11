@@ -47,4 +47,4 @@ jobs:
         run: node tools/eval/run.mjs --mode synthetic --no-public --quiet
 
       - name: 构建验证
-        run: node tools/build-single-package.mjs --scope @restregular --version 0.50.1 --repo https://github.com/HANPU5838/dsh-memory --out .verify --no-place
+        run: node tools/build-single-package.mjs --scope @restregular --version 0.50.2 --repo https://github.com/HANPU5838/dsh-memory --out .verify --no-place
