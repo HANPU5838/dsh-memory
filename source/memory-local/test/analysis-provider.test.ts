@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { LocalMemoryService } from '../src/index.ts'
@@ -46,6 +46,7 @@ test('智能关系分析：全量分析产出关系/冲突/聚类，确认后进
     const task = await waitTask(svc)
     assert.equal(task.status, 'done', task.error ?? '')
 
+    assert.ok(existsSync(join(dir, 'analysis', 'snapshot.json')), '分析快照（聚类/演化/路径）应落盘')
     const overview = svc.analysisOverview()
     assert.ok(overview.analyzedMemories >= 5)
     assert.ok(overview.suggested >= 1, '应发现潜在关系')

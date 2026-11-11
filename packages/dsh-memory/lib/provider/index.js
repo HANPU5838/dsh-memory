@@ -94,7 +94,7 @@ import { EmbedCache } from './embed-cache.js'
 import { createAnnIndex, shouldUseAnn,                             } from './ann/index.js'
 import { EmbedKeepAlive } from './embed.js'
 import { MemoryEventBus } from './events.js'
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import {

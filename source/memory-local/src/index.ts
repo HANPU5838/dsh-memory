@@ -94,7 +94,7 @@ import { EmbedCache } from './embed-cache.ts'
 import { createAnnIndex, shouldUseAnn, type AnnIndex, type AnnKind } from './ann/index.ts'
 import { EmbedKeepAlive } from './embed.ts'
 import { MemoryEventBus } from './events.ts'
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import {
