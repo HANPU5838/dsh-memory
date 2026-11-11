@@ -481,11 +481,11 @@ window.__ModuleLoader__.load({
       '.memp .kg-folder-body{border-top:1px solid var(--dsw-alias-border-l1);padding:4px 6px 6px}',
       '.memp .kg-file-block{border-bottom:1px dashed color-mix(in srgb,var(--dsw-alias-border-l1) 60%,transparent)}',
       '.memp .kg-file-block:last-child{border-bottom:0}',
-      '.memp .kg-file{display:flex;align-items:center;gap:7px;padding:6px 7px;border-radius:7px;cursor:pointer;user-select:none;font-size:11.5px;min-width:0}',
+      '.memp .kg-file{display:flex;flex-direction:column;gap:2px;padding:6px 7px;border-radius:7px;cursor:pointer;user-select:none;font-size:11.5px;min-width:0}','.memp .kg-file-row{display:flex;align-items:center;gap:7px;min-width:0}',
       '.memp .kg-file:hover{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 7%,transparent)}',
       '.memp .kg-file-icon{font-size:11px;flex:none}',
       '.memp .kg-file-name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-      '.memp .kg-file-value{font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:38%}',
+      '.memp .kg-file-value{font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:34%}','.memp .kg-file-sub{font-size:10px;color:var(--dsw-alias-label-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-left:26px}',
       '.memp .kg-file-memories{margin:0 0 6px 20px;display:flex;flex-direction:column;gap:3px}',
       '.memp .kg-file-memory{display:flex;gap:6px;align-items:flex-start;font-size:10.5px;padding:3px 6px;border-radius:6px;background:var(--dsw-alias-bg-layer-2)}',
       '.memp .kg-file-memory-kind{flex:none;color:var(--dsw-alias-label-secondary)}',
@@ -2197,7 +2197,16 @@ window.__ModuleLoader__.load({
             if (!nodeMatch && matchedMemories.length === 0) continue
           }
           if (!groups.has(node.type)) groups.set(node.type, [])
-          groups.get(node.type).push({ node, memories: matchedMemories, nodeMatch })
+          const typeLabel = (KG_TYPE_META[node.type] ?? { label: node.type }).label
+          const context = (matchedMemories[0] ?? memories[0])?.content ?? ''
+          groups.get(node.type).push({
+            node,
+            memories: matchedMemories,
+            nodeMatch,
+            typeLabel,
+            displayName: `${typeLabel} · ${node.label}`,
+            context: context.length > 72 ? `${context.slice(0, 72)}…` : context,
+          })
         }
         return [...groups.entries()]
           .map(([type, entries]) => ({
@@ -2720,15 +2729,23 @@ window.__ModuleLoader__.load({
                       className: 'kg-file',
                       role: 'button',
                       tabIndex: 0,
+                      title: `${entry.typeLabel} · ${entry.node.value || entry.node.label}${entry.context ? `\n${entry.context}` : ''}`,
                       onClick: () => setKgOpenEntities((prev) => { const next = new Set(prev); if (next.has(entry.node.id)) next.delete(entry.node.id); else next.add(entry.node.id); return next }),
                       onKeyDown: (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setKgOpenEntities((prev) => { const next = new Set(prev); if (next.has(entry.node.id)) next.delete(entry.node.id); else next.add(entry.node.id); return next }) } },
                     },
-                      h('span', { className: 'kg-file-caret' }, entityOpen ? '▾' : '▸'),
-                      h('span', { className: 'kg-file-icon', style: { color: meta.color } }, '▤'),
-                      h('span', { className: 'kg-file-name' }, entry.node.label),
-                      entry.node.value !== entry.node.label ? h('span', { className: 'kg-file-value muted' }, entry.node.value) : null,
-                      h('span', { className: 'spacer' }),
-                      h('span', { className: 'ana-chip' }, `${entry.node.count ?? 0} 条记忆`),
+                      h('div', { className: 'kg-file-row' },
+                        h('span', { className: 'kg-file-caret' }, entityOpen ? '▾' : '▸'),
+                        h('span', { className: 'kg-file-icon', style: { color: meta.color } }, '▤'),
+                        h('span', { className: 'kg-file-name' }, entry.displayName),
+                        entry.node.value !== entry.node.label && entry.node.value !== undefined
+                          ? h('span', { className: 'kg-file-value muted' }, String(entry.node.value))
+                          : null,
+                        h('span', { className: 'spacer' }),
+                        h('span', { className: 'ana-chip' }, `${entry.node.count ?? 0} 条记忆`),
+                      ),
+                      entry.context !== ''
+                        ? h('div', { className: 'kg-file-sub' }, entry.context)
+                        : null,
                     ),
                     entityOpen
                       ? h('div', { className: 'kg-file-memories' }, entry.memories.length === 0
@@ -2778,7 +2795,7 @@ window.__ModuleLoader__.load({
                           h('span', { className: 'muted' }, ` ${meta.label} · ${hovered.count} 条记忆`),
                         )
                       })()
-                    : h('span', { className: 'muted' }, '滚轮/双指缩放 · 双击适应 · 键盘 + − 0 F'),
+                    : h('span', { className: 'muted' }, '滚轮/双指缩放 · 双击适应 · 点击节点看详情 · 名字不清楚时切「文件」'),
                 )
               : null,
             h('div', { className: 'tree-scroll' },
