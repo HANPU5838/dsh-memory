@@ -1954,10 +1954,13 @@ window.__ModuleLoader__.load({
           h('title', null, `${meta.label} · ${node.value}\n出现在 ${node.count} 条记忆里`),
         ))
       })
+      // 0.56.0：按 zoom 放大 SVG 的 width/height，viewBox 保持基准坐标 ——
+      // 浏览器用矢量重新光栅化，放大后文字/线条依旧清晰（不再整层 CSS scale 变糊）。
+      const renderZoom = Number.isFinite(zoom) && zoom > 0 ? zoom : 1
       return h('svg', {
         className: 'kg-svg',
-        width: layout.width,
-        height: layout.height,
+        width: Math.ceil(layout.width * renderZoom),
+        height: Math.ceil(layout.height * renderZoom),
         viewBox: `0 0 ${layout.width} ${layout.height}`,
         'aria-label': '知识图谱',
       }, edgeEls, nodeEls)
@@ -2815,7 +2818,7 @@ window.__ModuleLoader__.load({
                     style: { width: Math.ceil(kg.width * zoom), height: Math.ceil(kg.height * zoom) },
                   },
                     h('div', {
-                      style: { transform: `scale(${zoom})`, transformOrigin: '0 0', width: kg.width, height: kg.height },
+                      style: { width: Math.ceil(kg.width * zoom), height: Math.ceil(kg.height * zoom) },
                     },
                       h(EntityGraphCanvas, {
                         graph: graphFiltered,

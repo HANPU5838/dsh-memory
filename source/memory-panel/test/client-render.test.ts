@@ -3695,3 +3695,22 @@ test('关系分析页：概览/关系发现/冲突中心渲染真实 API 数据'
   assert.ok(textOf(current).includes('信息更新') || textOf(current).includes('数据库从 PostgreSQL'), '冲突中心展示差异')
   hooks.resetAll()
 })
+
+test('图谱矢量缩放：zoom=2 时 SVG 物理尺寸 ×2，viewBox 保持基准（放大不糊）', async () => {
+  const { exports, hooks } = await loadBundle()
+  const EntityGraphCanvas = (exports.__test as { EntityGraphCanvas: (p: Record<string, unknown>) => unknown }).EntityGraphCanvas
+  const graph = { nodes: [{ id: 'tool:npm', type: 'tool', label: 'npm', value: 'npm', count: 2 }], edges: [], memoryIndex: {} }
+  const layout = { width: 400, height: 300, R: 100, pos: new Map([['tool:npm', { x: 100, y: 100 }]]), radius: new Map([['tool:npm', 8]]) }
+  const renderAt = (zoom: number) => render(hooks.React.createElement(EntityGraphCanvas, {
+    graph, layout, zoom, selectedEntityId: null, hoveredEntityId: null, onSelectEntity() {}, onHoverEntity() {},
+  }), hooks)
+  const first = renderAt(1)
+  const double = renderAt(2)
+  const svgOf = (node: RenderNode | null) => collect(node).find((n) => String(n.props?.className ?? '') === 'kg-svg')
+  const a = svgOf(first)!
+  const b = svgOf(double)!
+  assert.equal(Number(a.props!.width), 400)
+  assert.equal(Number(b.props!.width), 800)
+  assert.equal(Number(b.props!.height), 600)
+  assert.equal(b.props!.viewBox, '0 0 400 300', 'viewBox 不随 zoom 变，SVG 矢量重绘')
+})
