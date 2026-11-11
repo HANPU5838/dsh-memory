@@ -4340,6 +4340,7 @@ export class LocalMemoryService                             {
       const mergedConflicts = mergeAnalysisConflicts(repo.listConflicts(), result.conflicts, result.preservedConflicts)
       repo.saveRelations(mergedRelations)
       repo.saveConflicts(mergedConflicts)
+      this.persistAnalysisGraph()
       const nextState                = {
         version: 1,
         fingerprints: result.fingerprints,
@@ -4396,6 +4397,7 @@ export class LocalMemoryService                             {
     }
     relations[index] = next
     repo.saveRelations(relations)
+    this.persistAnalysisGraph()
     return next
   }
 
@@ -4429,6 +4431,7 @@ export class LocalMemoryService                             {
     }
     relations.push(record)
     repo.saveRelations(relations)
+    this.persistAnalysisGraph()
     return record
   }
 
@@ -4536,9 +4539,16 @@ export class LocalMemoryService                             {
     }
   }
 
-  analysisGraph()   
+  /** 0.52.0：图谱快照文件（以文件形式存在：analysis/graph.json）。 */
+          get analysisGraphPath()         {
+    return join(this.cfg.storeDir, 'analysis', 'graph.json')
+  }
+
+  /** 从当前实体图 + 关系构建图谱（节点=实体，边=已确认/推荐关系）。 */
+          buildAnalysisGraph()   
                                                                             
                                                                                                                                
+                        
     {
     const entities = this.entityGraph()
     const relations = this.analysisRepo.listRelations().filter((item) => item.status === 'confirmed' || item.status === 'suggested')
@@ -4547,7 +4557,32 @@ export class LocalMemoryService                             {
     const edges = relations
       .filter((relation) => nodeIds.has(relation.sourceEntityId) && nodeIds.has(relation.targetEntityId))
       .map((relation) => ({ a: relation.sourceEntityId, b: relation.targetEntityId, weight: Math.max(1, Math.round(relation.confidenceScore * 10)), status: relation.status, type: relation.relationshipType, confidence: relation.confidenceScore, inferred: relation.inferred }))
-    return { nodes, edges }
+    return { nodes, edges, generatedAt: Date.now() }
+  }
+
+  /** 0.52.0：把图谱写入 analysis/graph.json（原子写；失败不影响主流程）。 */
+          persistAnalysisGraph()       {
+    try {
+      const graph = this.buildAnalysisGraph()
+      mkdirSync(dirname(this.analysisGraphPath), { recursive: true })
+      const tmp = `${this.analysisGraphPath}.tmp-${process.pid}`
+      writeFileSync(tmp, JSON.stringify(graph), 'utf8')
+      renameSync(tmp, this.analysisGraphPath)
+    } catch { /* 快照失败不影响分析/操作 */ }
+  }
+
+  analysisGraph()   
+                                                                            
+                                                                                                                               
+    {
+    // 文件优先：图谱以 analysis/graph.json 形式存在；没有文件时即时构建。
+    try {
+      const raw = JSON.parse(readFileSync(this.analysisGraphPath, 'utf8'))                                        
+      if (Array.isArray(raw.nodes) && Array.isArray(raw.edges)) {
+        return { nodes: raw.nodes         , edges: raw.edges          }
+      }
+    } catch { /* 回退即时构建 */ }
+    return this.buildAnalysisGraph()
   }
 
   /** 0.40.0（P1）：记忆健康度报告（抽样重复率 + 冲突/失效/隔离/休眠/嵌入覆盖 + 0-100 分）。 */

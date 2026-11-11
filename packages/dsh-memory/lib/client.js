@@ -473,24 +473,8 @@ window.__ModuleLoader__.load({
       '.memp .kg-rel-chip,.memp .kg-memory{transition:background .15s ease,transform .1s ease}',
       '.memp .kg-rel-chip:active,.memp .kg-memory:active{transform:scale(.98)}',
       '@media (prefers-reduced-motion: reduce){.memp .tree-tab,.memp .kg-detail,.memp .kg-spinner,.memp .kg-node,.memp .tree-canvas,.memp .tabs .tab{animation:none!important;transition:none!important}}',
-      '.memp .tree-wrap.kg-stage{background:radial-gradient(circle at 50% 38%,rgba(124,58,237,.13),transparent 62%),linear-gradient(180deg,#0a0a10 0%,#06060a 100%);border-color:#1e1e2a}',
-      '.memp .kg-viewtabs{position:absolute;left:50%;top:8px;transform:translateX(-50%);z-index:4;display:flex;gap:2px;padding:2px;border-radius:9px;border:1px solid #2a2a3a;background:rgba(22,22,31,.92);backdrop-filter:blur(8px)}',
-      '.memp .kg-viewtabs button{padding:3px 9px;border-radius:6px;border:0;background:none;font-size:10.5px;color:#8888a0}',
-      '.memp .kg-viewtabs button.on{background:#7c3aed;color:#fff}',
-      '.memp .kg-selbar{position:absolute;left:50%;top:44px;transform:translateX(-50%);z-index:4;display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;border:1px solid rgba(124,58,237,.45);background:rgba(124,58,237,.18);color:#e4e4ed;font-size:11px;backdrop-filter:blur(8px);white-space:nowrap}',
-      '.memp .kg-selbar .linkbtn{color:#a78bfa}',
-      '.memp .kg-stage .kg-hoverbar{background:rgba(22,22,31,.92);border-color:#2a2a3a;color:#e4e4ed;top:auto;bottom:10px}',
-      '.memp .kg-stage .kg-hoverbar .muted{color:#8888a0}',
-      '.memp .kg-stage .kg-label{fill:#c9c9dd;stroke:#0a0a10;stroke-width:2.4px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}',
-      '.memp .kg-stage .kg-edge{stroke:#3a3a4a}',
-      '.memp .kg-stage .kg-node circle{stroke:#06060a;stroke-width:.6}','.memp .kg-stage .kg-node.selected .kg-core{stroke:#7c3aed;stroke-width:2px}',
-      '.memp .kg-stage .kg-detail{background:rgba(16,16,24,.94);border-color:#2a2a3a;color:#e4e4ed;backdrop-filter:blur(10px)}',
-      '.memp .kg-stage .kg-detail .muted{color:#8888a0}',
-      '.memp .kg-stage .kg-detail-value{color:#a78bfa}',
-      '.memp .kg-stage .kg-rel-chip{background:#1c1c28;border-color:#2a2a3a;color:#e4e4ed}',
-      '.memp .kg-stage .kg-memory{background:#16161f;color:#e4e4ed}',
-      '.memp .kg-stage .kg-memory:hover{background:#1c1c28}',
-      '.memp .kg-stage .kg-memory-kind{color:#8888a0}',
+      '.memp .kg-selbar{position:absolute;left:50%;top:10px;transform:translateX(-50%);z-index:4;display:flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 92%,transparent);color:var(--dsw-alias-label-primary);font-size:11px;backdrop-filter:blur(6px);white-space:nowrap;box-shadow:0 2px 10px rgba(0,0,0,.08)}',
+      '.memp .kg-selbar .linkbtn{color:var(--dsw-alias-brand-primary)}',
       '.memp .kg-legend{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:4px 2px 0;font-size:10.5px;color:var(--dsw-alias-label-secondary)}',
       '.memp .kg-svg{display:block;user-select:none}',
       '.memp .tree-wrap{cursor:grab}','.memp .tree-wrap:focus-visible{outline:2px solid color-mix(in srgb,var(--dsw-alias-brand-primary) 45%,transparent);outline-offset:2px}',
@@ -1829,13 +1813,13 @@ window.__ModuleLoader__.load({
       return { width, height, pos, radius }
     }
 
-    function kgLayoutCached(nodes, edges, width, height, mode = 'force') {
+    function kgLayoutCached(nodes, edges, width, height) {
       const w = Math.max(240, Math.round(Number(width) || 900))
       const h = Math.max(240, Math.round(Number(height) || 560))
-      const signature = `${mode}|${w}x${h}|${nodes.length}|${nodes.map((node) => node.id).join(',')}`
+      const signature = `${w}x${h}|${nodes.length}|${nodes.map((node) => node.id).join(',')}`
       const cached = KG_LAYOUT_CACHE.get(signature)
       if (cached !== undefined) return cached
-      const layout = kgLayout(nodes, edges, w, h, mode)
+      const layout = kgLayout(nodes, edges, w, h)
       KG_LAYOUT_CACHE.set(signature, layout)
       while (KG_LAYOUT_CACHE.size > 8) KG_LAYOUT_CACHE.delete(KG_LAYOUT_CACHE.keys().next().value)
       return layout
@@ -2042,7 +2026,6 @@ window.__ModuleLoader__.load({
       const [kgLimit, setKgLimit] = React.useState(60)
       const [kgSize, setKgSize] = React.useState(null)
       const [kgStrongOnly, setKgStrongOnly] = React.useState(false)
-      const [kgViewMode, setKgViewMode] = React.useState('force')
       const [zoom, setZoom] = React.useState(loadTreeZoom())
       const zoomRef = React.useRef(zoom)
       zoomRef.current = zoom
@@ -2162,7 +2145,7 @@ window.__ModuleLoader__.load({
       // 0.42.0：图谱过滤 + 确定性布局（按签名缓存，输入/拖动不重算）
       const graphFiltered = viewMode === 'graph' ? kgFilter(graph, graphTypes, query.trim(), kgLimit, kgStrongOnly) : null
       const kg = graphFiltered !== null && graphFiltered.nodes.length > 0 && kgSize !== null
-        ? kgLayoutCached(graphFiltered.nodes, graphFiltered.edges, kgSize.width, kgSize.height, kgViewMode)
+        ? kgLayoutCached(graphFiltered.nodes, graphFiltered.edges, kgSize.width, kgSize.height)
         : null
       const graphTypeCounts = new Map()
       for (const node of graph?.nodes ?? []) graphTypeCounts.set(node.type, (graphTypeCounts.get(node.type) ?? 0) + 1)
@@ -2645,19 +2628,12 @@ window.__ModuleLoader__.load({
       // 0.42.0：知识图谱画布（复用同一套缩放/手势与详情面板）
       const graphBody = viewMode === 'graph'
         ? h('div', {
-            className: 'tree-wrap kg-stage',
+            className: 'tree-wrap',
             ref: wrapRef,
             tabIndex: 0,
             title: '滚轮 / 双指缩放 · 双击适应 · 键盘 + − 0 F',
             onKeyDown: (event) => handleZoomKey(event, zoom),
           },
-            h('div', { className: 'kg-viewtabs' },
-              [['force', '力导向'], ['rings', '类型环']].map(([value, label]) => h('button', {
-                key: value,
-                className: kgViewMode === value ? 'on' : '',
-                onClick: () => setKgViewMode(value),
-              }, label)),
-            ),
             (() => {
               const selectedNode = (graphFiltered?.nodes ?? []).find((node) => node.id === selectedEntityId)
               if (selectedNode === undefined) return null
