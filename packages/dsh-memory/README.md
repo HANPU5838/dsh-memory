@@ -10,7 +10,7 @@
 > | 项目 | 说明 |
 > | --- | --- |
 > | 原作者 | **RestRegular**（上游原项目 [RestRegular/dsh-memory](https://github.com/RestRegular/dsh-memory)，MIT）；本项目在其 v0.30.1 基础上维护 |
-> | 本仓库 | **v0.50.3** = 上游 v0.30.1 + 平台/可靠性改进 + 语义认知层（去重合并/冲突检测/谱系/生命周期）+ 检索整形（MMR/地板分/自适应阈值）+ 嵌入性能（批量/缓存/保活/ANN 索引）+ **记忆强度算法（FSRS 保持度/动态融合/时间有效性/周期巩固）**。完整清单见 [IMPROVEMENTS.md](IMPROVEMENTS.md)，架构见 [docs/architecture.md](docs/architecture.md) |
+> | 本仓库 | **v0.51.0** = 上游 v0.30.1 + 平台/可靠性改进 + 语义认知层（去重合并/冲突检测/谱系/生命周期）+ 检索整形（MMR/地板分/自适应阈值）+ 嵌入性能（批量/缓存/保活/ANN 索引）+ **记忆强度算法（FSRS 保持度/动态融合/时间有效性/周期巩固）**。完整清单见 [IMPROVEMENTS.md](IMPROVEMENTS.md)，架构见 [docs/architecture.md](docs/architecture.md) |
 > | 许可 | **MIT**，版权归原作者所有，见 [LICENSE](LICENSE)；转载、分发请保留原始版权声明 |
 > | 更新与反馈 | Issue / PR / 反馈请到 **[本仓库 Issues](https://github.com/HANPU5838/dsh-memory/issues)**；与上游的差异集中在 `IMPROVEMENTS.md` |
 >
@@ -25,7 +25,7 @@
 
 JSONL 落盘 · 本机向量检索 · 六个模型工具 · 自动召回 · 硬性规则 · 可视化管理面板
 
-[![version](https://img.shields.io/badge/version-v0.50.3-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![version](https://img.shields.io/badge/version-v0.51.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/HANPU5838/dsh-memory/blob/main/LICENSE)
 [![ci](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.13-5FA04E.svg)](https://nodejs.org/)
@@ -75,7 +75,7 @@ JSONL 落盘 · 本机向量检索 · 六个模型工具 · 自动召回 · 硬�
 | **离线评测（0.40.0）** | `tools/eval/run.mjs`：合成集 94 条/48 查询 × 16 组开关矩阵，输出 recall@k / MRR / nDCG / purity；方法见 [docs/benchmark.md](docs/benchmark.md)，竞品对比见 [docs/comparison.md](docs/comparison.md) |
 | **记忆树任意缩放（0.42.0）** | 记忆树/知识图谱内 **5%–1000%** 自由缩放：滚轮、手机双指捏合、双击适应、键盘 `+ − 0 F`；**不显示缩放条**（不遮挡内容），比例本地记忆 |
 | **智能关系分析（0.50.0）** | 独立「关系分析」页：潜在关系发现（语义+实体+时间+来源，带证据）、冲突检测（更新/矛盾/语境）、知识聚类、演化时间线、2-hop 推理；关系状态 suggested/confirmed/rejected/ignored，推断与事实分离；增量分析 + 任务队列 + 全量/暂停/历史。详见 [docs/analysis.md](docs/analysis.md) |
-| **知识图谱（0.44.0）** | 零依赖规则式实体共现图（2D 类型分簇）：**按设备容器自适应尺寸**、放大后**上下左右拖动平移**、曲线边、标签防重叠、类型筛选、Top 30/60/120/全部、仅强关系、实体详情与关联记忆。详见 [docs/graph.md](docs/graph.md) |
+| **知识图谱（0.51.0）** | 零依赖规则式实体共现图：**暗色宇宙画布**、力导向/类型环视图、选中信息条、玻璃详情、类型筛选、Top 30/60/120/全部、仅强关系、滚轮/双指/键盘缩放（无遮挡缩放条）、关联记忆。详见 [docs/graph.md](docs/graph.md) |
 | **记忆树可视化（0.35.0）** | 删除/失效/休眠/冲突直接体现在节点样式与徽章上；记忆强度条（1~3 格）+ 效用点；「只看问题」过滤 + 状态图例，树上一眼看出哪些记忆需要处理 |
 | **记忆树缩放（0.34.1）** | 「记忆树」画布可**随意缩大缩小**：− / 百分比 / + / 100% / 适应画布，范围 **20%~300%**；**Ctrl/⌘ + 滚轮**连续缩放且锚定鼠标位置；比例持久化在浏览器本地，下次打开保持不变 |
 | **全链路一致性（0.34.0）** | 可见性判定收敛成**唯一函数**（软删/休眠/过期/失效），检索、列表、注入、巩固、面板全部走同一套；配套「不变量测试」锁住三读路径、三写路径与删除/恢复往返，防止修一处断一处 |

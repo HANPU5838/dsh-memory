@@ -3612,6 +3612,11 @@ test('图谱布局：确定性且落在画布范围内', async () => {
     assert.ok(p.x >= 0 && p.x <= 420, `x 在画布内: ${p.x}`)
     assert.ok(p.y >= 0 && p.y <= 320, `y 在画布内: ${p.y}`)
   }
+  // 0.51.0：类型环布局
+  const rings = kgLayout(nodes, edges, 420, 320, 'rings')
+  assert.equal(rings.pos.size, 12)
+  assert.deepEqual([...rings.pos.entries()], [...kgLayout(nodes, edges, 420, 320, 'rings').pos.entries()], '类型环布局确定性')
+  for (const [, p] of rings.pos) assert.ok(p.x >= 0 && p.x <= 420 && p.y >= 0 && p.y <= 320, '类型环在画布内')
 })
 
 test('关系分析页：概览/关系发现/冲突中心渲染真实 API 数据', async () => {
