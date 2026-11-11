@@ -3454,25 +3454,27 @@ test('记忆树缩放：− / % / + / 100% / 适应，恢复上次比例', async
     hooks.runEffects()
     for (let i = 0; i < 8; i++) await Promise.resolve()
 
-    const buttons = collect(current).filter((n) => n.tag === 'button').map((n) => textOf(n).trim())
+    // 0.50.3：缩放条已移除，只保留手势 + 键盘
+    const allButtons = collect(current).filter((n) => n.tag === 'button').map((n) => textOf(n).trim())
     for (const label of ['−', '+', '100%', '适应']) {
-      assert.ok(buttons.includes(label), `记忆树缩放控件应有「${label}」（实际 ${buttons.join('|')}）`)
+      assert.ok(!allButtons.includes(label), `不应再有缩放条按钮「${label}」`)
     }
-    const zoomLabel = collect(current).find((n) => String(n.props?.className ?? '') === 'zoomval')
-    assert.ok(zoomLabel, '有缩放百分比显示')
-    assert.equal(textOf(zoomLabel!).trim(), '130%', '打开时恢复上次缩放比例')
+    assert.ok(!collect(current).some((n) => String(n.props?.className ?? '') === 'tree-zoom'), '不应有 tree-zoom 控件容器')
+    const wrap = collect(current).find((n) => String(n.props?.className ?? '').includes('tree-wrap'))
+    assert.ok(wrap, '树画布仍存在')
+    const onKeyDown = wrap!.props!.onKeyDown as ((event: { key: string; preventDefault: () => void }) => void) | undefined
+    assert.equal(typeof onKeyDown, 'function', '树画布支持键盘缩放')
+    onKeyDown!({ key: '+', preventDefault() {} })
+    hooks.runEffects()
+    for (let i = 0; i < 8; i++) await Promise.resolve()
+    assert.ok(Number(store.get('dsh-memory:tree-zoom')) > 1.3, '键盘 + 缩放并持久化')
 
-    // 0.42.0：任意缩放（5%~1000%）、滑块、对数刻度
-    const helpers = (exports.__test as { clampTreeZoom: (v: number) => number; TREE_ZOOM_MIN: number; TREE_ZOOM_MAX: number; zoomToSlider: (z: number) => number; sliderToZoom: (p: number) => number })
+    const helpers = (exports.__test as { clampTreeZoom: (v: number) => number; TREE_ZOOM_MIN: number; TREE_ZOOM_MAX: number })
     assert.equal(helpers.TREE_ZOOM_MIN, 0.05)
     assert.equal(helpers.TREE_ZOOM_MAX, 10)
     assert.equal(helpers.clampTreeZoom(99), 10, '上限 1000%')
     assert.equal(helpers.clampTreeZoom(0.001), 0.05, '下限 5%')
     assert.equal(helpers.clampTreeZoom(NaN), 1, '非法输入回到 100%')
-    assert.ok(helpers.zoomToSlider(0.05) === 0 && helpers.zoomToSlider(10) === 100, '滑块端点')
-    assert.ok(helpers.sliderToZoom(0) === 0.05 && helpers.sliderToZoom(100) === 10, '滑块反向映射')
-    const slider = collect(current).find((n) => n.props?.type === 'range' && String(n.props?.className ?? '').includes('tree-zoom-slider'))
-    assert.ok(slider, '有任意缩放滑块')
   } finally {
     globals.window = savedWindow
     hooks.resetAll()

@@ -468,14 +468,14 @@ window.__ModuleLoader__.load({
       '.memp .kg-label{font-size:9px;font-weight:500}',
       '.memp .kg-loading{display:flex;align-items:center;justify-content:center;gap:9px;padding:26px 0;font-size:11.5px;color:var(--dsw-alias-label-secondary)}',
       '.memp .kg-spinner{width:18px;height:18px;border-radius:50%;border:2px solid var(--dsw-alias-border-l1);border-top-color:var(--dsw-alias-brand-primary);animation:kgSpin .8s linear infinite}',
-      '.memp .kchip,.memp .tree-mode-toggle button,.memp .tree-toolbar button,.memp .tree-zoom button{transition:background .15s ease,color .15s ease,border-color .15s ease,transform .1s ease}',
-      '.memp .kchip:active,.memp .tree-mode-toggle button:active,.memp .tree-toolbar button:active,.memp .tree-zoom button:active{transform:scale(.96)}',
+      '.memp .kchip,.memp .tree-mode-toggle button,.memp .tree-toolbar button{transition:background .15s ease,color .15s ease,border-color .15s ease,transform .1s ease}',
+      '.memp .kchip:active,.memp .tree-mode-toggle button:active,.memp .tree-toolbar button:active{transform:scale(.96)}',
       '.memp .kg-rel-chip,.memp .kg-memory{transition:background .15s ease,transform .1s ease}',
       '.memp .kg-rel-chip:active,.memp .kg-memory:active{transform:scale(.98)}',
       '@media (prefers-reduced-motion: reduce){.memp .tree-tab,.memp .kg-detail,.memp .kg-spinner,.memp .kg-node,.memp .tree-canvas,.memp .tabs .tab{animation:none!important;transition:none!important}}',
       '.memp .kg-legend{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:4px 2px 0;font-size:10.5px;color:var(--dsw-alias-label-secondary)}',
       '.memp .kg-svg{display:block;user-select:none}',
-      '.memp .tree-wrap{cursor:grab}',
+      '.memp .tree-wrap{cursor:grab}','.memp .tree-wrap:focus-visible{outline:2px solid color-mix(in srgb,var(--dsw-alias-brand-primary) 45%,transparent);outline-offset:2px}',
       '.memp .tree-wrap:active{cursor:grabbing}',
       '.memp .kg-edge{stroke:var(--dsw-alias-border-l1);stroke-linecap:round}',
       '.memp .kg-node{cursor:pointer}',
@@ -492,11 +492,6 @@ window.__ModuleLoader__.load({
       '.memp .kg-memory:hover{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 8%,var(--dsw-alias-bg-layer-2))}',
       '.memp .kg-memory-kind{flex:none;color:var(--dsw-alias-label-secondary)}',
       '.memp .kg-memory-text{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}',
-      '.memp .tree-zoom{position:absolute;right:10px;bottom:10px;display:flex;align-items:center;gap:1px;padding:3px;border:1px solid var(--dsw-alias-border-l1);border-radius:9px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 88%,transparent);backdrop-filter:blur(6px);box-shadow:0 4px 14px rgba(0,0,0,.12);z-index:3}',
-      '.memp .tree-zoom button{background:none;border:0;padding:2px 8px;border-radius:6px;font-size:12px;color:var(--dsw-alias-label-secondary)}',
-      '.memp .tree-zoom button:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-brand-primary)}',
-      '.memp .tree-zoom .zoomval{font-size:10.5px;min-width:38px;text-align:center;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}',
-      '.memp .tree-zoom-slider{width:88px;accent-color:var(--dsw-alias-brand-primary);cursor:pointer}',
       '.memp .tree-legend{position:absolute;left:10px;bottom:10px;display:flex;gap:10px;align-items:center;font-size:10.5px;color:var(--dsw-alias-label-secondary);padding:3px 9px;border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 88%,transparent);border:1px solid var(--dsw-alias-border-l1);backdrop-filter:blur(6px);z-index:2;pointer-events:none}',
       '.memp .tree-legend .line{display:inline-block;width:18px;height:0;border-top:1.5px dashed #D9A441;margin-right:4px;vertical-align:middle}',
       '.memp .tree-detail{position:absolute;z-index:4;top:10px;left:10px;bottom:10px;width:min(322px,calc(100% - 20px));display:flex;flex-direction:column;gap:10px;padding:12px;border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 96%,transparent);backdrop-filter:blur(10px);box-shadow:0 16px 42px rgba(0,0,0,.22);overflow:auto;font-size:11.5px;scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--dsw-alias-label-secondary) 30%,transparent) transparent}',
@@ -1637,17 +1632,6 @@ window.__ModuleLoader__.load({
       if (!Number.isFinite(value)) return 1
       return Math.max(TREE_ZOOM_MIN, Math.min(TREE_ZOOM_MAX, Math.round(value * 1000) / 1000))
     }
-    /** 滑块位置(0..100) ↔ 缩放值：对数刻度，低倍率区间更好控制。 */
-    function zoomToSlider(zoom) {
-      const value = clampTreeZoom(zoom)
-      return Math.round(100 * Math.log(value / TREE_ZOOM_MIN) / Math.log(TREE_ZOOM_MAX / TREE_ZOOM_MIN))
-    }
-    function sliderToZoom(position) {
-      const t = Math.max(0, Math.min(100, Number(position))) / 100
-      return clampTreeZoom(TREE_ZOOM_MIN * Math.pow(TREE_ZOOM_MAX / TREE_ZOOM_MIN, t))
-    }
-
-
     // ---------------------------------------------------------------------
     // 0.42.0：知识图谱（实体共现图）—— 零依赖 SVG 力导向布局 + 类型筛选 + 详情
     // ---------------------------------------------------------------------
@@ -2273,10 +2257,6 @@ window.__ModuleLoader__.load({
         setHoverId(null)
         setShowCorrections(true)
       }
-      const stepZoom = (direction) => {
-        // 0.42.0：乘性步进（×1.25 / ×0.8），5%~1000% 全程手感一致。
-        setZoom((value) => clampTreeZoom(direction >= 0 ? value * 1.25 : value / 1.25))
-      }
       const fitViewRef = React.useRef(null)
       const fitView = () => {
         if (viewMode === 'graph') { setZoom(1); return }
@@ -2598,26 +2578,22 @@ window.__ModuleLoader__.load({
         h('span', null, h('i', { style: { background: 'var(--dsw-alias-brand-primary)' } }), '强度条：越高越稳（1~3 格）'),
       )
 
-      // 0.50.2：图谱只用滚轮/双指/双击手势，不再显示底部缩放条（避免遮挡图谱）。
-      const zoomBar = showEmpty || viewMode === 'graph' ? null : h('div', { className: 'tree-zoom' },
-        h('button', { title: '缩小（滚轮/双指也可缩放）', onClick: () => stepZoom(-1) }, '−'),
-        h('span', { className: 'zoomval' }, `${Math.round(zoom * 100)}%`),
-        h('button', { title: '放大（滚轮/双指也可缩放）', onClick: () => stepZoom(1) }, '+'),
-        h('input', {
-          type: 'range',
-          min: 0,
-          max: 100,
-          step: 1,
-          className: 'tree-zoom-slider',
-          value: zoomToSlider(zoom),
-          title: '拖动滑块任意缩放（5%–1000%）',
-          onChange: (event) => setZoom(sliderToZoom(event.target.value)),
-        }),
-        h('button', { title: '复位到 100%', onClick: () => setZoom(1) }, '100%'),
-        h('button', { title: '适应画布', onClick: fitView }, '适应'),
-      )
 
-      const treeWrap = h('div', { className: 'tree-wrap', ref: wrapRef },
+      // 0.50.3：不再显示缩放条；手势 + 键盘（+ / − / 0 / F）控制缩放。
+      const handleZoomKey = (event, current) => {
+        if (event.key === '+' || event.key === '=') { event.preventDefault(); setZoom((value) => clampTreeZoom(value * 1.25)) }
+        else if (event.key === '-' || event.key === '_') { event.preventDefault(); setZoom((value) => clampTreeZoom(value / 1.25)) }
+        else if (event.key === '0') { event.preventDefault(); setZoom(1) }
+        else if (event.key === 'f' || event.key === 'F') { event.preventDefault(); if (fitViewRef.current) fitViewRef.current() }
+      }
+
+      const treeWrap = h('div', {
+        className: 'tree-wrap',
+        ref: wrapRef,
+        tabIndex: 0,
+        title: '滚轮 / 双指缩放 · 双击适应 · 键盘 + − 0 F',
+        onKeyDown: (event) => handleZoomKey(event, zoom),
+      },
         h('div', { className: 'tree-scroll' },
           h('div', {
             className: 'tree-zoomspace',
@@ -2633,7 +2609,6 @@ window.__ModuleLoader__.load({
                 : null,
             )
           : null,
-        zoomBar,
         showCorrections && layout.corrections.length > 0 && !showEmpty
           ? h('div', { className: 'tree-legend' }, h('span', null, h('i', { className: 'line' }), '修正关系'))
           : null,
@@ -2654,13 +2629,8 @@ window.__ModuleLoader__.load({
             className: 'tree-wrap',
             ref: wrapRef,
             tabIndex: 0,
-            onKeyDown: (event) => {
-              // 0.50.2：图谱不显示缩放条，键盘也能缩放：+ / − / 0（复位）/ F（适应）。
-              if (event.key === '+' || event.key === '=') { event.preventDefault(); setZoom((value) => clampTreeZoom(value * 1.25)) }
-              else if (event.key === '-' || event.key === '_') { event.preventDefault(); setZoom((value) => clampTreeZoom(value / 1.25)) }
-              else if (event.key === '0') { event.preventDefault(); setZoom(1) }
-              else if (event.key === 'f' || event.key === 'F') { event.preventDefault(); if (fitViewRef.current) fitViewRef.current() }
-            },
+            title: '滚轮 / 双指缩放 · 双击适应 · 键盘 + − 0 F',
+            onKeyDown: (event) => handleZoomKey(event, zoom),
           },
             h('div', { className: 'kg-hoverbar' },
               hoveredEntityId !== null
@@ -2709,8 +2679,7 @@ window.__ModuleLoader__.load({
                       h('span', null, graphError !== '' ? `图谱不可用：${graphError}` : '还没有可提取的实体（端口/路径/版本/工具/标签等会出现在这里）。'),
                     ),
             ),
-            zoomBar,
-            h(EntityGraphDetail, {
+                h(EntityGraphDetail, {
               graph: graphFiltered,
               entityId: selectedEntityId,
               recordById,
@@ -7656,8 +7625,6 @@ window.__ModuleLoader__.load({
       kgLayoutCached: kgLayoutCached,
       EntityGraphCanvas: EntityGraphCanvas,
       clampTreeZoom: clampTreeZoom,
-      zoomToSlider: zoomToSlider,
-      sliderToZoom: sliderToZoom,
       TREE_ZOOM_MIN: TREE_ZOOM_MIN,
       TREE_ZOOM_MAX: TREE_ZOOM_MAX,
       // 会话作用域展示名:取会话 id 前 16 位(前 8 位恒为 `session-`)
