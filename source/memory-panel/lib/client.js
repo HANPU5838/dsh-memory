@@ -308,8 +308,8 @@ window.__ModuleLoader__.load({
       '.memp .kchip:hover{border-color:var(--k);color:var(--dsw-alias-label-primary)}',
       '.memp .kchip .corr-swatch{width:14px;border-top:1.5px dashed #D9A441}',
       '.memp .tree-matchinfo{font-size:11px;color:var(--dsw-alias-label-secondary);flex:none}',
-      '.memp .tree-wrap{position:relative;height:min(56vh,560px);min-height:320px;border:1px solid var(--dsw-alias-border-l1);border-radius:14px;overflow:hidden;background:radial-gradient(circle at 16% 8%,color-mix(in srgb,var(--dsw-alias-brand-primary) 9%,transparent),transparent 44%),radial-gradient(circle at 1px 1px,color-mix(in srgb,var(--dsw-alias-label-secondary) 15%,transparent) 1px,transparent 0) 0 0/22px 22px,var(--dsw-alias-bg-layer-1)}',
-      '.mem-page .memp .tree-wrap{height:calc(100vh - 360px);min-height:420px}',
+      '.memp .tree-wrap{position:relative;height:clamp(300px,48vh,520px);min-height:300px;border:1px solid var(--dsw-alias-border-l1);border-radius:14px;overflow:hidden;background:radial-gradient(circle at 16% 8%,color-mix(in srgb,var(--dsw-alias-brand-primary) 9%,transparent),transparent 44%),radial-gradient(circle at 1px 1px,color-mix(in srgb,var(--dsw-alias-label-secondary) 15%,transparent) 1px,transparent 0) 0 0/22px 22px,var(--dsw-alias-bg-layer-1)}',
+      '.mem-page .memp .tree-wrap{height:calc(100dvh - 430px);min-height:320px}',
       '.memp .tree-scroll{height:100%;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--dsw-alias-label-secondary) 30%,transparent) transparent}',
       '.memp .tree-scroll::-webkit-scrollbar{width:9px;height:9px}',
       '.memp .tree-scroll::-webkit-scrollbar-track{background:transparent}',
@@ -395,14 +395,6 @@ window.__ModuleLoader__.load({
       '.memp .kg-edge{transition:stroke .18s ease,stroke-opacity .18s ease,stroke-width .18s ease}',
       '.memp .kg-edge.lit{stroke:var(--dsw-alias-brand-primary);stroke-opacity:.85}',
       '.memp .kg-detail{animation:kgDetailIn .2s ease-out both}',
-      '.memp .kg-sphere{position:relative;touch-action:none;cursor:grab}',
-      '.memp .kg-sphere:active{cursor:grabbing}',
-      '.memp .kg-globe{fill:color-mix(in srgb,var(--dsw-alias-bg-layer-2) 42%,transparent);stroke:var(--dsw-alias-border-l1);stroke-width:1}',
-      '.memp .kg-ring{fill:none;stroke:var(--dsw-alias-border-l1);stroke-width:1;stroke-dasharray:2 7;opacity:.45;pointer-events:none}',
-      '.memp .kg-svg{touch-action:none}',
-      '.memp .kg-sphere-controls{position:absolute;right:10px;top:10px;z-index:3;display:flex;gap:4px}',
-      '.memp .kg-sphere-controls button{padding:3px 8px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 90%,transparent);font-size:10.5px;color:var(--dsw-alias-label-secondary);backdrop-filter:blur(6px)}',
-      '.memp .kg-sphere-controls button.on{color:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary)}',
       '.memp .kg-hoverbar{position:absolute;left:10px;top:10px;z-index:3;display:flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 90%,transparent);border:1px solid var(--dsw-alias-border-l1);font-size:10.5px;color:var(--dsw-alias-label-primary);pointer-events:none;backdrop-filter:blur(6px);box-shadow:0 2px 10px rgba(0,0,0,.10)}',
       '.memp .kg-hoverbar .kg-dot{width:8px;height:8px}',
       '.memp .kg-legend-sep{width:1px;height:14px;background:var(--dsw-alias-border-l1);margin:0 4px}',
@@ -1658,133 +1650,144 @@ window.__ModuleLoader__.load({
       return { nodes: limited, edges, stats: graph.stats, memoryIndex: graph.memoryIndex, total: nodes.length }
     }
 
-    /**
-     * 确定性力导向布局（Fruchterman-Reingold 简化版）：
-     * 初始黄金角螺旋 → 斥力/弹簧/向心力迭代 → 边界夹取。
-     * 纯函数、同输入同输出；节点 ≤200 时 220 次迭代大约 20~40ms，按签名缓存避免拖动/输入卡顿。
-     */
-    /**
-     * 0.43.0：球面布局 —— 11 类实体各占球面一块区域（类型锚点用 Fibonacci 球均匀分布），
-     * 同类型节点聚在锚点周围的小圆帽里。返回单位球坐标 + 屏幕半径（大小仍按出现次数）。
-     * 纯确定性：同输入同输出，旋转/缩放只影响投影，不重算布局。
-     */
     function kgLayout(nodes, edges, width = 1100, height = 820) {
       const list = [...nodes]
       const n = list.length
-      if (n === 0) return { width, height, R: 0, pos: new Map(), radius: new Map() }
-      const R = Math.min(width, height) * 0.34
-      const typeOrder = Object.keys(KG_TYPE_META)
-      // 类型锚点：Fibonacci 球（11 个均匀方向）
-      const anchors = new Map()
-      typeOrder.forEach((type, i) => {
-        const y = 1 - (2 * (i + 0.5)) / typeOrder.length
-        const r = Math.sqrt(Math.max(0, 1 - y * y))
-        const theta = i * 2.399963229728653
-        anchors.set(type, { x: Math.cos(theta) * r, y, z: Math.sin(theta) * r })
-      })
-      const byType = new Map()
-      for (const node of list) {
-        if (!byType.has(node.type)) byType.set(node.type, [])
-        byType.get(node.type).push(node)
-      }
+      if (n === 0) return { width, height, pos: new Map(), radius: new Map() }
+      const cx = width / 2, cy = height / 2, area = width * height
+      const k = Math.sqrt(area / Math.max(1, n)) * 0.56
+      const index = new Map()
       const pos = new Map()
-      const maxCount = Math.max(1, ...list.map((node) => Number(node.count) || 1))
-      for (const [type, group] of byType) {
-        const anchor = anchors.get(type) ?? { x: 0, y: 1, z: 0 }
-        // 构造锚点的切平面基（避免在极点退化）
-        const up = Math.abs(anchor.y) > 0.92 ? { x: 1, y: 0, z: 0 } : { x: 0, y: 1, z: 0 }
-        let ux = anchor.y * up.z - anchor.z * up.y
-        let uy = anchor.z * up.x - anchor.x * up.z
-        let uz = anchor.x * up.y - anchor.y * up.x
-        const ul = Math.max(1e-6, Math.hypot(ux, uy, uz))
-        ux /= ul; uy /= ul; uz /= ul
-        const vx = anchor.y * uz - anchor.z * uy
-        const vy = anchor.z * ux - anchor.x * uz
-        const vz = anchor.x * uy - anchor.y * ux
-        const sorted = [...group].sort((a, b) => (b.count ?? 0) - (a.count ?? 0) || String(a.id).localeCompare(String(b.id)))
-        sorted.forEach((node, k) => {
-          const capRadius = Math.min(0.62, 0.10 + Math.sqrt((k + 1) / sorted.length) * 0.52)
-          const spiral = k * 2.399963229728653
-          const cosR = Math.cos(capRadius), sinR = Math.sin(capRadius)
-          const dx = (ux * Math.cos(spiral) + vx * Math.sin(spiral)) * sinR
-          const dy = (uy * Math.cos(spiral) + vy * Math.sin(spiral)) * sinR
-          const dz = (uz * Math.cos(spiral) + vz * Math.sin(spiral)) * sinR
-          pos.set(node.id, {
-            x: anchor.x * cosR + dx,
-            y: anchor.y * cosR + dy,
-            z: anchor.z * cosR + dz,
-          })
-        })
+      const vel = []
+      // 0.42.2：类型锚点 —— 11 类实体按固定角度分布在大圆上，让同类型聚成一簇。
+      const typeOrder = Object.keys(KG_TYPE_META)
+      const typeAnchor = new Map()
+      const anchorRadius = Math.min(width, height) * 0.33
+      typeOrder.forEach((type, i) => {
+        const angle = (i / typeOrder.length) * Math.PI * 2 - Math.PI / 2
+        typeAnchor.set(type, { x: cx + Math.cos(angle) * anchorRadius, y: cy + Math.sin(angle) * anchorRadius })
+      })
+      for (let i = 0; i < n; i++) {
+        const node = list[i]
+        index.set(node.id, i)
+        const anchor = typeAnchor.get(node.type) ?? { x: cx, y: cy }
+        const angle = i * 2.399963229728653
+        const radius = 26 + Math.sqrt((i % 24) / 24) * Math.min(width, height) * 0.10
+        pos.set(node.id, { x: anchor.x + Math.cos(angle) * radius, y: anchor.y + Math.sin(angle) * radius })
+        vel.push({ x: 0, y: 0 })
       }
+      const edgeList = edges.filter((edge) => index.has(edge.a) && index.has(edge.b))
+      const iterations = 380
+      const margin = 40
+      for (let step = 0; step < iterations; step++) {
+        const cooling = 1 - step / iterations
+        const force = new Map()
+        for (const node of list) force.set(node.id, { x: 0, y: 0 })
+        for (let i = 0; i < n; i++) {
+          const pi = pos.get(list[i].id)
+          for (let j = i + 1; j < n; j++) {
+            const pj = pos.get(list[j].id)
+            let dx = pi.x - pj.x
+            let dy = pi.y - pj.y
+            let d2 = dx * dx + dy * dy
+            if (d2 < 1) { dx = (i - j) * 0.01 + 0.1; dy = 0.1; d2 = dx * dx + dy * dy }
+            const d = Math.sqrt(d2)
+            const f = (k * k) / d2
+            const fx = (dx / d) * f, fy = (dy / d) * f
+            const fi = force.get(list[i].id), fj = force.get(list[j].id)
+            fi.x += fx; fi.y += fy
+            fj.x -= fx; fj.y -= fy
+          }
+        }
+        for (const edge of edgeList) {
+          const pa = pos.get(edge.a), pb = pos.get(edge.b)
+          const dx = pb.x - pa.x, dy = pb.y - pa.y
+          const d = Math.max(0.01, Math.sqrt(dx * dx + dy * dy))
+          const weight = Math.min(4, Math.max(1, Number(edge.weight) || 1))
+          const f = ((d * d) / k) * 0.006 * weight
+          const fx = (dx / d) * f, fy = (dy / d) * f
+          const fa = force.get(edge.a), fb = force.get(edge.b)
+          fa.x += fx; fa.y += fy
+          fb.x -= fx; fb.y -= fy
+        }
+        const maxStep = 16 * cooling + 1.5
+        for (const node of list) {
+          const p = pos.get(node.id)
+          const f = force.get(node.id)
+          const anchor = typeAnchor.get(node.type) ?? { x: cx, y: cy }
+          // 类型锚点引力 > 中心引力：同类型抱团，整体仍向中心收拢
+          f.x += (anchor.x - p.x) * 0.034
+          f.y += (anchor.y - p.y) * 0.034
+          f.x += (cx - p.x) * 0.0012
+          f.y += (cy - p.y) * 0.0012
+          const v = vel[index.get(node.id)]
+          v.x = (v.x + f.x * 0.02) * 0.84
+          v.y = (v.y + f.y * 0.02) * 0.84
+          const stepLen = Math.hypot(v.x, v.y)
+          if (stepLen > maxStep) { v.x = (v.x / stepLen) * maxStep; v.y = (v.y / stepLen) * maxStep }
+          p.x = Math.max(margin, Math.min(width - margin, p.x + v.x))
+          p.y = Math.max(margin, Math.min(height - margin, p.y + v.y))
+        }
+      }
+      // 0.42.2：布局归一化 —— 力导向容易缩在一角，按包围盒缩放/居中到整块画布。
+      let minX = Number.POSITIVE_INFINITY, minY = Number.POSITIVE_INFINITY
+      let maxX = Number.NEGATIVE_INFINITY, maxY = Number.NEGATIVE_INFINITY
+      for (const node of list) {
+        const p = pos.get(node.id)
+        if (p.x < minX) minX = p.x
+        if (p.y < minY) minY = p.y
+        if (p.x > maxX) maxX = p.x
+        if (p.y > maxY) maxY = p.y
+      }
+      const pad = 64
+      const spanX = Math.max(1, maxX - minX)
+      const spanY = Math.max(1, maxY - minY)
+      const fit = Math.min((width - 2 * pad) / spanX, (height - 2 * pad) / spanY)
+      const offsetX = (width - spanX * fit) / 2 - minX * fit
+      const offsetY = (height - spanY * fit) / 2 - minY * fit
+      for (const node of list) {
+        const p = pos.get(node.id)
+        p.x = p.x * fit + offsetX
+        p.y = p.y * fit + offsetY
+      }
+
       const radius = new Map()
+      const maxCount = Math.max(1, ...list.map((node) => Number(node.count) || 1))
       for (const node of list) {
         const count = Math.max(1, Number(node.count) || 1)
-        radius.set(node.id, 7 + 5 * Math.log(1 + count) / Math.log(1 + maxCount) * 2)
+        // 9 ~ 34：出现越多越大（对数），最少也是"看得见"的圆
+        radius.set(node.id, 9 + 6 * Math.log(1 + count) / Math.log(1 + maxCount) * 2)
       }
-      return { width, height, R, pos, radius, typeOrder }
+      return { width, height, pos, radius }
     }
 
-    function kgLayoutCached(nodes, edges) {
-      const signature = `${nodes.length}|${nodes.map((node) => node.id).join(',')}`
+    function kgLayoutCached(nodes, edges, width, height) {
+      const w = Math.max(240, Math.round(Number(width) || 900))
+      const h = Math.max(240, Math.round(Number(height) || 560))
+      const signature = `${w}x${h}|${nodes.length}|${nodes.map((node) => node.id).join(',')}`
       const cached = KG_LAYOUT_CACHE.get(signature)
       if (cached !== undefined) return cached
-      const layout = kgLayout(nodes, edges)
+      const layout = kgLayout(nodes, edges, w, h)
       KG_LAYOUT_CACHE.set(signature, layout)
       while (KG_LAYOUT_CACHE.size > 8) KG_LAYOUT_CACHE.delete(KG_LAYOUT_CACHE.keys().next().value)
       return layout
     }
 
     /**
-     * 0.43.0：**3D 知识球** —— 节点按类型分布在球面上，可上下左右拖动旋转；
-     * 透视投影 + 深度排序 + 前向标签，像"转动一颗知识星球"。
-     * 只重绘投影，不重算布局；自动旋转用 rAF 且限频，避免低端机掉帧。
+     * 图谱画布（纯展示）：
+     *  - 节点：类型配色 + 外圈柔光 + 标签（Top 节点常显），大小按出现次数；
+     *  - 边：二次曲线（避免直线糊成一团），粗细/透明度按共现次数；
+     *  - 选中：只保留邻居高亮，其余淡出；悬停：节点与相连边提亮。
      */
-    function EntityGraphCanvas({ graph, layout, zoom, selectedEntityId, hoveredEntityId, autoRotate, resetToken, onSelectEntity, onHoverEntity }) {
-      const [yaw, setYaw] = React.useState(0.35)
-      const [pitch, setPitch] = React.useState(-0.18)
-      const dragRef = React.useRef(null)
-      const movedRef = React.useRef(0)
-      // 自动旋转（可关）：限频 ~20fps，拖动时暂停
+    function EntityGraphCanvas({ graph, layout, zoom, selectedEntityId, hoveredEntityId, onSelectEntity, onHoverEntity }) {
+      const [spread, setSpread] = React.useState(false)
       React.useEffect(() => {
-        if (!autoRotate || typeof requestAnimationFrame !== 'function') return undefined
-        let raf = 0
-        let last = 0
-        const tick = (now) => {
-          if (last === 0) last = now
-          if (now - last >= 45) {
-            last = now
-            if (dragRef.current === null) setYaw((value) => value + 0.0032)
-          }
-          raf = requestAnimationFrame(tick)
-        }
-        raf = requestAnimationFrame(tick)
-        return () => { if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(raf) }
-      }, [autoRotate])
-      // 重置视角
-      React.useEffect(() => {
-        setYaw(0.35)
-        setPitch(-0.18)
-      }, [resetToken])
-
-      const width = layout.width
-      const height = layout.height
-      const cx = width / 2
-      const cy = height / 2
-      const R = layout.R
-      const cyaw = Math.cos(yaw), syaw = Math.sin(yaw)
-      const cp = Math.cos(pitch), sp = Math.sin(pitch)
-      const project = (p) => {
-        const x1 = p.x * cyaw + p.z * syaw
-        const z1 = -p.x * syaw + p.z * cyaw
-        const y1 = p.y * cp - z1 * sp
-        const z2 = p.y * sp + z1 * cp
-        const persp = 1 / (1 - z2 * 0.35)
-        // 乘 0.88：给节点半径留出空间，避免前半球节点「跑出」球体轮廓
-        return { x: cx + x1 * R * persp * 0.88, y: cy + y1 * R * persp * 0.88, z: z2, s: persp, front: (z2 + 1) / 2 }
-      }
-      const nodes = (graph?.nodes ?? []).map((node) => ({ node, project: project(layout.pos.get(node.id)) }))
-        .sort((a, b) => a.project.z - b.project.z) // 后画的在前（painter's algorithm）
-      const projectById = new Map(nodes.map((item) => [item.node.id, item.project]))
+        setSpread(false)
+        const timer = setTimeout(() => setSpread(true), 30)
+        return () => clearTimeout(timer)
+      }, [graph])
+      const nodes = graph?.nodes ?? []
+      const nodeById = new Map(nodes.map((node) => [node.id, node]))
       const neighborIds = new Set()
       if (selectedEntityId) {
         neighborIds.add(selectedEntityId)
@@ -1794,63 +1797,72 @@ window.__ModuleLoader__.load({
         }
       }
       const focusActive = selectedEntityId !== null && selectedEntityId !== undefined
-
       const edgeEls = []
       for (const edge of graph?.edges ?? []) {
-        const a = projectById.get(edge.a), b = projectById.get(edge.b)
+        const a = layout.pos.get(edge.a), b = layout.pos.get(edge.b)
         if (!a || !b) continue
-        if (a.z < -0.35 && b.z < -0.35) continue // 完全背面不画，减少糊团
-        const depth = (a.front + b.front) / 2
         const weight = Math.min(6, Math.max(1, Number(edge.weight) || 1))
         const incident = focusActive && (edge.a === selectedEntityId || edge.b === selectedEntityId)
         const dimmed = focusActive && !incident
         const lit = hoveredEntityId !== null && hoveredEntityId !== undefined && (edge.a === hoveredEntityId || edge.b === hoveredEntityId)
-        edgeEls.push(h('line', {
+        // 二次曲线：中点垂直于连线偏移，偏移方向由两端 id 稳定决定，避免每次刷新抖动。
+        const mx = (a.x + b.x) / 2
+        const my = (a.y + b.y) / 2
+        const dx = b.x - a.x, dy = b.y - a.y
+        const len = Math.max(1, Math.hypot(dx, dy))
+        const sign = edge.a < edge.b ? 1 : -1
+        const bend = Math.min(26, 8 + len * 0.06) * sign
+        const cxp = mx + (-dy / len) * bend
+        const cyp = my + (dx / len) * bend
+        edgeEls.push(h('path', {
           key: `e:${edge.a}:${edge.b}`,
           className: 'kg-edge' + (lit ? ' lit' : '') + (dimmed ? ' dim' : ''),
-          x1: a.x, y1: a.y, x2: b.x, y2: b.y,
-          strokeWidth: dimmed ? 0.5 : Math.min(2.8, 0.5 + weight * 0.32) * (0.6 + depth * 0.7),
-          strokeOpacity: dimmed ? 0.04 : Math.min(0.62, 0.05 + depth * 0.5),
+          d: `M ${a.x} ${a.y} Q ${cxp} ${cyp} ${b.x} ${b.y}`,
+          fill: 'none',
+          strokeWidth: dimmed ? 0.6 : Math.min(3.4, 0.7 + weight * 0.4),
+          strokeOpacity: dimmed ? 0.05 : Math.min(0.8, 0.16 + weight * 0.1),
         }))
       }
-
-      // 标签：只标前半球 + 防重叠（按出现次数优先）
-      const candidates = nodes
-        .filter((item) => item.project.z > 0.02)
-        .map((item) => item.node)
-        .sort((a, b) => (b.count ?? 0) - (a.count ?? 0))
+      const showAllLabels = nodes.length <= 90
+      // 0.42.2：标签防重叠 —— 按 count 降序尝试放置，与已放置标签相交则隐藏该标签。
       const labelBoxes = []
-      const labelled = new Set([selectedEntityId, hoveredEntityId].filter((id) => id !== null && id !== undefined))
-      const nodeCount = nodes.length
-      const labelLimit = nodeCount <= 90 ? nodeCount : Math.ceil(nodeCount * 0.72)
-      for (const node of candidates) {
-        if (labelled.size >= labelLimit && !labelled.has(node.id)) break
-        if (labelled.has(node.id)) continue
-        const p = projectById.get(node.id)
-        const r = (layout.radius.get(node.id) ?? 8) * p.s
-        const text = String(node.label).length > 16 ? `${String(node.label).slice(0, 15)}…` : String(node.label)
-        const box = { x: p.x - text.length * 3.2, y: p.y + r + 2, w: text.length * 6.4, h: 12 }
-        const hit = labelBoxes.some((other) => box.x < other.x + other.w && box.x + box.w > other.x && box.y < other.y + other.h && box.y + box.h > other.y)
-        if (!hit) { labelBoxes.push(box); labelled.add(node.id) }
+      const labelledIds = new Set()
+      const labelBoxOf = (node, r, above) => {
+        const p = layout.pos.get(node.id)
+        const text = String(node.label).length > 18 ? `${String(node.label).slice(0, 17)}…` : String(node.label)
+        const width = Math.min(120, Math.max(18, text.length * 6.4))
+        const centerY = above ? p.y - (r + 8) : p.y + r + 9
+        return { x: p.x - width / 2, y: centerY - 6, w: width, h: 12 }
       }
-
+      for (const node of nodes) {
+        const r = layout.radius.get(node.id) ?? 10
+        const selected = node.id === selectedEntityId
+        const hovered = node.id === hoveredEntityId
+        if (!(showAllLabels || r >= 18 || selected || hovered)) continue
+        const box = labelBoxOf(node, r, false)
+        const collides = labelBoxes.some((other) => box.x < other.x + other.w && box.x + box.w > other.x && box.y < other.y + other.h && box.y + box.h > other.y)
+        if (!collides || selected || hovered) {
+          labelBoxes.push(box)
+          labelledIds.add(node.id)
+        }
+      }
       const nodeEls = []
-      for (const item of nodes) {
-        const node = item.node
-        const p = item.project
-        const meta = KG_TYPE_META[node.type] ?? { label: node.type, color: '#0f766e' }
-        const base = layout.radius.get(node.id) ?? 8
-        const r = base * p.s
+      nodes.forEach((node, nodeIndex) => {
+        const p = layout.pos.get(node.id)
+        if (!p) return
+        const meta = KG_TYPE_META[node.type] ?? { label: node.type, color: '#6b7280' }
+        const r = layout.radius.get(node.id) ?? 10
         const selected = node.id === selectedEntityId
         const hovered = node.id === hoveredEntityId
         const dimmed = focusActive && !neighborIds.has(node.id)
-        const opacity = 0.28 + p.front * 0.72
+        const labelVisible = (showAllLabels || r >= 18 || selected || hovered) && (labelledIds.has(node.id) || selected || hovered)
+        const px = spread ? p.x : layout.width / 2
+        const py = spread ? p.y : layout.height / 2
         nodeEls.push(h('g', {
           key: `n:${node.id}`,
           className: 'kg-node' + (selected ? ' selected' : '') + (hovered ? ' hovered' : '') + (dimmed ? ' dim' : ''),
-          transform: `translate(${p.x},${p.y})`,
-          opacity: dimmed ? 0.25 : opacity,
-          onClick: () => { if (movedRef.current <= 6) onSelectEntity(node.id === selectedEntityId ? null : node.id) },
+          transform: `translate(${px},${py})`,
+          onClick: () => onSelectEntity(node.id === selectedEntityId ? null : node.id),
           onMouseEnter: () => { if (typeof onHoverEntity === 'function') onHoverEntity(node.id) },
           onMouseLeave: () => { if (typeof onHoverEntity === 'function') onHoverEntity(null) },
           onKeyDown: (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelectEntity(node.id === selectedEntityId ? null : node.id) } },
@@ -1859,53 +1871,22 @@ window.__ModuleLoader__.load({
           'aria-label': `${meta.label} ${node.label}`,
           style: { '--c': meta.color },
         },
-          h('circle', { className: 'kg-halo', cx: 0, cy: 0, r: r * 1.65, fill: meta.color, fillOpacity: selected || hovered ? 0.26 : 0.12 }),
-          h('circle', { className: 'kg-core', cx: 0, cy: 0, r: selected ? r + 2.5 : r, fill: meta.color, fillOpacity: selected ? 0.98 : 0.88 }),
-          selected ? h('circle', { cx: 0, cy: 0, r: r + 5, fill: 'none', stroke: meta.color, strokeWidth: 1.5, strokeDasharray: '2.5 3', strokeOpacity: 0.9 }) : null,
-          labelled.has(node.id)
-            ? h('text', { x: 0, y: r + 14, className: 'kg-label', textAnchor: 'middle' }, String(node.label).length > 16 ? `${String(node.label).slice(0, 15)}…` : node.label)
+          h('circle', { className: 'kg-halo', cx: 0, cy: 0, r: r * 1.75, fill: meta.color, fillOpacity: selected || hovered ? 0.22 : 0.10 }),
+          h('circle', { className: 'kg-core', cx: 0, cy: 0, r: selected ? r + 3 : r, fill: meta.color, fillOpacity: selected ? 0.98 : 0.86 }),
+          selected ? h('circle', { cx: 0, cy: 0, r: r + 6, fill: 'none', stroke: meta.color, strokeWidth: 1.6, strokeDasharray: '3 3', strokeOpacity: 0.9 }) : null,
+          labelVisible
+            ? h('text', { x: 0, y: r + 15, className: 'kg-label', textAnchor: 'middle' }, String(node.label).length > 18 ? `${String(node.label).slice(0, 17)}…` : node.label)
             : null,
           h('title', null, `${meta.label} · ${node.value}\n出现在 ${node.count} 条记忆里`),
         ))
-      }
-
-      // 拖动旋转（鼠标 + 单指）：上下左右都能转
-      const startDrag = (x, y) => { dragRef.current = { x, y }; movedRef.current = 0 }
-      const moveDrag = (x, y) => {
-        const start = dragRef.current
-        if (start === null) return
-        const dx = x - start.x, dy = y - start.y
-        movedRef.current += Math.abs(dx) + Math.abs(dy)
-        dragRef.current = { x, y }
-        setYaw((value) => value + dx * 0.006)
-        setPitch((value) => Math.max(-1.25, Math.min(1.25, value + dy * 0.006)))
-      }
-      const endDrag = () => { dragRef.current = null }
-      const touchX = (event) => Number(event.touches?.[0]?.clientX ?? event.changedTouches?.[0]?.clientX ?? 0)
-      const touchY = (event) => Number(event.touches?.[0]?.clientY ?? event.changedTouches?.[0]?.clientY ?? 0)
-
-      return h('div', { className: 'kg-sphere', style: { width, height } },
-        h('svg', {
-          className: 'kg-svg',
-          width,
-          height,
-          viewBox: `0 0 ${width} ${height}`,
-          'aria-label': '3D 知识球',
-          onMouseDown: (event) => { startDrag(Number(event.clientX), Number(event.clientY)) },
-          onMouseMove: (event) => { moveDrag(Number(event.clientX), Number(event.clientY)) },
-          onMouseUp: endDrag,
-          onMouseLeave: endDrag,
-          onTouchStart: (event) => { if (event.touches && event.touches.length === 1) startDrag(touchX(event), touchY(event)) },
-          onTouchMove: (event) => { if (event.touches && event.touches.length === 1) moveDrag(touchX(event), touchY(event)) },
-          onTouchEnd: endDrag,
-        },
-          h('circle', { className: 'kg-globe', cx, cy, r: R }),
-          h('ellipse', { className: 'kg-ring', cx, cy, rx: R, ry: R * 0.30 }),
-          h('ellipse', { className: 'kg-ring', cx, cy, rx: R * 0.30, ry: R }),
-          edgeEls,
-          nodeEls,
-        ),
-      )
+      })
+      return h('svg', {
+        className: 'kg-svg',
+        width: layout.width,
+        height: layout.height,
+        viewBox: `0 0 ${layout.width} ${layout.height}`,
+        'aria-label': '知识图谱',
+      }, edgeEls, nodeEls)
     }
 
     /** 选中实体详情：类型/次数/相关实体/关联记忆（点击记忆打开详情）。 */
@@ -1986,9 +1967,8 @@ window.__ModuleLoader__.load({
       const [selectedEntityId, setSelectedEntityId] = React.useState(null)
       const [hoveredEntityId, setHoveredEntityId] = React.useState(null)
       const [kgLimit, setKgLimit] = React.useState(120)
+      const [kgSize, setKgSize] = React.useState({ width: 900, height: 560 })
       const [kgStrongOnly, setKgStrongOnly] = React.useState(false)
-      const [kgAutoRotate, setKgAutoRotate] = React.useState(true)
-      const [kgResetTick, setKgResetTick] = React.useState(0)
       const [zoom, setZoom] = React.useState(loadTreeZoom())
       const zoomRef = React.useRef(zoom)
       zoomRef.current = zoom
@@ -2039,9 +2019,72 @@ window.__ModuleLoader__.load({
       // 0.35.0：状态过滤只影响画布布局，统计仍显示全量。
       const treeRecords = onlyIssues ? records.filter(isIssueRecord) : records
       const issueTotal = records.filter(isIssueRecord).length
+      // 0.50.0：按「当前设备容器」尺寸布局，图谱/树都不再固定 1100×820 而被裁掉底部。
+      React.useEffect(() => {
+        if (viewMode !== 'graph') return undefined
+        const wrap = wrapRef.current
+        if (wrap === null || wrap === undefined) return undefined
+        const measure = () => {
+          const width = Math.max(260, Number(wrap.clientWidth) || 900)
+          const height = Math.max(260, Number(wrap.clientHeight) || 560)
+          setKgSize((prev) => (Math.abs(prev.width - width) < 4 && Math.abs(prev.height - height) < 4 ? prev : { width, height }))
+        }
+        measure()
+        if (typeof ResizeObserver === 'function') {
+          const observer = new ResizeObserver(measure)
+          observer.observe(wrap)
+          return () => observer.disconnect()
+        }
+        window.addEventListener('resize', measure)
+        return () => window.removeEventListener('resize', measure)
+      }, [viewMode])
+      React.useEffect(() => {
+        if (viewMode === 'graph') setZoom(1)
+      }, [viewMode])
+
+      // 0.50.0：图谱拖动平移 —— 放大后可以上下左右拖（原来只能滚动，像只能左右）。
+      React.useEffect(() => {
+        if (viewMode !== 'graph') return undefined
+        const wrap = wrapRef.current
+        const scroll = wrap && typeof wrap.querySelector === 'function' ? wrap.querySelector('.tree-scroll') : null
+        if (!scroll || typeof scroll.addEventListener !== 'function') return
+        let pan = null
+        const start = (x, y) => { pan = { x, y } }
+        const move = (x, y) => {
+          if (pan === null) return
+          const dx = x - pan.x, dy = y - pan.y
+          if (Math.abs(dx) + Math.abs(dy) > 2) {
+            scroll.scrollLeft -= dx
+            scroll.scrollTop -= dy
+            pan = { x, y }
+          }
+        }
+        const end = () => { pan = null }
+        const onMouseDown = (event) => { if (event.button === 0) start(event.clientX, event.clientY) }
+        const onMouseMove = (event) => move(event.clientX, event.clientY)
+        const onTouchStart = (event) => { if (event.touches && event.touches.length === 1) start(event.touches[0].clientX, event.touches[0].clientY) }
+        const onTouchMove = (event) => { if (event.touches && event.touches.length === 1) move(event.touches[0].clientX, event.touches[0].clientY) }
+        scroll.addEventListener('mousedown', onMouseDown)
+        scroll.addEventListener('mousemove', onMouseMove)
+        scroll.addEventListener('mouseup', end)
+        scroll.addEventListener('mouseleave', end)
+        scroll.addEventListener('touchstart', onTouchStart, { passive: true })
+        scroll.addEventListener('touchmove', onTouchMove, { passive: true })
+        scroll.addEventListener('touchend', end, { passive: true })
+        return () => {
+          scroll.removeEventListener('mousedown', onMouseDown)
+          scroll.removeEventListener('mousemove', onMouseMove)
+          scroll.removeEventListener('mouseup', end)
+          scroll.removeEventListener('mouseleave', end)
+          scroll.removeEventListener('touchstart', onTouchStart)
+          scroll.removeEventListener('touchmove', onTouchMove)
+          scroll.removeEventListener('touchend', end)
+        }
+      }, [viewMode, kgSize.width, kgSize.height])
+
       // 0.42.0：图谱过滤 + 确定性布局（按签名缓存，输入/拖动不重算）
       const graphFiltered = viewMode === 'graph' ? kgFilter(graph, graphTypes, query.trim(), kgLimit, kgStrongOnly) : null
-      const kg = graphFiltered !== null && graphFiltered.nodes.length > 0 ? kgLayoutCached(graphFiltered.nodes, graphFiltered.edges) : null
+      const kg = graphFiltered !== null && graphFiltered.nodes.length > 0 ? kgLayoutCached(graphFiltered.nodes, graphFiltered.edges, kgSize.width, kgSize.height) : null
       const graphTypeCounts = new Map()
       for (const node of graph?.nodes ?? []) graphTypeCounts.set(node.type, (graphTypeCounts.get(node.type) ?? 0) + 1)
 
@@ -2493,14 +2536,6 @@ window.__ModuleLoader__.load({
       // 0.42.0：知识图谱画布（复用同一套缩放/手势与详情面板）
       const graphBody = viewMode === 'graph'
         ? h('div', { className: 'tree-wrap', ref: wrapRef },
-            h('div', { className: 'kg-sphere-controls' },
-              h('button', {
-                className: kgAutoRotate ? 'on' : '',
-                title: '自动缓慢旋转（拖动时暂停）',
-                onClick: () => setKgAutoRotate((value) => !value),
-              }, kgAutoRotate ? '⟳ 自动旋转' : '⏸ 已暂停'),
-              h('button', { title: '重置视角', onClick: () => setKgResetTick((value) => value + 1) }, '重置视角'),
-            ),
             h('div', { className: 'kg-hoverbar' },
               hoveredEntityId !== null
                 ? (() => {
@@ -2513,7 +2548,7 @@ window.__ModuleLoader__.load({
                       h('span', { className: 'muted' }, ` ${meta.label} · ${hovered.count} 条记忆`),
                     )
                   })()
-                : h('span', { className: 'muted' }, '悬停实体查看关系 · 点击查看详情'),
+                : h('span', { className: 'muted' }, '拖动平移 · 悬停看关系 · 点击看详情'),
             ),
             h('div', { className: 'tree-scroll' },
               kg !== null && graphFiltered !== null
@@ -2530,8 +2565,6 @@ window.__ModuleLoader__.load({
                         zoom,
                         selectedEntityId,
                         hoveredEntityId,
-                        autoRotate: kgAutoRotate,
-                        resetToken: kgResetTick,
                         onSelectEntity: setSelectedEntityId,
                         onHoverEntity: setHoveredEntityId,
                       }),
