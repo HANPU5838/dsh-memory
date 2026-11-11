@@ -3461,6 +3461,18 @@ test('记忆树缩放：− / % / + / 100% / 适应，恢复上次比例', async
     const zoomLabel = collect(current).find((n) => String(n.props?.className ?? '') === 'zoomval')
     assert.ok(zoomLabel, '有缩放百分比显示')
     assert.equal(textOf(zoomLabel!).trim(), '130%', '打开时恢复上次缩放比例')
+
+    // 0.42.0：任意缩放（5%~1000%）、滑块、对数刻度
+    const helpers = (exports.__test as { clampTreeZoom: (v: number) => number; TREE_ZOOM_MIN: number; TREE_ZOOM_MAX: number; zoomToSlider: (z: number) => number; sliderToZoom: (p: number) => number })
+    assert.equal(helpers.TREE_ZOOM_MIN, 0.05)
+    assert.equal(helpers.TREE_ZOOM_MAX, 10)
+    assert.equal(helpers.clampTreeZoom(99), 10, '上限 1000%')
+    assert.equal(helpers.clampTreeZoom(0.001), 0.05, '下限 5%')
+    assert.equal(helpers.clampTreeZoom(NaN), 1, '非法输入回到 100%')
+    assert.ok(helpers.zoomToSlider(0.05) === 0 && helpers.zoomToSlider(10) === 100, '滑块端点')
+    assert.ok(helpers.sliderToZoom(0) === 0.05 && helpers.sliderToZoom(100) === 10, '滑块反向映射')
+    const slider = collect(current).find((n) => n.props?.type === 'range' && String(n.props?.className ?? '').includes('tree-zoom-slider'))
+    assert.ok(slider, '有任意缩放滑块')
   } finally {
     globals.window = savedWindow
     hooks.resetAll()
@@ -3505,3 +3517,54 @@ test('记忆树状态可视化：删除/失效/休眠/冲突徽章 + 强度条 +
 })
 
 
+
+
+test('知识图谱视图：切换后渲染实体图、类型图例与实体详情', async () => {
+  const { exports, hooks } = await loadBundle()
+  const tick = async () => { for (let i = 0; i < 10; i++) await Promise.resolve() }
+  const MemoryTreeTab = (exports.__test as { MemoryTreeTab: (p: Record<string, unknown>) => unknown }).MemoryTreeTab
+  const now = Date.now()
+  const records = [
+    { id: 'r1', scope: 'global', kind: 'fact', content: '服务端口 8080，使用 npm 构建', updatedAt: now, createdAt: now, tags: [], importance: 0.8 },
+    { id: 'r2', scope: 'global', kind: 'fact', content: '端口 8080 由 npm 启动', updatedAt: now, createdAt: now, tags: [], importance: 0.6 },
+  ]
+  const graph = {
+    nodes: [
+      { id: 'port:8080', type: 'port', value: '8080', label: '8080', count: 2, scopes: ['global'], kinds: { fact: 2 }, weight: 1 },
+      { id: 'tool:npm', type: 'tool', value: 'npm', label: 'npm', count: 2, scopes: ['global'], kinds: { fact: 2 }, weight: 1 },
+    ],
+    edges: [{ a: 'port:8080', b: 'tool:npm', weight: 2 }],
+    stats: { entities: 2, edges: 1, memories: 2 },
+    memoryIndex: { 'port:8080': ['r1', 'r2'], 'tool:npm': ['r1', 'r2'] },
+  }
+  const api = async (path: string) => {
+    if (path.startsWith('graph')) return graph
+    throw new Error(`unexpected api ${path}`)
+  }
+  const element = () => hooks.React.createElement(MemoryTreeTab, { records, scopes: [], loading: false, error: '', api, onRefresh() {} })
+  let current: RenderNode | null = render(element(), hooks)
+  hooks.setRerender(() => { current = render(element(), hooks) })
+  hooks.runEffects()
+  await tick()
+
+  const graphBtn = collect(current).find((n) => n.tag === 'button' && textOf(n).trim() === '知识图谱')
+  assert.ok(graphBtn, '工具栏有「知识图谱」切换')
+  ;(graphBtn!.props!.onClick as () => void)()
+  hooks.runEffects()
+  await tick()
+  hooks.runEffects()
+  await tick()
+
+  const svg = collect(current).find((n) => String(n.props?.className ?? '') === 'kg-svg')
+  assert.ok(svg, '切换到图谱后渲染 SVG 画布')
+  const nodes = collect(current).filter((n) => String(n.props?.className ?? '').includes('kg-node'))
+  assert.ok(nodes.length >= 2, `图上有实体节点（实际 ${nodes.length}）`)
+  assert.ok(textOf(current).includes('端口') && textOf(current).includes('工具'), '类型图例可见')
+  assert.ok(textOf(current).includes('2 实体'), '显示实体数统计')
+
+  ;(nodes[0]!.props!.onClick as () => void)()
+  hooks.runEffects()
+  await tick()
+  assert.ok(textOf(current).includes('关联记忆'), '点击实体后显示详情与关联记忆')
+  hooks.resetAll()
+})

@@ -65,6 +65,7 @@ import { applyConsolidationPlan, clusterRecords, planConsolidation } from './cog
 import { computeHealth,                   } from './cognitive/health.js'
 import { resolveConflict, applyConflictResolution } from './cognitive/resolve.js'
 import { scanMemoryContent, quarantineRecord, clearQuarantine } from './cognitive/guard.js'
+import { buildEntityGraph, serializeGraph,                                                                         } from './cognitive/graph.js'
 import { MERGE_THRESHOLD, planNearDuplicateMerge } from './cognitive/merge.js'
 import { assessConflicts, applyConflictMarker, hasCriticalDetailConflict } from './cognitive/conflict.js'
 import { isRecordVisible, revive, tombstone, purgeTombstones, markDormant, restore as restoreTombstoned, snapshot as writeSnapshot, restoreSnapshot as readSnapshotFile } from './cognitive/lifecycle.js'
@@ -4105,6 +4106,37 @@ export class LocalMemoryService                             {
     const result = restoreTombstoned(this.store, id, opts.force === true ? { force: true } : {})
     if (result.ok) this.store.scheduleFlush()
     return { restored: result.ok, ...(result.reason !== undefined ? { reason: result.reason } : {}) }
+  }
+
+  /**
+   * 0.42.0：知识图谱 —— 实体共现图（零依赖规则抽取，实体=节点、共现=边）。
+   * 只使用可见记录（墓碑/失效/隔离/休眠默认排除），返回可 JSON 化的图。
+   */
+  entityGraph(opts                     = {})                          {
+    this.discoverScopes()
+    const now = Date.now()
+    // 作用域参数先归一（project:/x、session:... 的写法差异），再进建图。
+    const wanted = Array.isArray(opts.scopes)
+      ? opts.scopes.map((scope) => this.canonicalScope(scope               ))
+      : typeof opts.scopes === 'string' ? [this.canonicalScope(opts.scopes               )] : undefined
+    const records                = []
+    for (const scopeStore of this.store.allScopes()) {
+      if (wanted !== undefined && !wanted.includes(scopeStore.scope)) continue
+      for (const rec of scopeStore.records.values()) {
+        // 知识图谱用「活记忆 + 休眠」：墓碑/失效/隔离不进图（休眠只是降权，不算删除）。
+        if (!isRecordVisible(rec, { now, includeDormant: true })) continue
+        records.push({
+          id: rec.id,
+          scope: rec.scope,
+          kind: rec.kind,
+          content: rec.content,
+          tags: rec.tags,
+          expiredAt: (rec                          ).expiredAt,
+          tombstonedAt: (rec                             ).tombstonedAt,
+        })
+      }
+    }
+    return serializeGraph(buildEntityGraph(records, { ...opts, scopes: undefined, now: opts.now ?? now }))
   }
 
   /** 0.40.0（P1）：记忆健康度报告（抽样重复率 + 冲突/失效/隔离/休眠/嵌入覆盖 + 0-100 分）。 */

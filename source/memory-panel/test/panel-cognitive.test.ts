@@ -139,3 +139,25 @@ test('面板健康度/冲突/隔离接口可用', async () => {
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('面板知识图谱接口：返回实体/共现边/记忆索引', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-panel-graph-'))
+  const svc = new LocalMemoryService({ storeDir: dir, scopes: { global: true, project: true } })
+  const ctx = ctxWith(svc)
+  try {
+    await svc.save({ scope: 'global', kind: 'note', content: '服务端口 8080，使用 npm 构建，配置文件 /etc/app/conf.yml' })
+    const res = fakeRes()
+    await handleRequest(ctx, ROUTE, get(`${ROUTE}/graph`), res)
+    assert.equal(res.out.status, 200)
+    const graph = res.out.body.value
+    assert.ok(Array.isArray(graph.nodes) && graph.nodes.length >= 2, `应抽出实体（实际 ${graph.nodes.length}）`)
+    assert.ok(graph.nodes.some((n: { id: string }) => n.id === 'port:8080'))
+    assert.ok(graph.nodes.some((n: { id: string }) => n.id === 'tool:npm'))
+    assert.ok(Array.isArray(graph.edges) && graph.edges.length >= 1, '实体之间有共现边')
+    assert.ok(typeof graph.memoryIndex === 'object', 'memoryIndex 是可 JSON 的对象')
+    assert.ok(graph.stats.entities >= 2 && graph.stats.memories >= 1)
+  } finally {
+    svc.flushSync()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

@@ -379,10 +379,31 @@ window.__ModuleLoader__.load({
       '.memp .tree-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;color:var(--dsw-alias-label-secondary);font-size:12.5px;line-height:1.6;text-align:center;padding:24px;z-index:1}',
       '.memp .tree-empty .big{font-size:22px;opacity:.65}',
       '.memp .tree-empty button{padding:4px 12px;font-size:12px}',
+      '.memp .tree-mode-toggle{display:inline-flex;gap:2px}',
+      '.memp .tree-mode-toggle button{padding:3px 9px;border-radius:7px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);font-size:11.5px;color:var(--dsw-alias-label-secondary)}',
+      '.memp .tree-mode-toggle button.on{color:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 10%,transparent)}',
+      '.memp .kg-legend{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:4px 2px 0;font-size:10.5px;color:var(--dsw-alias-label-secondary)}',
+      '.memp .kg-svg{display:block}',
+      '.memp .kg-edge{stroke:var(--dsw-alias-border-l1);stroke-linecap:round}',
+      '.memp .kg-node{cursor:pointer}',
+      '.memp .kg-node:hover circle{stroke:var(--dsw-alias-label-primary);stroke-width:1.2}',
+      '.memp .kg-label{font-size:10px;fill:var(--dsw-alias-label-secondary);pointer-events:none;paint-order:stroke;stroke:var(--dsw-alias-bg-layer-1);stroke-width:2.5px}',
+      '.memp .kg-detail{position:absolute;right:10px;top:10px;width:min(300px,78vw);max-height:calc(100% - 64px);overflow:auto;z-index:4;border:1px solid var(--dsw-alias-border-l1);border-radius:11px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 94%,transparent);backdrop-filter:blur(8px);box-shadow:0 8px 24px rgba(0,0,0,.16);padding:9px 10px;display:flex;flex-direction:column;gap:7px}',
+      '.memp .kg-detail-head{display:flex;align-items:center;gap:6px;font-size:12px}',
+      '.memp .kg-dot{width:9px;height:9px;border-radius:50%;flex:none}',
+      '.memp .kg-detail-value{font-size:10.5px;color:var(--dsw-alias-label-secondary);word-break:break-all}',
+      '.memp .kg-related{display:flex;flex-direction:column;gap:4px}',
+      '.memp .kg-rel-chip{display:inline-flex;align-items:center;gap:4px;align-self:flex-start;padding:2px 7px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);font-size:10.5px;color:var(--dsw-alias-label-primary)}',
+      '.memp .kg-memories{display:flex;flex-direction:column;gap:4px}',
+      '.memp .kg-memory{display:flex;gap:6px;padding:5px 6px;border-radius:7px;background:var(--dsw-alias-bg-layer-2);cursor:pointer;font-size:10.5px;line-height:1.4}',
+      '.memp .kg-memory:hover{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 8%,var(--dsw-alias-bg-layer-2))}',
+      '.memp .kg-memory-kind{flex:none;color:var(--dsw-alias-label-secondary)}',
+      '.memp .kg-memory-text{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}',
       '.memp .tree-zoom{position:absolute;right:10px;bottom:10px;display:flex;align-items:center;gap:1px;padding:3px;border:1px solid var(--dsw-alias-border-l1);border-radius:9px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 88%,transparent);backdrop-filter:blur(6px);box-shadow:0 4px 14px rgba(0,0,0,.12);z-index:3}',
       '.memp .tree-zoom button{background:none;border:0;padding:2px 8px;border-radius:6px;font-size:12px;color:var(--dsw-alias-label-secondary)}',
       '.memp .tree-zoom button:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-brand-primary)}',
       '.memp .tree-zoom .zoomval{font-size:10.5px;min-width:38px;text-align:center;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}',
+      '.memp .tree-zoom-slider{width:88px;accent-color:var(--dsw-alias-brand-primary);cursor:pointer}',
       '.memp .tree-legend{position:absolute;left:10px;bottom:10px;display:flex;gap:10px;align-items:center;font-size:10.5px;color:var(--dsw-alias-label-secondary);padding:3px 9px;border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 88%,transparent);border:1px solid var(--dsw-alias-border-l1);backdrop-filter:blur(6px);z-index:2;pointer-events:none}',
       '.memp .tree-legend .line{display:inline-block;width:18px;height:0;border-top:1.5px dashed #D9A441;margin-right:4px;vertical-align:middle}',
       '.memp .tree-detail{position:absolute;z-index:4;top:10px;left:10px;bottom:10px;width:min(322px,calc(100% - 20px));display:flex;flex-direction:column;gap:10px;padding:12px;border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 96%,transparent);backdrop-filter:blur(10px);box-shadow:0 16px 42px rgba(0,0,0,.22);overflow:auto;font-size:11.5px;scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--dsw-alias-label-secondary) 30%,transparent) transparent}',
@@ -1510,8 +1531,9 @@ window.__ModuleLoader__.load({
 
     /** 0.34.1：记忆树画布缩放（20%~300%，浏览器本地记忆）。 */
     const TREE_ZOOM_KEY = 'dsh-memory:tree-zoom'
-    const TREE_ZOOM_MIN = 0.2
-    const TREE_ZOOM_MAX = 3
+    // 0.42.0：任意缩放 —— 5% ~ 1000%（原来 20%~300%）。
+    const TREE_ZOOM_MIN = 0.05
+    const TREE_ZOOM_MAX = 10
     function loadTreeZoom() {
       try {
         const value = Number(window.localStorage.getItem(TREE_ZOOM_KEY))
@@ -1519,10 +1541,247 @@ window.__ModuleLoader__.load({
       } catch { return 1 }
     }
     function clampTreeZoom(value) {
-      return Math.max(TREE_ZOOM_MIN, Math.min(TREE_ZOOM_MAX, Math.round(value * 100) / 100))
+      if (!Number.isFinite(value)) return 1
+      return Math.max(TREE_ZOOM_MIN, Math.min(TREE_ZOOM_MAX, Math.round(value * 1000) / 1000))
+    }
+    /** 滑块位置(0..100) ↔ 缩放值：对数刻度，低倍率区间更好控制。 */
+    function zoomToSlider(zoom) {
+      const value = clampTreeZoom(zoom)
+      return Math.round(100 * Math.log(value / TREE_ZOOM_MIN) / Math.log(TREE_ZOOM_MAX / TREE_ZOOM_MIN))
+    }
+    function sliderToZoom(position) {
+      const t = Math.max(0, Math.min(100, Number(position))) / 100
+      return clampTreeZoom(TREE_ZOOM_MIN * Math.pow(TREE_ZOOM_MAX / TREE_ZOOM_MIN, t))
     }
 
-    function MemoryTreeTab({ records, scopes, loading, error, onRefresh }) {
+
+    // ---------------------------------------------------------------------
+    // 0.42.0：知识图谱（实体共现图）—— 零依赖 SVG 力导向布局 + 类型筛选 + 详情
+    // ---------------------------------------------------------------------
+    const KG_TYPE_META = {
+      path: { label: '路径', color: '#2563eb' },
+      url: { label: '网址', color: '#0ea5e9' },
+      port: { label: '端口', color: '#d97706' },
+      ip: { label: 'IP', color: '#7c3aed' },
+      version: { label: '版本', color: '#059669' },
+      date: { label: '日期', color: '#db2777' },
+      arch: { label: '架构', color: '#0891b2' },
+      os: { label: '系统', color: '#4f46e5' },
+      tool: { label: '工具', color: '#ea580c' },
+      tag: { label: '标签', color: '#65a30d' },
+      identifier: { label: '标识符', color: '#6b7280' },
+    }
+    const KG_LAYOUT_CACHE = new Map()
+
+    /** 类型/搜索过滤（客户端，避免每次筛选都请求服务端）。 */
+    function kgFilter(graph, activeTypes, query) {
+      if (graph === null || graph === undefined) return null
+      const nodes = (graph.nodes ?? []).filter((node) => {
+        if (activeTypes instanceof Set && activeTypes.size > 0 && !activeTypes.has(node.type)) return false
+        if (query !== '') {
+          const needle = String(query).toLowerCase()
+          const hay = `${node.label} ${node.value} ${node.type}`.toLowerCase()
+          if (!hay.includes(needle)) return false
+        }
+        return true
+      })
+      const ids = new Set(nodes.map((node) => node.id))
+      const edges = (graph.edges ?? []).filter((edge) => ids.has(edge.a) && ids.has(edge.b))
+      return { nodes, edges, stats: graph.stats, memoryIndex: graph.memoryIndex }
+    }
+
+    /**
+     * 确定性力导向布局（Fruchterman-Reingold 简化版）：
+     * 初始黄金角螺旋 → 斥力/弹簧/向心力迭代 → 边界夹取。
+     * 纯函数、同输入同输出；节点 ≤200 时 220 次迭代大约 20~40ms，按签名缓存避免拖动/输入卡顿。
+     */
+    function kgLayout(nodes, edges, width = 980, height = 760) {
+      const list = [...nodes]
+      const n = list.length
+      if (n === 0) return { width, height, pos: new Map(), radius: new Map() }
+      const cx = width / 2, cy = height / 2, area = width * height
+      const k = Math.sqrt(area / n) * 0.42
+      const index = new Map()
+      const pos = new Map()
+      const vel = []
+      for (let i = 0; i < n; i++) {
+        index.set(list[i].id, i)
+        const angle = i * 2.399963229728653
+        const radius = Math.sqrt((i + 0.5) / n) * Math.min(width, height) * 0.44
+        pos.set(list[i].id, { x: cx + Math.cos(angle) * radius, y: cy + Math.sin(angle) * radius })
+        vel.push({ x: 0, y: 0 })
+      }
+      const edgeList = edges.filter((edge) => index.has(edge.a) && index.has(edge.b))
+      const iterations = 220
+      const margin = 34
+      for (let step = 0; step < iterations; step++) {
+        const cooling = 1 - step / iterations
+        const force = new Map()
+        for (const node of list) force.set(node.id, { x: 0, y: 0 })
+        // 斥力（n ≤ 200，O(n²) 可接受）
+        for (let i = 0; i < n; i++) {
+          const pi = pos.get(list[i].id)
+          for (let j = i + 1; j < n; j++) {
+            const pj = pos.get(list[j].id)
+            let dx = pi.x - pj.x
+            let dy = pi.y - pj.y
+            let d2 = dx * dx + dy * dy
+            if (d2 < 1) { dx = (i - j) * 0.01 + 0.1; dy = 0.1; d2 = dx * dx + dy * dy }
+            const d = Math.sqrt(d2)
+            const f = (k * k) / d2
+            const fx = (dx / d) * f, fy = (dy / d) * f
+            const fi = force.get(list[i].id), fj = force.get(list[j].id)
+            fi.x += fx; fi.y += fy
+            fj.x -= fx; fj.y -= fy
+          }
+        }
+        // 弹簧（边权越大越紧）
+        for (const edge of edgeList) {
+          const pa = pos.get(edge.a), pb = pos.get(edge.b)
+          const dx = pb.x - pa.x, dy = pb.y - pa.y
+          const d = Math.max(0.01, Math.sqrt(dx * dx + dy * dy))
+          const weight = Math.min(4, Math.max(1, Number(edge.weight) || 1))
+          const f = ((d * d) / k) * 0.012 * weight
+          const fx = (dx / d) * f, fy = (dy / d) * f
+          const fa = force.get(edge.a), fb = force.get(edge.b)
+          fa.x += fx; fa.y += fy
+          fb.x -= fx; fb.y -= fy
+        }
+        // 向心 + 积分
+        const maxStep = 18 * cooling + 2
+        for (const node of list) {
+          const p = pos.get(node.id)
+          const f = force.get(node.id)
+          f.x += (cx - p.x) * 0.012
+          f.y += (cy - p.y) * 0.012
+          const v = vel[index.get(node.id)]
+          v.x = (v.x + f.x * 0.02) * 0.82
+          v.y = (v.y + f.y * 0.02) * 0.82
+          const stepLen = Math.hypot(v.x, v.y)
+          if (stepLen > maxStep) { v.x = (v.x / stepLen) * maxStep; v.y = (v.y / stepLen) * maxStep }
+          p.x = Math.max(margin, Math.min(width - margin, p.x + v.x))
+          p.y = Math.max(margin, Math.min(height - margin, p.y + v.y))
+        }
+      }
+      const radius = new Map()
+      for (const node of list) {
+        radius.set(node.id, Math.max(5, Math.min(26, 5 + 3.4 * Math.log(1 + Math.max(0, Number(node.count) || 0)))))
+      }
+      return { width, height, pos, radius }
+    }
+
+    function kgLayoutCached(nodes, edges) {
+      const signature = `${nodes.length}|${nodes.map((node) => node.id).join(',')}`
+      const cached = KG_LAYOUT_CACHE.get(signature)
+      if (cached !== undefined) return cached
+      const layout = kgLayout(nodes, edges)
+      KG_LAYOUT_CACHE.set(signature, layout)
+      while (KG_LAYOUT_CACHE.size > 8) KG_LAYOUT_CACHE.delete(KG_LAYOUT_CACHE.keys().next().value)
+      return layout
+    }
+
+    /** 图谱画布（纯展示）：节点颜色按类型、大小按出现次数、边粗细按共现次数。 */
+    function EntityGraphCanvas({ graph, layout, zoom, selectedEntityId, onSelectEntity }) {
+      const nodeById = new Map((graph?.nodes ?? []).map((node) => [node.id, node]))
+      const edgeEls = []
+      for (const edge of graph?.edges ?? []) {
+        const a = layout.pos.get(edge.a), b = layout.pos.get(edge.b)
+        if (!a || !b) continue
+        const weight = Math.min(6, Math.max(1, Number(edge.weight) || 1))
+        edgeEls.push(h('line', {
+          key: `e:${edge.a}:${edge.b}`,
+          className: 'kg-edge',
+          x1: a.x, y1: a.y, x2: b.x, y2: b.y,
+          strokeWidth: Math.min(3.2, 0.6 + weight * 0.35),
+          strokeOpacity: Math.min(0.75, 0.18 + weight * 0.1),
+        }))
+      }
+      const nodeEls = []
+      for (const node of graph?.nodes ?? []) {
+        const p = layout.pos.get(node.id)
+        if (!p) continue
+        const meta = KG_TYPE_META[node.type] ?? { label: node.type, color: '#6b7280' }
+        const r = layout.radius.get(node.id) ?? 8
+        const selected = node.id === selectedEntityId
+        nodeEls.push(h('g', {
+          key: `n:${node.id}`,
+          className: 'kg-node' + (selected ? ' selected' : ''),
+          onClick: () => onSelectEntity(node.id === selectedEntityId ? null : node.id),
+          style: { '--c': meta.color },
+        },
+          h('circle', { cx: p.x, cy: p.y, r: selected ? r + 2 : r, fill: meta.color, fillOpacity: selected ? 0.95 : 0.78, stroke: selected ? '#111827' : 'none', strokeWidth: selected ? 1.5 : 0 }),
+          (r >= 12 || selected) ? h('text', { x: p.x, y: p.y - r - 5, className: 'kg-label', textAnchor: 'middle' }, node.label) : null,
+          h('title', null, `${meta.label} · ${node.value}\n出现在 ${node.count} 条记忆里`),
+        ))
+      }
+      return h('svg', {
+        className: 'kg-svg',
+        width: layout.width,
+        height: layout.height,
+        viewBox: `0 0 ${layout.width} ${layout.height}`,
+        'aria-label': '知识图谱',
+      }, edgeEls, nodeEls)
+    }
+
+    /** 选中实体详情：类型/次数/相关实体/关联记忆（点击记忆打开详情）。 */
+    function EntityGraphDetail({ graph, entityId, recordById, onSelectEntity, onOpenMemory, onClose }) {
+      if (!graph || !entityId) return null
+      const node = (graph.nodes ?? []).find((item) => item.id === entityId)
+      if (!node) return null
+      const meta = KG_TYPE_META[node.type] ?? { label: node.type, color: '#6b7280' }
+      const related = (graph.edges ?? [])
+        .filter((edge) => edge.a === entityId || edge.b === entityId)
+        .map((edge) => ({ id: edge.a === entityId ? edge.b : edge.a, weight: edge.weight }))
+        .map((item) => ({ ...item, node: (graph.nodes ?? []).find((n2) => n2.id === item.id) }))
+        .filter((item) => item.node !== undefined)
+        .sort((a, b) => b.weight - a.weight)
+        .slice(0, 12)
+      const memoryIds = graph.memoryIndex?.[entityId] ?? []
+      const memories = memoryIds.map((id) => recordById.get(id)).filter(Boolean).slice(0, 12)
+      return h('aside', { className: 'kg-detail', 'aria-label': '实体详情' },
+        h('div', { className: 'kg-detail-head' },
+          h('span', { className: 'kg-dot', style: { background: meta.color } }),
+          h('b', null, node.label),
+          h('span', { className: 'muted' }, `${meta.label} · ${node.count} 条记忆`),
+          h('span', { className: 'spacer' }),
+          h('button', { className: 'linkbtn', onClick: onClose }, '关闭'),
+        ),
+        h('div', { className: 'kg-detail-value mono' }, node.value),
+        related.length > 0 ? h('div', { className: 'kg-related' },
+          h('div', { className: 'muted' }, '相关实体'),
+          ...related.map((item) => h('button', {
+            key: item.id,
+            className: 'kg-rel-chip',
+            title: `共现 ${item.weight} 次`,
+            onClick: () => onSelectEntity(item.id),
+          }, item.node.label, h('span', { className: 'muted' }, ` ${item.weight}`))),
+        ) : null,
+        h('div', { className: 'kg-memories' },
+          h('div', { className: 'muted' }, `关联记忆（${memories.length}）`),
+          ...memories.map((rec) => h('div', {
+            key: rec.id,
+            className: 'kg-memory',
+            role: 'button',
+            tabIndex: 0,
+            onClick: () => onOpenMemory(rec.id),
+            onKeyDown: (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpenMemory(rec.id) } },
+          },
+            h('span', { className: 'kg-memory-kind' }, kindMeta(rec.kind).label),
+            h('span', { className: 'kg-memory-text' }, rec.content),
+          )),
+        ),
+      )
+    }
+
+    function loadTreeMode() {
+      try {
+        const saved = window.localStorage.getItem('dsh-memory:tree-mode')
+        if (saved === 'tree' || saved === 'graph') return saved
+      } catch { /* 隐私模式 */ }
+      return 'tree'
+    }
+
+    function MemoryTreeTab({ records, scopes, loading, error, onRefresh, api }) {
       const [query, setQuery] = React.useState('')
       const [scopeFilter, setScopeFilter] = React.useState('')
       const [kindFilter, setKindFilter] = React.useState(null)
@@ -1532,7 +1791,20 @@ window.__ModuleLoader__.load({
       const [showCorrections, setShowCorrections] = React.useState(true)
       // 0.35.0：只看问题记忆（删除/失效/休眠/冲突）
       const [onlyIssues, setOnlyIssues] = React.useState(false)
+      // 0.42.0：记忆树 / 知识图谱 双视图（图谱数据由 /graph 提供）
+      const [viewMode, setViewMode] = React.useState(loadTreeMode())
+      const [graph, setGraph] = React.useState(null)
+      const [graphLoading, setGraphLoading] = React.useState(false)
+      const [graphError, setGraphError] = React.useState('')
+      const [graphRefresh, setGraphRefresh] = React.useState(0)
+      const [graphTypes, setGraphTypes] = React.useState(new Set())
+      const [selectedEntityId, setSelectedEntityId] = React.useState(null)
       const [zoom, setZoom] = React.useState(loadTreeZoom())
+      const zoomRef = React.useRef(zoom)
+      zoomRef.current = zoom
+      React.useEffect(() => {
+        try { window.localStorage.setItem('dsh-memory:tree-mode', viewMode) } catch { /* 隐私模式 */ }
+      }, [viewMode])
       const [autoFitDone, setAutoFitDone] = React.useState(false)
       const wrapRef = React.useRef(null)
 
@@ -1558,9 +1830,31 @@ window.__ModuleLoader__.load({
         ? allKinds
         : new Set(presentKinds.filter((kind) => kindFilter.has(kind)))
 
+      // 0.42.0：知识图谱数据（服务端 /graph；只在图谱视图请求）
+      React.useEffect(() => {
+        if (viewMode !== 'graph') return undefined
+        if (typeof api !== 'function') { setGraphError('面板 API 不可用'); return undefined }
+        let alive = true
+        setGraphLoading(true)
+        setGraphError('')
+        const scopeParam = scopeFilter !== '' ? `&scope=${encodeURIComponent(scopeFilter)}` : ''
+        Promise.resolve()
+          .then(() => api(`graph?minCount=1${scopeParam}`))
+          .then((value) => { if (alive) setGraph(value) })
+          .catch((e) => { if (alive) { setGraph(null); setGraphError(String(e.message || e)) } })
+          .finally(() => { if (alive) setGraphLoading(false) })
+        return () => { alive = false }
+      }, [viewMode, scopeFilter, graphRefresh, records.length])
+
       // 0.35.0：状态过滤只影响画布布局，统计仍显示全量。
       const treeRecords = onlyIssues ? records.filter(isIssueRecord) : records
       const issueTotal = records.filter(isIssueRecord).length
+      // 0.42.0：图谱过滤 + 确定性布局（按签名缓存，输入/拖动不重算）
+      const graphFiltered = viewMode === 'graph' ? kgFilter(graph, graphTypes, query.trim()) : null
+      const kg = graphFiltered !== null && graphFiltered.nodes.length > 0 ? kgLayoutCached(graphFiltered.nodes, graphFiltered.edges) : null
+      const graphTypeCounts = new Map()
+      for (const node of graph?.nodes ?? []) graphTypeCounts.set(node.type, (graphTypeCounts.get(node.type) ?? 0) + 1)
+
       const layout = buildMemoryTree(treeRecords, {
         labels, collapsed, activeKinds, scopeFilter, query,
       })
@@ -1670,10 +1964,13 @@ window.__ModuleLoader__.load({
         setHoverId(null)
         setShowCorrections(true)
       }
-      const stepZoom = (delta) => {
-        setZoom((value) => clampTreeZoom(value + delta))
+      const stepZoom = (direction) => {
+        // 0.42.0：乘性步进（×1.25 / ×0.8），5%~1000% 全程手感一致。
+        setZoom((value) => clampTreeZoom(direction >= 0 ? value * 1.25 : value / 1.25))
       }
+      const fitViewRef = React.useRef(null)
       const fitView = () => {
+        if (viewMode === 'graph') { setZoom(1); return }
         try {
           const wrap = wrapRef.current
           const scroll = wrap && typeof wrap.querySelector === 'function' ? wrap.querySelector('.tree-scroll') : null
@@ -1686,6 +1983,9 @@ window.__ModuleLoader__.load({
           setZoom(clampTreeZoom(next))
         } catch { setZoom(1) }
       }
+
+      // 0.42.0：双击画布 = 适应画布（通过 ref 避免 effect 依赖函数身份）。
+      fitViewRef.current = fitView
 
       // 0.34.1：缩放持久化 —— 下次打开记忆树保持上次的比例。
       React.useEffect(() => {
@@ -1704,32 +2004,69 @@ window.__ModuleLoader__.load({
           : ''
       const showEmpty = emptyText !== '' || (Boolean(error) && records.length === 0)
 
-      // 0.34.1：Ctrl/⌘ + 滚轮**自由缩放**（锚定指针位置，不跳动）；普通滚轮仍是滚动。
-      // 按钮步进只到 0.1，滚轮可以连续缩到 20%~300%，满足"随意缩大缩小"。
+      // 0.42.0：任意缩放，三种手势：
+      //   1) 滚轮直接缩放（锚定指针；到 5%/1000% 边界后放行页面滚动）；
+      //   2) 手机双指捏合缩放（锚定双指中心）；
+      //   3) 双击画布 = 适应画布。
       React.useEffect(() => {
         const wrap = wrapRef.current
         const scroll = wrap && typeof wrap.querySelector === 'function' ? wrap.querySelector('.tree-scroll') : null
         if (!scroll || typeof scroll.addEventListener !== 'function') return
-        const onWheel = (event) => {
-          if (!(event.ctrlKey || event.metaKey)) return
-          if (typeof event.preventDefault === 'function') event.preventDefault()
-          const rect = typeof scroll.getBoundingClientRect === 'function' ? scroll.getBoundingClientRect() : { left: 0, top: 0 }
-          const localX = Number(event.clientX) - rect.left
-          const localY = Number(event.clientY) - rect.top
-          setZoom((old) => {
-            const next = clampTreeZoom(old * Math.exp(-Number(event.deltaY) * 0.0015))
-            if (next === old) return old
-            const ratio = next / old
-            try {
-              scroll.scrollLeft = Math.max(0, (scroll.scrollLeft + localX) * ratio - localX)
-              scroll.scrollTop = Math.max(0, (scroll.scrollTop + localY) * ratio - localY)
-            } catch { /* 滚动位置校正失败不影响缩放 */ }
-            return next
-          })
+        const applyZoom = (nextRaw, localX, localY, event) => {
+          const old = zoomRef.current
+          const next = clampTreeZoom(nextRaw)
+          if (next === old) return false
+          if (event && typeof event.preventDefault === 'function') event.preventDefault()
+          const ratio = next / old
+          setZoom(next)
+          try {
+            scroll.scrollLeft = Math.max(0, (scroll.scrollLeft + localX) * ratio - localX)
+            scroll.scrollTop = Math.max(0, (scroll.scrollTop + localY) * ratio - localY)
+          } catch { /* 滚动位置校正失败不影响缩放 */ }
+          return true
         }
+        const point = (event) => {
+          const rect = typeof scroll.getBoundingClientRect === 'function' ? scroll.getBoundingClientRect() : { left: 0, top: 0 }
+          const x = Number(event.clientX ?? event.touches?.[0]?.clientX ?? 0) - rect.left
+          const y = Number(event.clientY ?? event.touches?.[0]?.clientY ?? 0) - rect.top
+          return { x: Number.isFinite(x) ? x : 0, y: Number.isFinite(y) ? y : 0 }
+        }
+        const onWheel = (event) => {
+          const delta = Number(event.deltaY)
+          if (!Number.isFinite(delta) || delta === 0) return
+          const { x, y } = point(event)
+          applyZoom(zoomRef.current * Math.exp(-delta * 0.0015), x, y, event)
+        }
+        // 双指捏合（移动端）
+        let pinch = null
+        const distance = (touches) => Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY)
+        const onTouchStart = (event) => {
+          if (event.touches && event.touches.length === 2) {
+            pinch = { distance: distance(event.touches), zoom: zoomRef.current, center: point(event) }
+          }
+        }
+        const onTouchMove = (event) => {
+          if (pinch === null || !event.touches || event.touches.length !== 2) return
+          const ratio = distance(event.touches) / Math.max(1, pinch.distance)
+          applyZoom(pinch.zoom * ratio, pinch.center.x, pinch.center.y, event)
+        }
+        const onTouchEnd = () => { pinch = null }
+        const onDoubleClick = () => { if (typeof fitViewRef.current === 'function') fitViewRef.current() }
         scroll.addEventListener('wheel', onWheel, { passive: false })
-        return () => { try { scroll.removeEventListener('wheel', onWheel) } catch { /* 忽略 */ } }
-      }, [showEmpty, layout.width, layout.height])
+        scroll.addEventListener('touchstart', onTouchStart, { passive: true })
+        scroll.addEventListener('touchmove', onTouchMove, { passive: false })
+        scroll.addEventListener('touchend', onTouchEnd, { passive: true })
+        if (typeof scroll.addEventListener === 'function') scroll.addEventListener('dblclick', onDoubleClick)
+        return () => {
+          try {
+            scroll.removeEventListener('wheel', onWheel)
+            scroll.removeEventListener('touchstart', onTouchStart)
+            scroll.removeEventListener('touchmove', onTouchMove)
+            scroll.removeEventListener('touchend', onTouchEnd)
+            scroll.removeEventListener('dblclick', onDoubleClick)
+          } catch { /* 忽略 */ }
+        }
+      }, [showEmpty, layout.width, layout.height, viewMode, kg?.width, kg?.height])
 
 
       const stats = h('div', { className: 'tree-stats' },
@@ -1742,34 +2079,79 @@ window.__ModuleLoader__.load({
       const toolbar = h('div', { className: 'tree-toolbar' },
         h('input', {
           type: 'text',
-          placeholder: '搜索内容、类型、标签或作用域',
+          placeholder: viewMode === 'graph' ? '搜索实体（路径/端口/工具…）' : '搜索内容、类型、标签或作用域',
           value: query,
           onChange: (event) => setQuery(event.target.value),
         }),
+        h('div', { className: 'tree-mode-toggle', title: '在记忆树与知识图谱之间切换' },
+          h('button', { className: viewMode === 'tree' ? 'on' : '', onClick: () => setViewMode('tree') }, '记忆树'),
+          h('button', { className: viewMode === 'graph' ? 'on' : '', onClick: () => setViewMode('graph') }, '知识图谱'),
+        ),
         h(Dropdown, {
           items: scopeItems,
           value: scopeFilter,
           disabled: loading,
           onChange: setScopeFilter,
         }),
-        h('button', {
-          className: 'kchip' + (showCorrections ? ' on' : ' off'),
-          title: '显示 / 隐藏修正关系连线',
-          onClick: () => setShowCorrections((value) => !value),
-        }, h('span', { className: 'corr-swatch' }), '修正连线'),
-        h('button', {
-          className: 'kchip' + (onlyIssues ? ' on' : ' off'),
-          title: '只看需要处理的记忆：已删除 / 已失效 / 休眠 / 冲突',
-          onClick: () => setOnlyIssues((value) => !value),
-        }, '只看问题', h('b', null, String(issueTotal))),
-        query.trim() !== ''
+        viewMode === 'tree'
+          ? h('button', {
+              className: 'kchip' + (showCorrections ? ' on' : ' off'),
+              title: '显示 / 隐藏修正关系连线',
+              onClick: () => setShowCorrections((value) => !value),
+            }, h('span', { className: 'corr-swatch' }), '修正连线')
+          : null,
+        viewMode === 'tree'
+          ? h('button', {
+              className: 'kchip' + (onlyIssues ? ' on' : ' off'),
+              title: '只看需要处理的记忆：已删除 / 已失效 / 休眠 / 冲突',
+              onClick: () => setOnlyIssues((value) => !value),
+            }, '只看问题', h('b', null, String(issueTotal)))
+          : null,
+        viewMode === 'tree' && query.trim() !== ''
           ? h('span', { className: 'tree-matchinfo' }, `匹配 ${layout.matches.size} 条`)
           : null,
+        viewMode === 'graph' && graph !== null
+          ? h('span', { className: 'tree-matchinfo' }, `${graph.stats.entities} 实体 · ${graph.stats.edges} 关系 · ${graph.stats.memories} 条记忆`)
+          : null,
         h('span', { className: 'spacer' }),
-        h('button', { onClick: () => setCollapsed(new Set()) }, '全部展开'),
-        h('button', { onClick: () => setCollapsed(new Set(presentScopes.map((scope) => `scope:${scope}`))) }, '只看作用域'),
-        h('button', { disabled: loading, onClick: onRefresh }, loading ? '刷新中…' : '刷新'),
+        viewMode === 'tree' ? h('button', { onClick: () => setCollapsed(new Set()) }, '全部展开') : null,
+        viewMode === 'tree' ? h('button', { onClick: () => setCollapsed(new Set(presentScopes.map((scope) => `scope:${scope}`))) }, '只看作用域') : null,
+        h('button', {
+          disabled: loading || (viewMode === 'graph' && graphLoading),
+          onClick: () => {
+            setGraphRefresh((value) => value + 1)
+            if (typeof onRefresh === 'function') onRefresh()
+          },
+        }, (loading || (viewMode === 'graph' && graphLoading)) ? '刷新中…' : '刷新'),
       )
+
+      // 0.42.0：图谱类型图例 = 类型筛选（空集合 = 全部）
+      const graphLegend = viewMode === 'graph'
+        ? h('div', { className: 'kg-legend' },
+            graphLoading ? h('span', { className: 'muted' }, '正在构建知识图谱…')
+              : graphError !== '' ? h('span', { className: 'muted' }, `图谱不可用：${graphError}`)
+                : h('span', { className: 'muted' }, '类型'),
+            ...[...graphTypeCounts.entries()]
+              .sort((a, b) => b[1] - a[1])
+              .map(([type, count]) => {
+                const meta = KG_TYPE_META[type] ?? { label: type, color: '#6b7280' }
+                const active = graphTypes.size === 0 || graphTypes.has(type)
+                return h('button', {
+                  key: `kgtype:${type}`,
+                  className: 'kchip' + (active ? '' : ' off'),
+                  style: { '--k': meta.color },
+                  title: `只看 ${meta.label}（再点一次切换）`,
+                  onClick: () => setGraphTypes((prev) => {
+                    if (prev.size === 0) return new Set([type])
+                    const next = new Set(prev)
+                    if (next.has(type)) next.delete(type)
+                    else next.add(type)
+                    return next.size === graphTypeCounts.size ? new Set() : next
+                  }),
+                }, h('span', { className: 'tdot' }), meta.label, h('b', null, String(count)))
+              }),
+          )
+        : null
 
       const kindbar = h('div', { className: 'kindbar' },
         h('span', { className: 'kindbar-label' }, '类型'),
@@ -1869,6 +2251,24 @@ window.__ModuleLoader__.load({
         h('span', null, h('i', { style: { background: 'var(--dsw-alias-brand-primary)' } }), '强度条：越高越稳（1~3 格）'),
       )
 
+      const zoomBar = showEmpty ? null : h('div', { className: 'tree-zoom' },
+        h('button', { title: '缩小（滚轮/双指也可缩放）', onClick: () => stepZoom(-1) }, '−'),
+        h('span', { className: 'zoomval' }, `${Math.round(zoom * 100)}%`),
+        h('button', { title: '放大（滚轮/双指也可缩放）', onClick: () => stepZoom(1) }, '+'),
+        h('input', {
+          type: 'range',
+          min: 0,
+          max: 100,
+          step: 1,
+          className: 'tree-zoom-slider',
+          value: zoomToSlider(zoom),
+          title: '拖动滑块任意缩放（5%–1000%）',
+          onChange: (event) => setZoom(sliderToZoom(event.target.value)),
+        }),
+        h('button', { title: '复位到 100%', onClick: () => setZoom(1) }, '100%'),
+        h('button', { title: '适应画布', onClick: fitView }, '适应'),
+      )
+
       const treeWrap = h('div', { className: 'tree-wrap', ref: wrapRef },
         h('div', { className: 'tree-scroll' },
           h('div', {
@@ -1885,13 +2285,7 @@ window.__ModuleLoader__.load({
                 : null,
             )
           : null,
-        showEmpty ? null : h('div', { className: 'tree-zoom' },
-          h('button', { title: '缩小（Ctrl/⌘ + 滚轮可连续缩放）', onClick: () => stepZoom(-0.1) }, '−'),
-          h('span', { className: 'zoomval' }, `${Math.round(zoom * 100)}%`),
-          h('button', { title: '放大（Ctrl/⌘ + 滚轮可连续缩放）', onClick: () => stepZoom(0.1) }, '+'),
-          h('button', { title: '复位到 100%', onClick: () => setZoom(1) }, '100%'),
-          h('button', { title: '适应画布', onClick: fitView }, '适应'),
-        ),
+        zoomBar,
         showCorrections && layout.corrections.length > 0 && !showEmpty
           ? h('div', { className: 'tree-legend' }, h('span', null, h('i', { className: 'line' }), '修正关系'))
           : null,
@@ -1906,13 +2300,62 @@ window.__ModuleLoader__.load({
           : null,
       )
 
+      // 0.42.0：知识图谱画布（复用同一套缩放/手势与详情面板）
+      const graphBody = viewMode === 'graph'
+        ? h('div', { className: 'tree-wrap', ref: wrapRef },
+            h('div', { className: 'tree-scroll' },
+              kg !== null && graphFiltered !== null
+                ? h('div', {
+                    className: 'tree-zoomspace',
+                    style: { width: Math.ceil(kg.width * zoom), height: Math.ceil(kg.height * zoom) },
+                  },
+                    h('div', {
+                      style: { transform: `scale(${zoom})`, transformOrigin: '0 0', width: kg.width, height: kg.height },
+                    },
+                      h(EntityGraphCanvas, {
+                        graph: graphFiltered,
+                        layout: kg,
+                        zoom,
+                        selectedEntityId,
+                        onSelectEntity: setSelectedEntityId,
+                      }),
+                    ),
+                  )
+                : h('div', { className: 'tree-empty' },
+                    h('span', { className: 'big' }, '🕸️'),
+                    h('span', null, graphLoading ? '正在构建知识图谱…'
+                      : graphError !== '' ? `图谱不可用：${graphError}`
+                        : '还没有可提取的实体（端口/路径/版本/工具/标签等会出现在这里）。'),
+                  ),
+            ),
+            zoomBar,
+            h(EntityGraphDetail, {
+              graph: graphFiltered,
+              entityId: selectedEntityId,
+              recordById,
+              onSelectEntity: setSelectedEntityId,
+              onOpenMemory: (id) => setSelectedId(id),
+              onClose: () => setSelectedEntityId(null),
+            }),
+            selected
+              ? h('div', { style: { position: 'sticky', bottom: 0, zIndex: 6 } }, h(TreeDetail, {
+                  rec: selected,
+                  labels,
+                  byId: recordById,
+                  onClose: () => setSelectedId(null),
+                  onJump: jumpTo,
+                }))
+              : null,
+          )
+        : null
+
       return h('div', { className: 'tree-tab' },
         stats,
         toolbar,
-        kindbar,
-        statusLegend,
+        viewMode === 'tree' ? kindbar : null,
+        viewMode === 'tree' ? statusLegend : graphLegend,
         error && records.length > 0 ? h('div', { className: 'err' }, error) : null,
-        treeWrap,
+        viewMode === 'graph' ? graphBody : treeWrap,
       )
     }
 
@@ -4628,6 +5071,7 @@ window.__ModuleLoader__.load({
         scopes,
         loading,
         error,
+        api,
         onRefresh: () => { setPendingTick(0); load('', '') },
       })
 
@@ -6602,6 +7046,11 @@ window.__ModuleLoader__.load({
       requestRecordFocus: requestRecordFocus,
       takeRecordFocus: takeRecordFocus,
       buildMemoryTree: buildMemoryTree,
+      clampTreeZoom: clampTreeZoom,
+      zoomToSlider: zoomToSlider,
+      sliderToZoom: sliderToZoom,
+      TREE_ZOOM_MIN: TREE_ZOOM_MIN,
+      TREE_ZOOM_MAX: TREE_ZOOM_MAX,
       // 会话作用域展示名:取会话 id 前 16 位(前 8 位恒为 `session-`)
       sessionShortId: sessionShortId,
       scopeDisplayName: scopeDisplayName,

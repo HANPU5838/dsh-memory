@@ -1,0 +1,60 @@
+# 知识图谱（0.42.0）
+
+> 定位：**零依赖、规则式、可解释的实体共现图**，不是图数据库。
+> 目标是在本地、离线、无 LLM 的前提下，把记忆里的「路径 / 端口 / 版本 / 工具 / 系统…」
+> 抽成实体，让面板能看见"记忆之间共享什么"。
+
+## 1. 实体抽取（`extractEntities`）
+
+纯函数、确定性、不写盘、不调 LLM。共 11 类：
+
+| 类型 | 示例 | 归一化 |
+| --- | --- | --- |
+| `path` | `/etc/app/conf.yml`、`~/x`、`C:\x` | Windows 路径统一小写反斜杠 |
+| `url` | `https://example.com/a` | host 小写、去默认端口/尾斜杠 |
+| `port` | `端口 8080`、`:8080`、`host:8080`、`8080-8085` | 抽成数字；范围两端都成实体 |
+| `ip` | `127.0.0.1` | 八位组校验、前导零归一 |
+| `version` | `v1.2.3`、`1.2.3` | 去 `v` 前缀，保留 prerelease |
+| `date` | `2026-11-10`、`2026/1/5`、`2026年12月1日` | 统一 `YYYY-MM-DD` |
+| `arch` | `aarch64`、`x86_64`、`amd64` | `aarch64→arm64`、`amd64/x64→x86_64` |
+| `os` | `Android`、`Termux`、`Windows 11`、`macOS` | 别名归一 |
+| `tool` | `npm`/`pnpm`/`node`/`git`/`llama.cpp`/`dsh`/`bge-m3`… | 可维护词表 `TOOL_VOCAB` |
+| `tag` | 记录自带的 tags | 大小写/`#`/空值去重 |
+| `identifier` | `camelCase`、`snake_case`、大写缩写 | 去下划线小写 |
+
+边界规则：
+- URL 里的 `:8080` 不会再被抽成独立 `port`；path 里的 IP 不会重复成 `ip`（高信号类型先占位）。
+- 单条记忆最多 24 个实体（`MAX_ENTITIES_PER_MEMORY`）；超长正文截断到 8000 字符。
+- 不做中文分词实体（CJK bigram 噪声太大）；中文信息靠 tags 与拉丁标识符进入图。
+
+## 2. 图模型（`buildEntityGraph`）
+
+- **节点 = 实体**：`{ id: "type:normalized", type, label, count, scopes, kinds, weight }`。
+- **边 = 共现**：同一条记忆里两个实体同时出现，权重 +1；跨记忆累计。
+- **memoryIndex**：实体 id → 包含它的记忆 id（供面板点开看原文）。
+- 过滤：`scopes` / `kinds` / `minCount`；默认排除墓碑与 TTL 过期，**休眠保留**（休眠只是降权）。
+- 截断：节点按 `count↓ → id↑` 取前 200，边按 `weight↓ → a↑ → b↑` 取前 500；输入顺序不影响输出（确定性）。
+- 复杂度：每条记忆 ≤24 实体 → ≤276 对，随记忆数线性，不做全库两两比较。
+
+## 3. 面板
+
+「记忆树」标签页顶部切换 **记忆树 / 知识图谱**：
+
+- 节点颜色 = 实体类型，节点大小 = 出现次数；边粗细/透明度 = 共现次数。
+- 力导向布局（Fruchterman-Reingold 简化版，确定性），按布局签名缓存，拖动/输入不重算。
+- 类型图例即筛选（点击只看该类型，再点恢复）。
+- 点击实体 → 右侧详情：类型/次数/作用域、相关实体（按共现权重）、关联记忆（点击打开记忆详情）。
+- 复用记忆树同一套缩放：滚轮 / 双指捏合 / 滑块 / −+ / 双击适应 / 5%–1000%。
+
+## 4. API
+
+- Provider：`memory.entityGraph({ scopes?, kinds?, minCount?, maxNodes?, maxEdges? })` → `{ nodes, edges, stats, memoryIndex }`。
+- 面板：`GET /memory/api/graph?scope=&kinds=&minCount=&maxNodes=&maxEdges=`。
+- 模块：`extractEntities`、`buildEntityGraph`、`relatedEntities`、`entityMemories`、`graphStats`、`serializeGraph`。
+
+## 5. 已知限制（如实说明）
+
+- 没有 LLM 抽取，也不做实体消指（"这台机器" vs "NX741J" 不会自动合并）。
+- 关系只有"共现"一种，没有"属于/依赖/导致"等语义边。
+- 不做多跳推理；适合浏览与发现，不替代图数据库。
+- 中文实体覆盖有限，建议把关键中文概念写进 tags。
