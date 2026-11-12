@@ -1641,6 +1641,149 @@ test('记忆树标签页:从面板能切过去,空数据也有统计、类型图
   assert.ok(classNames.includes('tree-stats'), '统计区存在')
 })
 
+test('星图布局:每个作用域一颗星,记忆按同心环铺开,越靠外越远越小', async () => {
+  const { exports } = await loadBundle()
+  type GraphNode = { key: string; type: string; scope?: string; kind?: string; label?: string; x: number; y: number; r: number; z: number; open?: boolean; rec?: Record<string, unknown> }
+  type Graph = {
+    nodes: GraphNode[]
+    edges: Array<{ fromKey: string; toKey: string; x1?: number; y1?: number; x2?: number; y2?: number }>
+    corrections: Array<{ fromId: string; toId: string }>
+    counts: Record<string, number>
+    width: number
+    height: number
+  }
+  const build = (exports.__test as { buildMemoryGraph: (records: unknown[], options?: Record<string, unknown>) => Graph }).buildMemoryGraph
+
+  const records = [
+    makeRecord({ id: 'old', scope: 'project:/w', kind: 'fact', content: '旧事实', updatedAt: 1, supersedes: null, supersededBy: 'new' }),
+    makeRecord({ id: 'new', scope: 'project:/w', kind: 'fact', content: '新事实', updatedAt: 2, supersedes: 'old', supersededBy: null }),
+    makeRecord({ id: 'rule', scope: 'global', kind: 'rule', content: '硬性规则', updatedAt: 3, supersedes: null, supersededBy: null }),
+  ]
+
+  const graph = build(records, { labels: { 'project:/w': '演示项目', global: '全局' } })
+  assert.equal(graph.counts.records, 3)
+  assert.equal(graph.counts.scopes, 2)
+  assert.equal(graph.counts.kinds, 2)
+  assert.equal(graph.counts.corrections, 1, '新记录 supersedes 旧记录 → 一条修正连线')
+  assert.ok(graph.width > 0 && graph.height > 0)
+
+  // 每个作用域一颗星,标签走 labels
+  const hubs = graph.nodes.filter((n) => n.type === 'scope')
+  assert.deepEqual(hubs.map((n) => n.scope), ['global', 'project:/w'], 'global 排在最前')
+  assert.equal(hubs.find((n) => n.scope === 'global')?.label, '全局')
+  assert.equal(hubs.find((n) => n.scope === 'project:/w')?.label, '演示项目')
+
+  // 记忆绕着自己的星铺开(不会跑到别人的星上),且每个记录恰好挂在一条成员边上
+  const metrics = (exports.__test as { GRAPH_METRICS: { hubPad: number, ring: number } }).GRAPH_METRICS
+  const hubByScope = new Map(hubs.map((n) => [n.scope!, n]))
+  const recordNodes = graph.nodes.filter((n) => n.type === 'record')
+  assert.equal(recordNodes.length, 3)
+  assert.equal(graph.edges.length, 3, '每条记忆一根连到所属星的线')
+  for (const node of recordNodes) {
+    const hub = hubByScope.get(node.scope!)!
+    const dist = Math.hypot(node.x - hub.x, node.y - hub.y)
+    // 黄金角螺旋:第 i 个点落在 hubR + hubPad + ring*sqrt(i+0.45)
+    assert.ok(dist > hub.r, `${node.key} 应该在星的外侧`)
+    assert.ok(dist <= hub.r + metrics.hubPad + metrics.ring * Math.sqrt(2.45) + 0.001, `${node.key} 不该甩得太远`)
+    assert.ok(node.z >= 0 && node.z <= 1, 'z 是 0~1 的远近系数')
+    assert.ok(node.r < hub.r, '记忆点比星小')
+  }
+  // 越靠外(ring 越大)越小:同一个作用域里按 z 单调
+  const cluster = recordNodes.filter((n) => n.scope === 'project:/w').sort((a, b) => a.z - b.z)
+  for (let i = 1; i < cluster.length; i++) {
+    assert.ok(cluster[i]!.r <= cluster[i - 1]!.r + 1e-9, '远的点更小')
+  }
+
+  // 坐标全部落在画布内,连线两端与节点一致
+  for (const node of graph.nodes) {
+    assert.ok(node.x >= 0 && node.x <= graph.width, `${node.key} 在画布内(x)`)
+    assert.ok(node.y >= 0 && node.y <= graph.height, `${node.key} 在画布内(y)`)
+  }
+  for (const edge of graph.edges) {
+    const from = graph.nodes.find((n) => n.key === edge.fromKey)!
+    const to = graph.nodes.find((n) => n.key === edge.toKey)!
+    assert.equal(edge.x1, from.x)
+    assert.equal(edge.y2, to.y)
+  }
+
+  // 无随机量:同样的输入永远得到同一张星图(截图与快照都靠这点)
+  assert.deepEqual(build(records, { labels: { 'project:/w': '演示项目', global: '全局' } }), graph)
+
+  // 轨道环:每个展开的星给出真实外沿,折叠的星没有环(它没有记忆要围)
+  for (const hub of hubs) {
+    const mine = graph.nodes.filter((n) => n.type === 'record' && n.scope === hub.scope)
+    if (mine.length === 0) { assert.equal(hub.orbit, 0); continue }
+    const far = Math.max(...mine.map((n) => Math.hypot(n.x - hub.x, n.y - hub.y)))
+    assert.ok(hub.orbit > far, `${hub.scope} 的轨道环要在最远记忆之外`)
+    assert.ok(hub.orbit < far + 20, '环也别离得太远')
+  }
+
+  // 折叠一颗星 → 它的记忆消失,星本身留着(点击可展开)
+  const collapsed = build(records, { collapsed: new Set(['scope:project:/w']) })
+  assert.equal(collapsed.nodes.filter((n) => n.type === 'scope').length, 2)
+  assert.deepEqual(collapsed.nodes.filter((n) => n.type === 'record').map((n) => n.rec?.id), ['rule'])
+  assert.equal(collapsed.corrections.length, 0, '被折叠的记录不能留下悬空修正边')
+  assert.equal(collapsed.nodes.find((n) => n.key === 'scope:project:/w')?.open, false)
+
+  // 筛选口径与记忆树一致:作用域过滤 / 类型过滤
+  assert.deepEqual(build(records, { scopeFilter: 'global' }).nodes.filter((n) => n.type === 'record').map((n) => n.rec?.id), ['rule'])
+  assert.deepEqual(build(records, { activeKinds: new Set(['rule']) }).nodes.filter((n) => n.type === 'record').map((n) => n.rec?.id), ['rule'])
+  // 搜索命中只标记不裁剪:图要保持形状,命中项单独点亮
+  const searched = build(records, { query: '硬性' })
+  assert.deepEqual([...searched.matches], ['rule'])
+  assert.equal(searched.counts.records, 3)
+})
+
+test('记忆树标签页:二级切换在记忆树与星图之间切,筛选状态跟着走', async () => {
+  const { hooks } = await loadBundle()
+  hooks.resetAll()
+  const records = [
+    makeRecord({ id: 'old', scope: 'project:/w', kind: 'fact', content: '旧事实', updatedAt: 1, supersededBy: 'new' }),
+    makeRecord({ id: 'new', scope: 'project:/w', kind: 'fact', content: '新事实', updatedAt: 2, supersedes: 'old' }),
+    makeRecord({ id: 'rule', scope: 'global', kind: 'rule', content: '硬性规则', updatedAt: 3 }),
+  ]
+  const current = await mountPanel(hooks, {
+    scopes: [
+      { scope: 'global', records: 1, pendingEmbeds: 0, label: 'global:全局' },
+      { scope: 'project:/w', records: 2, pendingEmbeds: 0, label: 'project:/w:演示项目' },
+    ],
+    embedServer: null,
+  }, undefined, 'tree', records)
+
+  const classes = () => collect(current()).map((n) => String(n.props?.className ?? '').split(/\s+/))
+  const findSubtab = (label: string) => collect(current())
+    .find((n) => n.tag === 'button' && String(n.props?.className ?? '').split(/\s+/).includes('subtab') && textOf(n).trim() === label)
+
+  // 默认是记忆树;二级切换与统计挤在同一行
+  assert.ok(classes().some((c) => c.includes('viz-head')), '顶部有 viz-head 一行')
+  assert.ok(classes().some((c) => c.includes('tree-wrap')), '默认渲染记忆树画布')
+  assert.ok(!classes().some((c) => c.includes('graph-wrap')), '默认不渲染星图')
+  assert.ok(textOf(current()).includes('星图'), '二级栏里有「星图」')
+
+  const toGraph = findSubtab('星图')!
+  assert.ok(toGraph, '找不到「星图」二级标签')
+  ;(toGraph.props!.onClick as () => void)()
+  hooks.runEffects()
+  for (let i = 0; i < 4; i++) await Promise.resolve()
+
+  assert.ok(classes().some((c) => c.includes('graph-wrap')), '切到星图后渲染星图画布')
+  assert.ok(!classes().some((c) => c.includes('tree-wrap')), '星图视图不保留记忆树画布')
+  assert.ok(classes().some((c) => c.includes('graph-canvas')), '星图有画布层')
+  assert.equal(collect(current()).filter((n) => String(n.props?.className ?? '').split(/\s+/).includes('hub')).length, 2, '两个作用域 → 两颗星')
+  const dots = collect(current()).filter((n) => String(n.props?.className ?? '').split(/\s+/).includes('gnode') && !String(n.props?.className ?? '').split(/\s+/).includes('hub'))
+  assert.equal(dots.length, 3, '三条记忆 → 三个星点')
+  assert.ok(textOf(current()).includes('颗星'), '星图有 HUD 提示')
+
+  // 切回记忆树:还是同一个标签页,画布换回来
+  const toTree = findSubtab('记忆树')!
+  ;(toTree.props!.onClick as () => void)()
+  hooks.runEffects()
+  for (let i = 0; i < 4; i++) await Promise.resolve()
+  assert.ok(classes().some((c) => c.includes('tree-wrap')), '切回记忆树')
+  assert.ok(!classes().some((c) => c.includes('graph-wrap')), '记忆树视图不残留星图')
+  hooks.resetAll()
+})
+
 test('两个开关的配色跟随宿主 switch token,深色主题下轨道和圆点都能看清', async () => {
   const { exports } = await loadBundle()
   const css = (exports.__test as { CSS: string }).CSS
@@ -1666,6 +1809,32 @@ test('两个开关的配色跟随宿主 switch token,深色主题下轨道和圆
     assert.doesNotMatch(knob, /#fff/i, `${p.name}:圆点不能写死白色`)
     assert.match(rule(p.knobOn), /background:var\(--dsw-alias-label-primary-foreground\)/, `${p.name}:开启态圆点用 label-primary-foreground`)
   }
+})
+
+test('星图节点有实际尺寸、连线真的落在 svg 里(踩过:圆点只剩光晕、连线全丢)', async () => {
+  const { exports } = await loadBundle()
+  const css = (exports.__test as { CSS: string }).CSS
+  const rule = (selector: string) => {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    return new RegExp(escaped + '\\{([^}]*)\\}').exec(css)?.[1] ?? ''
+  }
+
+  // .gnode 是定宽定高的 flex 盒;里面的 span 没有内容也没有尺寸,
+  // 只写 border-radius 的话圆点是 0×0,屏幕上只剩外发光。
+  const orb = rule('.memp .gnode .orb')
+  assert.match(orb, /position:absolute/, `圆点要脱离文档流自己撑开:${orb}`)
+  assert.match(orb, /inset:0/, '圆点必须撑满节点盒,否则 0×0')
+
+  // 连线是 svg path,颜色太淡/线太细时缩放后等于没有
+  const link = rule('.memp .glink')
+  assert.match(link, /stroke:/, '连线要有描边色')
+  assert.match(link, /fill:none/, 'path 不能填充')
+  assert.doesNotMatch(link, /opacity:0[;}]/, '默认不能把连线藏起来')
+
+  // 缩放以中心为原点,缩小时整张图不会往左上角甩
+  assert.match(rule('.memp .graph-canvas'), /transform-origin:50% 50%/)
+  // 星名挂在轨道环上方,不能压住记忆点
+  assert.match(rule('.memp .gnode.hub .glabel'), /bottom:/)
 })
 
 test('审计条目的轨迹锚点解析：operationId 优先，其次 signal.callId', async () => {

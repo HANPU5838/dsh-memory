@@ -280,11 +280,14 @@ window.__ModuleLoader__.load({
       // 结构:统计 → 工具条/类型图例 → 画布(HTML 节点 + SVG 连线) → 右侧详情抽屉。
       // 节点用 HTML 而不是 SVG <text>:内容换行、省略号、悬停过渡都由浏览器排版,
       // SVG 只负责画连接线,缩放时整体 transform。
-      '.memp .tree-tab{display:flex;flex-direction:column;gap:12px}',
-      '.memp .tree-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}',
-      '.memp .tree-stats .stat{position:relative;overflow:hidden;padding:8px 12px 7px;border-radius:11px;background:linear-gradient(160deg,color-mix(in srgb,var(--dsw-alias-brand-primary) 8%,var(--dsw-alias-bg-layer-1)),var(--dsw-alias-bg-layer-1) 72%)}',
-      '.memp .tree-stats .stat::after{content:"";position:absolute;right:-14px;top:-20px;width:56px;height:56px;border-radius:50%;background:color-mix(in srgb,var(--dsw-alias-brand-primary) 9%,transparent);pointer-events:none}',
-      '.memp .tree-stats .stat b{font-size:18px}',
+      '.memp .tree-tab{display:flex;flex-direction:column;gap:10px}',
+      // 顶部一行:二级切换(记忆树 / 星图)+ 右侧紧凑统计胶囊。
+      // 统计不再单独占一行 —— 记忆一多,纵向空间要全留给画布。
+      '.memp .viz-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}',
+      '.memp .tree-stats{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-left:auto}',
+      '.memp .tree-stats .stat{position:relative;display:inline-flex;align-items:baseline;gap:5px;padding:3px 10px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);background:linear-gradient(150deg,color-mix(in srgb,var(--dsw-alias-brand-primary) 9%,var(--dsw-alias-bg-layer-1)),var(--dsw-alias-bg-layer-1) 78%)}',
+      '.memp .tree-stats .stat b{font-size:13px;font-weight:650;font-variant-numeric:tabular-nums}',
+      '.memp .tree-stats .stat span{font-size:10.5px;color:var(--dsw-alias-label-secondary)}',
       '.memp .tree-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}',
       '.memp .tree-toolbar input[type=text]{flex:1 1 190px;min-width:150px;max-width:300px}',
       '.memp .tree-toolbar .spacer{flex:1}',
@@ -385,7 +388,58 @@ window.__ModuleLoader__.load({
       '.memp .td-rel-btn{display:flex;align-items:flex-start;gap:6px;text-align:left;padding:6px 8px;border-radius:8px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);font-size:10.5px;line-height:1.45}',
       '.memp .td-rel-dir{flex:none;color:color-mix(in srgb,#D9A441 62%,var(--dsw-alias-label-primary));font-weight:600}',
       '.memp .td-rel-text{color:var(--dsw-alias-label-secondary);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}',
-      '@media (max-width:620px){.memp .tree-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.memp .tree-toolbar input[type=text]{max-width:none}}',
+      // ===== 星图(记忆的第二种可视化)=====
+      // 节点是绝对定位的圆点 + 可选标签,SVG 只画连线;缩放与记忆树共用 .tree-canvas。
+      // 层次感(远近)靠 --z-op / --z-blur / z-index 三件套:近的更大更亮更靠前,远的变暗微糊。
+      '.memp .graph-wrap{position:relative;height:min(56vh,560px);min-height:320px;border:1px solid var(--dsw-alias-border-l1);border-radius:14px;overflow:hidden;background:radial-gradient(circle at 50% 44%,color-mix(in srgb,var(--dsw-alias-brand-primary) 11%,transparent),transparent 62%),radial-gradient(circle at 1px 1px,color-mix(in srgb,var(--dsw-alias-label-secondary) 14%,transparent) 1px,transparent 0) 0 0/26px 26px,var(--dsw-alias-bg-layer-1)}',
+      '.mem-page .memp .graph-wrap{height:calc(100vh - 360px);min-height:420px}',
+      // stage 居中承载 zoomspace:星图不滚动,缩放后由 flex 居中,不会贴左上角。
+      '.memp .graph-stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;overflow:hidden}',
+      '.memp .graph-zoomspace{position:relative;flex:none}',
+      '.memp .graph-edges{position:absolute;inset:0;overflow:visible;pointer-events:none}',
+      // 缩放以中心为原点:zoomspace 的尺寸跟着 zoom 走,canvas 在它里面居中放大,
+      // 缩小时不会往左上角缩、把整张图甩出画布。
+      '.memp .graph-canvas{position:absolute;left:50%;top:50%;transform-origin:50% 50%;transition:transform .16s ease}',
+      '.memp .gnode{position:absolute;transform:translate(-50%,-50%);display:flex;align-items:center;justify-content:center;opacity:var(--z-op,1);filter:blur(var(--z-blur,0px));cursor:pointer;user-select:none;transition:opacity .16s ease,filter .16s ease}',
+      // 圆点自身撑满节点盒:span 默认没有尺寸,不写 inset 就只剩外面的光晕
+      '.memp .gnode .orb{position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle at 36% 30%,color-mix(in srgb,#fff 42%,var(--k)),var(--k) 58%,color-mix(in srgb,#000 22%,var(--k)));box-shadow:0 0 0 1px color-mix(in srgb,#000 14%,transparent),0 0 12px color-mix(in srgb,var(--k) 44%,transparent);transition:transform .16s ease,box-shadow .16s ease}',
+      '.memp .gnode .orb::after{content:"";position:absolute;inset:-5px;border-radius:50%;border:1px solid color-mix(in srgb,var(--k) 34%,transparent);opacity:0;transition:opacity .16s ease}',
+      '.memp .gnode:hover .orb::after,.memp .gnode.selected .orb::after{opacity:1}',
+      '.memp .gnode:hover .orb{transform:scale(1.16)}',
+      '.memp .gnode:hover,.memp .gnode.selected{opacity:1;filter:none}',
+      '.memp .gnode.selected .orb{box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary) 62%,transparent),0 0 20px color-mix(in srgb,var(--k) 66%,transparent)}',
+      '.memp .gnode .glabel{position:absolute;top:calc(100% + 3px);left:50%;transform:translateX(-50%);max-width:126px;padding:1px 7px;border-radius:999px;border:1px solid transparent;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 78%,transparent);backdrop-filter:blur(4px);font-size:10px;line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--dsw-alias-label-secondary);opacity:0;pointer-events:none;transition:opacity .14s ease,color .14s ease}',
+      // 常显标签沿半径朝外排(位置由行内 style 给),不会在星心挤成一堆
+      '.memp .gnode.lbl .glabel{opacity:1;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 62%,transparent)}',
+      '.memp .gnode:hover .glabel,.memp .gnode.selected .glabel{opacity:1}',
+      '.memp .gnode:hover .glabel,.memp .gnode.selected .glabel{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l1);background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 95%,transparent)}',
+      '.memp .gnode.miss{opacity:.16}',
+      '.memp .gnode.near{opacity:1;filter:none}',
+      '.memp .gnode.near .glabel{opacity:1;color:var(--dsw-alias-label-primary)}',
+      '.memp .gnode.match .orb{box-shadow:0 0 0 1px var(--dsw-alias-brand-primary),0 0 18px color-mix(in srgb,var(--k) 62%,transparent)}',
+      '.memp .gnode.hub{cursor:pointer;opacity:1;filter:none}',
+      '.memp .gnode.hub.closed .orb{box-shadow:0 0 0 1px color-mix(in srgb,var(--dsw-alias-brand-primary) 42%,transparent),0 0 22px color-mix(in srgb,var(--dsw-alias-brand-primary) 20%,transparent),inset 0 0 0 3px color-mix(in srgb,var(--dsw-alias-bg-layer-1) 55%,transparent)}',
+      '.memp .gnode.hub .orb{background:radial-gradient(circle at 38% 30%,color-mix(in srgb,var(--dsw-alias-label-primary) 22%,var(--dsw-alias-bg-layer-1)),color-mix(in srgb,var(--dsw-alias-label-primary) 10%,var(--dsw-alias-bg-layer-1)) 62%,color-mix(in srgb,var(--dsw-alias-label-secondary) 22%,var(--dsw-alias-bg-layer-1)));box-shadow:0 0 0 1px color-mix(in srgb,var(--dsw-alias-label-secondary) 45%,transparent),0 0 18px color-mix(in srgb,var(--dsw-alias-label-primary) 16%,transparent)}',
+      '.memp .gnode.hub .hglyph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--dsw-alias-label-primary);letter-spacing:.02em;pointer-events:none}',
+      // 星名放上方:星心正下方是记忆环,标签压上去会盖住点
+      '.memp .gnode.hub .glabel{opacity:1;font-weight:600;color:var(--dsw-alias-label-primary);font-size:11px;max-width:200px;top:auto;bottom:calc(100% + 5px);left:50%;transform:translateX(-50%);text-align:center;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 88%,transparent);border-color:color-mix(in srgb,var(--dsw-alias-border-l1) 100%,transparent)}',
+      '.memp .gnode.hub:hover .glabel{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}',
+      // 连线要能被看见(整张图默认缩到 ~0.8,1px/低透明度的线会直接消失),
+      // 但每条记忆都拉一根到星心,线条一多就成了"车轮",所以默认压淡、聚焦时才亮。
+      '.memp .glink{stroke:color-mix(in srgb,var(--dsw-alias-label-secondary) 42%,transparent);stroke-width:1.1;fill:none;vector-effect:non-scaling-stroke;transition:opacity .14s ease,stroke .14s ease,stroke-width .14s ease}',
+      '.memp .glink.near{stroke:color-mix(in srgb,var(--dsw-alias-label-primary) 82%,transparent);stroke-width:2;opacity:.95}',
+      '.memp .glink.corr{stroke:#D9A441;stroke-dasharray:5 3;opacity:.75;stroke-width:1.6}',
+      '.memp .glink.corr.near{opacity:1;stroke-width:2.4;stroke-dasharray:none}',
+      '.memp .graph-canvas.focused .glink:not(.near){opacity:.05}',
+      '.memp .graph-canvas.focused .gnode:not(.near):not(.hub){opacity:.2;filter:none}',
+      '.memp .graph-hud{position:absolute;left:10px;top:10px;z-index:3;display:flex;align-items:center;gap:8px;padding:3px 10px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 86%,transparent);backdrop-filter:blur(6px);font-size:10.5px;color:var(--dsw-alias-label-secondary);pointer-events:none}',
+      '.memp .graph-hud b{font-weight:600;color:var(--dsw-alias-label-primary);font-variant-numeric:tabular-nums}',
+      // 星团柔光:每颗星一团雾 + 一圈轨道环,把散点聚成有边界的"星团"
+      '.memp .graph-glow{position:absolute;inset:0;pointer-events:none}',
+      '.memp .graph-glow span{position:absolute;border-radius:50%;background:radial-gradient(circle,color-mix(in srgb,var(--dsw-alias-label-primary) 15%,transparent),transparent 66%)}',
+      '.memp .graph-glow span.orbit{border:1px dashed color-mix(in srgb,var(--dsw-alias-label-secondary) 22%,transparent);background:none}',
+      '.memp .graph-canvas.focused .graph-glow span{opacity:.16!important}',
+      '@media (max-width:620px){.memp .tree-stats{width:100%;margin-left:0}.memp .tree-toolbar input[type=text]{max-width:none}}',
       // ===== 审计 =====
       '.memp .audit{display:flex;flex-direction:column;gap:10px;min-height:0;height:calc(100vh - 210px);max-height:calc(100vh - 210px);overflow:hidden}',
       '.memp .audit-head{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap}',
@@ -1025,6 +1079,254 @@ window.__ModuleLoader__.load({
       return `M${x1},${y1} C${x1 + bend},${y1} ${x2 + bend},${y2} ${x2},${y2}`
     }
 
+    /**
+     * 星图布局参数。
+     *
+     * 「深度」是假的但很有用:每个作用域是一颗星,它的记忆按黄金角铺成同心环,
+     * 越靠外的环越暗、越小、越模糊 —— 于是同一团记忆看起来像一颗有体积的球,
+     * 而不是一张平铺的散点图。近处清晰可点,远处只提供密度信息。
+     */
+    const GRAPH_METRICS = {
+      hubR: 12.5,
+      hubPad: 22,
+      nodeR: 6.4,
+      ring: 15.5,
+      hubGap: 30,
+      padX: 60,
+      padY: 56,
+      iterations: 160,
+      // 画布宽高比约 2.4:1,簇按椭圆铺开才能吃满横向空间
+      ellipseX: 1.45,
+      ellipseY: 0.92,
+      // 记忆太多时不再继续放大簇半径,否则整张图会大到失去可读性
+      maxSpread: 300,
+    }
+
+    /**
+     * 星图布局:纯函数,不碰 DOM。
+     *
+     * 三步:①作用域按大小铺在圆上,再用确定性的斥力松弛避免簇重叠;
+     * ②簇内记忆按黄金角(2.39996 rad)铺成同心环,天然均匀且无随机;
+     * ③把包围盒平移进画布坐标。
+     */
+    function buildMemoryGraph(records, options = {}) {
+      const M = GRAPH_METRICS
+      const labels = options.labels || {}
+      const collapsed = options.collapsed instanceof Set ? options.collapsed : new Set(options.collapsed || [])
+      const activeKinds = options.activeKinds instanceof Set ? options.activeKinds : new Set(KIND_ORDER)
+      const scopeFilter = typeof options.scopeFilter === 'string' ? options.scopeFilter : ''
+      const query = String(options.query ?? '').trim().toLowerCase()
+
+      const byScope = new Map()
+      for (const rec of records) {
+        if (!activeKinds.has(rec.kind)) continue
+        if (scopeFilter !== '' && rec.scope !== scopeFilter) continue
+        let list = byScope.get(rec.scope)
+        if (list === undefined) { list = []; byScope.set(rec.scope, list) }
+        list.push(rec)
+      }
+
+      const clusters = []
+      for (const [scope, list] of byScope) {
+        list.sort((a, b) => kindRank(a.kind) - kindRank(b.kind) || (b.updatedAt || 0) - (a.updatedAt || 0))
+        const count = list.length
+        const hubRadius = M.hubR + Math.min(7, Math.sqrt(count) * 1.5)
+        const open = !collapsed.has(`scope:${scope}`)
+        const spread = open
+          ? Math.min(M.maxSpread, hubRadius + M.hubPad + M.ring * Math.sqrt(Math.max(0, count - 1) + 0.45))
+          : 0
+        clusters.push({ scope, label: scopeLabel(scope, labels), records: list, count, hubRadius, spread, open })
+      }
+      clusters.sort((a, b) => scopeRank(a.scope) - scopeRank(b.scope) || a.label.localeCompare(b.label, 'zh'))
+
+      const total = clusters.reduce((sum, c) => sum + c.count, 0)
+      let ringSum = 0
+      for (const cluster of clusters) ringSum += cluster.spread * 2 + M.hubGap
+      const baseRadius = Math.max(84, ringSum / (Math.PI * 2))
+      // 画布是宽幅的(约 2.4:1),簇按椭圆铺开才能吃满横向空间;圆形布局会
+      // 被高度卡住,整张图被迫缩到 70% 以下。
+      clusters.forEach((cluster, index) => {
+        const angle = -Math.PI / 2 + (index / Math.max(1, clusters.length)) * Math.PI * 2
+        cluster.x = Math.cos(angle) * baseRadius * M.ellipseX
+        cluster.y = Math.sin(angle) * baseRadius * M.ellipseY
+      })
+
+      // 斥力松弛:簇半径差别大时均分角度会让小簇被大簇压住。
+      // 全程无随机量,同样的输入永远得到同样的星图(测试与截图都靠这点)。
+      const separate = (iterations) => {
+        for (let iter = 0; iter < iterations; iter++) {
+          for (let i = 0; i < clusters.length; i++) {
+            for (let j = i + 1; j < clusters.length; j++) {
+              const a = clusters[i]
+              const b = clusters[j]
+              let dx = b.x - a.x
+              let dy = b.y - a.y
+              let dist = Math.sqrt(dx * dx + dy * dy)
+              const min = a.spread + b.spread + M.hubGap
+              if (dist < 0.0001) { dx = 0.6; dy = 0.6; dist = 0.85 }
+              if (dist >= min) continue
+              const push = ((min - dist) / dist) / 2
+              a.x -= dx * push
+              a.y -= dy * push
+              b.x += dx * push
+              b.y += dy * push
+            }
+          }
+        }
+      }
+      separate(M.iterations)
+
+      // 收尾:松弛后仍可能有簇挨在一起(簇多、角度均匀时必然如此)。整体按最大
+      // 重叠比例外扩,直到每对簇都留出间隙 —— 比继续迭代更稳,也不会破坏相对方位。
+      for (let pass = 0; pass < 24; pass++) {
+        let worst = 1
+        for (let i = 0; i < clusters.length; i++) {
+          for (let j = i + 1; j < clusters.length; j++) {
+            const a = clusters[i]
+            const b = clusters[j]
+            const dist = Math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2)
+            const min = a.spread + b.spread + M.hubGap
+            if (dist >= min) continue
+            worst = Math.max(worst, dist < 0.5 ? 2.2 : min / dist)
+          }
+        }
+        if (worst <= 1.004) break
+        const grow = Math.min(worst, 1.6)
+        for (const cluster of clusters) { cluster.x *= grow; cluster.y *= grow }
+      }
+
+      const nodes = []
+      const nodeByKey = new Map()
+      const edges = []
+      const corrections = []
+      const addNode = (node) => { nodes.push(node); nodeByKey.set(node.key, node) }
+
+      let visibleRecords = 0
+      for (const cluster of clusters) {
+        const hubKey = `scope:${cluster.scope}`
+        addNode({
+          key: hubKey, type: 'scope',
+          scope: cluster.scope, label: cluster.label, count: cluster.count,
+          x: cluster.x, y: cluster.y, r: cluster.hubRadius, z: 0, open: cluster.open,
+        })
+        if (!cluster.open) continue
+        const maxRing = Math.sqrt(Math.max(1, cluster.records.length - 1) + 0.45)
+        cluster.records.forEach((rec, index) => {
+          const ring = Math.sqrt(index + 0.45)
+          const angle = index * 2.399963229728653
+          const radius = cluster.hubRadius + M.hubPad + M.ring * ring
+          const z = Math.max(0, Math.min(1, ring / maxRing))
+          const node = {
+            key: `record:${rec.id}`, type: 'record', rec,
+            scope: rec.scope, kind: rec.kind,
+            x: cluster.x + Math.cos(angle) * radius,
+            y: cluster.y + Math.sin(angle) * radius,
+            r: M.nodeR * (1.42 - 0.62 * z), z,
+            // 常显标签沿半径朝外放,靠角度决定挂在圆点的哪一侧
+            angle, radius,
+          }
+          addNode(node)
+          edges.push({
+            key: `${hubKey}>${node.key}`, type: 'member',
+            fromKey: hubKey, toKey: node.key, toType: 'record', toId: rec.id, hubKey,
+          })
+          visibleRecords += 1
+        })
+      }
+
+      // 修正关系:两端都在图上时才画,和记忆树同一口径。
+      for (const node of nodes) {
+        if (node.type !== 'record') continue
+        const rec = node.rec
+        if (!rec.supersedes) continue
+        const oldKey = `record:${rec.supersedes}`
+        if (!nodeByKey.has(oldKey)) continue
+        corrections.push({
+          key: `corr:${rec.id}>${rec.supersedes}`,
+          fromKey: node.key, toKey: oldKey, fromId: rec.id, toId: rec.supersedes,
+        })
+      }
+
+      const matches = new Set()
+      if (query !== '') {
+        for (const node of nodes) {
+          if (node.type !== 'record') continue
+          const rec = node.rec
+          const haystack = [
+            rec.content, rec.kind, kindMeta(rec.kind).label,
+            (rec.tags || []).join(' '), node.scope, scopeLabel(node.scope, labels),
+          ].join(' ').toLowerCase()
+          if (haystack.includes(query)) matches.add(rec.id)
+        }
+      }
+
+      // 平移进画布:包围盒含节点半径,外加一圈留给悬停标签。
+      let minX = Infinity
+      let minY = Infinity
+      let maxX = -Infinity
+      let maxY = -Infinity
+      for (const node of nodes) {
+        const room = node.type === 'scope' ? node.r + 8 : node.r + 4
+        minX = Math.min(minX, node.x - room)
+        maxX = Math.max(maxX, node.x + room)
+        minY = Math.min(minY, node.y - room)
+        maxY = Math.max(maxY, node.y + room)
+      }
+      if (nodes.length === 0) { minX = 0; minY = 0; maxX = 0; maxY = 0 }
+      const shiftX = M.padX - minX
+      const shiftY = M.padY - minY
+      for (const node of nodes) { node.x += shiftX; node.y += shiftY }
+      for (const edge of edges) {
+        const from = nodeByKey.get(edge.fromKey)
+        const to = nodeByKey.get(edge.toKey)
+        if (from && to) { edge.x1 = from.x; edge.y1 = from.y; edge.x2 = to.x; edge.y2 = to.y }
+      }
+      for (const edge of corrections) {
+        const from = nodeByKey.get(edge.fromKey)
+        const to = nodeByKey.get(edge.toKey)
+        if (from && to) { edge.x1 = from.x; edge.y1 = from.y; edge.x2 = to.x; edge.y2 = to.y }
+      }
+
+      const visibleKinds = new Set()
+      for (const node of nodes) if (node.type === 'record') visibleKinds.add(node.kind)
+      // 每个星团的真实外沿(最远记忆到星心的距离):画成轨道环,让"团"有边界。
+      // 平移对距离无影响,所以这里直接用最终坐标算。
+      for (const node of nodes) {
+        if (node.type !== 'scope') continue
+        let far = 0
+        for (const other of nodes) {
+          if (other.type !== 'record' || other.scope !== node.scope) continue
+          far = Math.max(far, Math.sqrt((other.x - node.x) ** 2 + (other.y - node.y) ** 2))
+        }
+        node.orbit = far > 0 ? far + M.nodeR * 1.8 : 0
+      }
+      const width = Math.max(240, maxX - minX + M.padX * 2)
+      const height = Math.max(200, maxY - minY + M.padY * 2)
+
+      return {
+        nodes, edges, corrections, nodeByKey, matches,
+        width, height,
+        counts: {
+          records: visibleRecords,
+          scopes: clusters.length,
+          kinds: visibleKinds.size,
+          corrections: corrections.length,
+          total,
+        },
+      }
+    }
+
+    /** 星图连线:轻微外凸的二次曲线,比直线更像"星云"里的引力线。 */
+    function graphLinkPath(x1, y1, x2, y2) {
+      const dx = x2 - x1
+      const dy = y2 - y1
+      const len = Math.sqrt(dx * dx + dy * dy) || 1
+      const bend = Math.min(18, len * 0.13)
+      const cx = (x1 + x2) / 2 - (dy / len) * bend
+      const cy = (y1 + y2) / 2 + (dx / len) * bend
+      return `M${x1},${y1} Q${cx},${cy} ${x2},${y2}`
+    }
+
     function KindDot({ kind }) {
       return h('span', {
         className: 'tdot',
@@ -1396,13 +1698,21 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * 「记忆树」标签页。
+     * 「记忆树」标签页 —— 记忆的可视化入口。
      *
-     * 层级:记忆 → 作用域 → 类型 → 记录。三个维度正好对应记忆的归属(scope)、
-     * 语义(kind)与内容;修正关系是跨记录的点对点关系,用金色虚线单独画在树的右侧,
-     * 悬停/选中任意一端时两端与整条链一起点亮。
+     * 顶部一行:二级切换(记忆树 / 星图)+ 紧凑统计胶囊;下面是两种视图共用的工具条
+     * (搜索 / 作用域 / 修正连线 / 类型筛选),再往下是画布。
+     *
+     * 记忆树:记忆 → 作用域 → 类型 → 记录。三个维度正好对应记忆的归属(scope)、
+     * 语义(kind)与内容;修正关系是跨记录的点对点关系,用金色虚线单独画在树的右侧。
+     *
+     * 星图:每个作用域是一颗星,它的记忆按黄金角铺成同心环,越靠外的环越小越暗越模糊,
+     * 于是同一团记忆看起来像一颗有体积的球。看的是「密度与分布」,不是逐条精读。
      */
     function MemoryTreeTab({ records, scopes, loading, error, onRefresh }) {
+      // 同一个标签页里的两种可视化:树(结构清晰)与星图(密度/远近)。筛选、选中、修正
+      // 连线开关、缩放都是共用的 —— 切换视图不该丢掉你刚搜的那一半。
+      const [view, setView] = React.useState('tree')
       const [query, setQuery] = React.useState('')
       const [scopeFilter, setScopeFilter] = React.useState('')
       const [kindFilter, setKindFilter] = React.useState(null)
@@ -1411,7 +1721,9 @@ window.__ModuleLoader__.load({
       const [hoverId, setHoverId] = React.useState(null)
       const [showCorrections, setShowCorrections] = React.useState(true)
       const [zoom, setZoom] = React.useState(1)
+      const [graphZoom, setGraphZoom] = React.useState(1)
       const [autoFitDone, setAutoFitDone] = React.useState(false)
+      const [graphFitDone, setGraphFitDone] = React.useState(false)
       const wrapRef = React.useRef(null)
 
       const labels = {}
@@ -1439,6 +1751,23 @@ window.__ModuleLoader__.load({
       const layout = buildMemoryTree(records, {
         labels, collapsed, activeKinds, scopeFilter, query,
       })
+      const graph = buildMemoryGraph(records, {
+        labels, collapsed, activeKinds, scopeFilter, query,
+      })
+
+      // 星图不滚动:整张图缩放到画布内,鼠标滚轮留给宿主页面。
+      const fitGraph = () => {
+        try {
+          const wrap = wrapRef.current
+          const stage = wrap && typeof wrap.querySelector === 'function' ? wrap.querySelector('.graph-stage') : null
+          if (!stage || graph.width <= 0 || graph.height <= 0) { setGraphZoom(1); return }
+          const next = Math.min(
+            (stage.clientWidth - 40) / graph.width,
+            (stage.clientHeight - 40) / graph.height,
+          )
+          setGraphZoom(Math.max(0.42, Math.min(1.15, Math.round(next * 100) / 100)))
+        } catch { setGraphZoom(1) }
+      }
 
       // 第一次拿到记录时把宽度缩到画布内:右侧的记录列默认不该被横向截断。
       // 高度方向仍可滚动 —— 记忆很多时把整棵树压到一屏里会小到看不清。
@@ -1481,6 +1810,20 @@ window.__ModuleLoader__.load({
         else if (bottom > viewBottom - 12) scroll.scrollTop = bottom - scroll.clientHeight + 12
       }, [selectedId])
 
+      // 星图第一次出现时缩到画布内。它不滚动,所以必须整张可见;之后用户自己缩放过就不再动。
+      React.useEffect(() => {
+        if (view !== 'graph' || graphFitDone || graph.counts.records === 0) return
+        const wrap = wrapRef.current
+        const stage = wrap && typeof wrap.querySelector === 'function' ? wrap.querySelector('.graph-stage') : null
+        if (!stage || stage.clientWidth <= 0 || graph.width <= 0) return
+        const next = Math.min(
+          (stage.clientWidth - 40) / graph.width,
+          (stage.clientHeight - 40) / graph.height,
+        )
+        setGraphZoom(Math.max(0.42, Math.min(1.15, Math.round(next * 100) / 100)))
+        setGraphFitDone(true)
+      }, [view, graphFitDone, graph.counts.records, graph.width, graph.height])
+
       const focusId = hoverId || selectedId
       const related = new Set()
       if (focusId) {
@@ -1505,6 +1848,23 @@ window.__ModuleLoader__.load({
         if (edge.toType === 'kind' || edge.toType === 'scope') return pathKeys.has(edge.toKey)
         return false
       }
+
+      // 星图的「邻域」和树的路径高亮不是一回事:树要顺着父链点亮整条路径,
+      // 星图只关心焦点本身 + 它的作用域 hub + 修正对手 —— 多了就满屏都亮,等于没高亮。
+      const graphFocusKey = focusId === null ? null : `record:${focusId}`
+      const graphNear = new Set()
+      if (graphFocusKey !== null && graph.nodeByKey.has(graphFocusKey)) {
+        graphNear.add(graphFocusKey)
+        for (const edge of graph.edges) {
+          if (edge.fromKey === graphFocusKey) graphNear.add(edge.toKey)
+          else if (edge.toKey === graphFocusKey) graphNear.add(edge.fromKey)
+        }
+        for (const edge of graph.corrections) {
+          if (edge.fromKey === graphFocusKey) graphNear.add(edge.toKey)
+          else if (edge.toKey === graphFocusKey) graphNear.add(edge.fromKey)
+        }
+      }
+      const graphEdgeNear = (edge) => graphNear.has(edge.fromKey) || graphNear.has(edge.toKey)
 
       const toggleScope = (scope) => {
         const key = `scope:${scope}`
@@ -1548,6 +1908,9 @@ window.__ModuleLoader__.load({
       const stepZoom = (delta) => {
         setZoom((value) => Math.max(0.45, Math.min(1.6, Math.round((value + delta) * 100) / 100)))
       }
+      const stepGraphZoom = (delta) => {
+        setGraphZoom((value) => Math.max(0.35, Math.min(2, Math.round((value + delta) * 100) / 100)))
+      }
       const fitView = () => {
         try {
           const wrap = wrapRef.current
@@ -1567,12 +1930,28 @@ window.__ModuleLoader__.load({
       for (const scope of presentScopes) scopeItems.push({ value: scope, label: scopeLabel(scope, labels) })
       const correctionsTotal = records.reduce((sum, rec) => sum + (rec.supersedes ? 1 : 0), 0)
       const scopeTotal = new Set(records.map((rec) => rec.scope)).size
+      const shownCount = view === 'graph' ? graph.counts.records : layout.counts.records
       const emptyText = records.length === 0
         ? (loading ? '正在加载记忆…' : '还没有记忆。去「记录」里新建一条，或让 Agent 用 memory_save 写一条。')
-        : layout.counts.records === 0
+        : shownCount === 0
           ? '当前筛选下没有记忆。'
           : ''
       const showEmpty = emptyText !== '' || (Boolean(error) && records.length === 0)
+
+      // 二级切换:记忆树(结构)/ 星图(密度)。放在统计左边,统计靠右 —— 一行同时给出
+      // 「我在看哪种视图」和「图里有多少东西」。
+      const vizTabs = h('div', { className: 'subtabs' },
+        h('button', {
+          className: 'subtab' + (view === 'tree' ? ' on' : ''),
+          title: '按 记忆 → 作用域 → 类型 → 记录 分层展开',
+          onClick: () => setView('tree'),
+        }, '记忆树'),
+        h('button', {
+          className: 'subtab' + (view === 'graph' ? ' on' : ''),
+          title: '每个作用域一颗星,记忆按类型着色铺成同心环',
+          onClick: () => setView('graph'),
+        }, '星图'),
+      )
 
       const stats = h('div', { className: 'tree-stats' },
         h('div', { className: 'stat' }, h('b', null, String(records.length)), h('span', null, '条记忆')),
@@ -1580,6 +1959,8 @@ window.__ModuleLoader__.load({
         h('div', { className: 'stat' }, h('b', null, String(presentKinds.length)), h('span', null, '种类型')),
         h('div', { className: 'stat' }, h('b', null, String(correctionsTotal)), h('span', null, '处修正')),
       )
+
+      const vizHead = h('div', { className: 'viz-head' }, vizTabs, stats)
 
       const toolbar = h('div', { className: 'tree-toolbar' },
         h('input', {
@@ -1600,7 +1981,7 @@ window.__ModuleLoader__.load({
           onClick: () => setShowCorrections((value) => !value),
         }, h('span', { className: 'corr-swatch' }), '修正连线'),
         query.trim() !== ''
-          ? h('span', { className: 'tree-matchinfo' }, `匹配 ${layout.matches.size} 条`)
+          ? h('span', { className: 'tree-matchinfo' }, `匹配 ${view === 'graph' ? graph.matches.size : layout.matches.size} 条`)
           : null,
         h('span', { className: 'spacer' }),
         h('button', { onClick: () => setCollapsed(new Set()) }, '全部展开'),
@@ -1624,6 +2005,24 @@ window.__ModuleLoader__.load({
         presentKinds.length > 0 && presentKinds.every((kind) => activeKinds.has(kind))
           ? null
           : h('button', { className: 'linkbtn', onClick: () => setKindFilter(null) }, '恢复全部类型'),
+      )
+
+      // 详情抽屉两种视图共用:从星图点开的记录,和从树上点开的是同一个抽屉。
+      const detail = selected
+        ? h(TreeDetail, {
+            rec: selected,
+            labels,
+            byId: recordById,
+            onClose: () => setSelectedId(null),
+            onJump: jumpTo,
+          })
+        : null
+      const emptyNode = (icon) => h('div', { className: 'tree-empty' },
+        h('span', { className: 'big' }, icon),
+        h('span', null, emptyText || String(error)),
+        emptyText === '当前筛选下没有记忆。'
+          ? h('button', { onClick: resetFilters }, '清空筛选')
+          : null,
       )
 
       const nodes = []
@@ -1703,15 +2102,7 @@ window.__ModuleLoader__.load({
             style: { width: Math.ceil(layout.width * zoom), height: Math.ceil(layout.height * zoom) },
           }, canvas),
         ),
-        showEmpty
-          ? h('div', { className: 'tree-empty' },
-              h('span', { className: 'big' }, '🌳'),
-              h('span', null, emptyText || String(error)),
-              emptyText === '当前筛选下没有记忆。'
-                ? h('button', { onClick: resetFilters }, '清空筛选')
-                : null,
-            )
-          : null,
+        showEmpty ? emptyNode('🌳') : null,
         showEmpty ? null : h('div', { className: 'tree-zoom' },
           h('button', { title: '缩小', onClick: () => stepZoom(-0.1) }, '−'),
           h('span', { className: 'zoomval' }, `${Math.round(zoom * 100)}%`),
@@ -1721,23 +2112,178 @@ window.__ModuleLoader__.load({
         showCorrections && layout.corrections.length > 0 && !showEmpty
           ? h('div', { className: 'tree-legend' }, h('span', null, h('i', { className: 'line' }), '修正关系'))
           : null,
-        selected
-          ? h(TreeDetail, {
-              rec: selected,
-              labels,
-              byId: recordById,
-              onClose: () => setSelectedId(null),
-              onJump: jumpTo,
-            })
+        detail,
+      )
+
+      // ===== 星图画布 =====
+      // 节点是绝对定位的圆点,缩放只作用在 .graph-canvas 上;连线的坐标和节点同一个
+      // 坐标系,所以缩放后依然对齐。远近靠 z 值:近的大、亮、靠前,远的暗、微糊。
+      const graphNodes = []
+      for (const node of graph.nodes) {
+        if (node.type === 'scope') {
+          const size = Math.max(14, Math.round(node.r * 2))
+          graphNodes.push(h('div', {
+            key: node.key,
+            className: 'gnode hub' + (node.open ? '' : ' closed'),
+            style: { left: `${node.x}px`, top: `${node.y}px`, width: `${size}px`, height: `${size}px`, zIndex: 200 },
+            title: `${node.label} · ${node.count} 条记忆${node.open ? '' : '（已折叠，点击展开）'}`,
+            onClick: () => toggleScope(node.scope),
+          },
+            h('span', { className: 'orb' }),
+            h('span', { className: 'hglyph' }, scopeGlyph(node.scope)),
+            // 星名挂在轨道环外侧:压在簇里会盖住记忆点
+            h('span', {
+              className: 'glabel',
+              style: node.open && node.orbit > 0 ? { bottom: node.orbit + 6 } : null,
+            }, `${node.label} · ${node.count}`),
+          ))
+          continue
+        }
+        const rec = node.rec
+        const size = Math.max(5, Math.round(node.r * 2))
+        const miss = query.trim() !== '' && !graph.matches.has(rec.id)
+        const match = query.trim() !== '' && graph.matches.has(rec.id)
+        const near = graphNear.has(node.key)
+        // 标签只给"有意义的点":命中、邻域、选中、悬停。全显会把星团糊成一片,
+        // 这也是 Obsidian 图谱默认不标全部节点的原因。
+        const showLabel = match || near
+        const cls = 'gnode'
+          + (rec.id === selectedId ? ' selected' : '')
+          + (near ? ' near' : '')
+          + (miss ? ' miss' : '')
+          + (match ? ' match' : '')
+          + (showLabel ? ' lbl' : '')
+        graphNodes.push(h('div', {
+          key: node.key,
+          className: cls,
+          style: {
+            left: `${node.x}px`,
+            top: `${node.y}px`,
+            width: `${size}px`,
+            height: `${size}px`,
+            '--k': kindMeta(node.kind).color,
+            '--z-op': String(Math.round((1 - node.z * 0.44) * 100) / 100),
+            '--z-blur': node.z > 0.5 ? `${((node.z - 0.5) * 1.4).toFixed(2)}px` : '0px',
+            zIndex: 120 - Math.round(node.z * 90),
+          },
+          title: `${kindMeta(node.kind).label} · ${excerpt(rec.content, 60)}`,
+          onClick: () => setSelectedId((current) => current === rec.id ? null : rec.id),
+          onMouseEnter: () => setHoverId(rec.id),
+          onMouseLeave: () => setHoverId(null),
+        },
+          h('span', { className: 'orb' }),
+          // 标签沿半径朝外,四个方向各自贴边,避免压住圆心
+          h('span', {
+            className: 'glabel',
+            style: {
+              top: '50%',
+              left: '50%',
+              transform: `translate(${Math.cos(node.angle) >= 0 ? '6px' : 'calc(-100% - 6px)'}, -50%)`,
+              textAlign: Math.cos(node.angle) >= 0 ? 'left' : 'right',
+            },
+          }, excerpt(rec.content, 22)),
+        ))
+      }
+
+      const graphPaths = []
+      for (const edge of graph.edges) {
+        if (edge.x1 === undefined) continue
+        graphPaths.push(h('path', {
+          key: edge.key,
+          className: 'glink' + (graphEdgeNear(edge) ? ' near' : ''),
+          d: graphLinkPath(edge.x1, edge.y1, edge.x2, edge.y2),
+        }))
+      }
+      if (showCorrections) {
+        for (const edge of graph.corrections) {
+          if (edge.x1 === undefined) continue
+          graphPaths.push(h('path', {
+            key: edge.key,
+            className: 'glink corr' + (graphEdgeNear(edge) ? ' near' : ''),
+            d: graphLinkPath(edge.x1, edge.y1, edge.x2, edge.y2),
+          }))
+        }
+      }
+
+      const graphCanvas = h('div', {
+        className: 'graph-canvas' + (graphFocusKey !== null ? ' focused' : ''),
+        style: {
+          width: graph.width,
+          height: graph.height,
+          marginLeft: -graph.width / 2,
+          marginTop: -graph.height / 2,
+          transform: `scale(${graphZoom})`,
+        },
+      },
+        // 每个作用域一团柔光 + 一圈轨道环:让"星团"有体积感,而不是一圈点撒在网格上
+        h('div', { className: 'graph-glow', 'aria-hidden': 'true' },
+          graph.nodes.filter((node) => node.type === 'scope').flatMap((node) => {
+            const halo = node.r * 2.6
+            const parts = [h('span', {
+              key: `glow:${node.key}`,
+              style: {
+                left: node.x - halo,
+                top: node.y - halo,
+                width: halo * 2,
+                height: halo * 2,
+                opacity: node.open ? 0.85 : 0.3,
+              },
+            })]
+            if (node.open && node.orbit > 0) {
+              parts.push(h('span', {
+                key: `orbit:${node.key}`,
+                className: 'orbit',
+                style: {
+                  left: node.x - node.orbit,
+                  top: node.y - node.orbit,
+                  width: node.orbit * 2,
+                  height: node.orbit * 2,
+                  opacity: 0.9,
+                },
+              }))
+            }
+            return parts
+          })),
+        h('svg', {
+          className: 'graph-edges',
+          width: graph.width,
+          height: graph.height,
+          viewBox: `0 0 ${graph.width} ${graph.height}`,
+          'aria-hidden': 'true',
+        }, graphPaths),
+        graphNodes,
+      )
+
+      const graphWrap = h('div', { className: 'graph-wrap', ref: wrapRef },
+        h('div', { className: 'graph-stage' },
+          h('div', {
+            className: 'graph-zoomspace',
+            style: { width: Math.ceil(graph.width * graphZoom), height: Math.ceil(graph.height * graphZoom) },
+          }, graphCanvas),
+        ),
+        showEmpty ? emptyNode('🌌') : null,
+        showEmpty ? null : h('div', { className: 'graph-hud' },
+          h('b', null, String(graph.counts.scopes)), ' 颗星 · ',
+          h('b', null, String(graph.counts.records)), ' 条记忆 · 悬停看邻域，点星团折叠',
+        ),
+        showEmpty ? null : h('div', { className: 'tree-zoom' },
+          h('button', { title: '缩小', onClick: () => stepGraphZoom(-0.1) }, '−'),
+          h('span', { className: 'zoomval' }, `${Math.round(graphZoom * 100)}%`),
+          h('button', { title: '放大', onClick: () => stepGraphZoom(0.1) }, '+'),
+          h('button', { title: '适应画布', onClick: fitGraph }, '适应'),
+        ),
+        showCorrections && graph.corrections.length > 0 && !showEmpty
+          ? h('div', { className: 'tree-legend' }, h('span', null, h('i', { className: 'line' }), '修正关系'))
           : null,
+        detail,
       )
 
       return h('div', { className: 'tree-tab' },
-        stats,
+        vizHead,
         toolbar,
         kindbar,
         error && records.length > 0 ? h('div', { className: 'err' }, error) : null,
-        treeWrap,
+        view === 'graph' ? graphWrap : treeWrap,
       )
     }
 
@@ -6205,6 +6751,9 @@ window.__ModuleLoader__.load({
       requestRecordFocus: requestRecordFocus,
       takeRecordFocus: takeRecordFocus,
       buildMemoryTree: buildMemoryTree,
+      buildMemoryGraph: buildMemoryGraph,
+      graphLinkPath: graphLinkPath,
+      GRAPH_METRICS: GRAPH_METRICS,
       // 会话作用域展示名:取会话 id 前 16 位(前 8 位恒为 `session-`)
       sessionShortId: sessionShortId,
       scopeDisplayName: scopeDisplayName,
@@ -6234,3 +6783,4 @@ window.__ModuleLoader__.load({
     return module.exports
   },
 })
+
