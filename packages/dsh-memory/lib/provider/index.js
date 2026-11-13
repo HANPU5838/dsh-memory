@@ -228,6 +228,16 @@ function isInside(parent        , child        )          {
                                                                              
                                
                        
+         
+                                 
+        
+                                                       
+                                                         
+                                                  
+                                                
+                                                          
+         
+                                                                                 
                                           
                           
                                                    
@@ -785,6 +795,13 @@ export function resolveConfig(config                    = {})                 {
       backfillMaxChars: v.backfillMaxChars ?? 8_000,
       // BGE CLS baseline noise floor measured ~0.42 on unrelated pairs
       minScore: v.minScore ?? 0.5,
+      // 0.62.3：保底召回（见 search() 里同名注释）。relax 与 minScore 同域（余弦），
+      // noiseFloor 是无关文本对的实测地板——保底可以放宽准入，但绝不允许跌到噪声区。
+      recallFallback: {
+        enabled: v.recallFallback?.enabled ?? true,
+        relax: v.recallFallback?.relax ?? 0.05,
+        noiseFloor: v.recallFallback?.noiseFloor ?? 0.42,
+      },
       modelSha256: v.modelSha256 ?? '',
       runtimeSha256: v.runtimeSha256,
       // 回填是批量等长内容里最慢的路径：32 条 × 数千 token 在 CPU 上会超时，
@@ -4294,6 +4311,83 @@ export class LocalMemoryService                             {
       }
     }
 
+    // 0.62.3：保底召回 —— 只在**两路都零命中**时触发一次，正常路径分毫不动。
+    //
+    // 实测依据（中文记忆库，bge-m3）：'手机还剩多少存储空间' 与目标记忆的余弦是
+    // 0.4995（门槛 0.5，差 0.0005 被砍）；'磁盘剩余空间' 是 0.4830。同两条的词法
+    // 覆盖率又被长查询的 IDF 分母稀释到自适应 floor 以下 —— 两路同时失手，整条
+    // 漏召回，用户看到「没有找到相关记忆」。这比给一条弱命中更糟：模型会因此
+    // 重新踩同一个坑（记忆系统存在的意义就是避免这个）。
+    //
+    // 设计约束：① 只在 0 结果时触发，有命中就不放宽；② 放宽后仍有安全地板
+    // max(noiseFloor, minScore − relax)，纯噪声（BGE CLS 实测地板 ~0.42）进不来。
+    // 保底命中的分数天然低于准入门槛，若再被结果整形的「地板分」二次砍掉，
+    // 保底就形同虚设 —— 记下 id，在整形阶段显式豁免（见 shaping 那段）。
+    const fallbackIdSet = new Set        ()
+    if (candidates.size === 0 && this.cfg.vector.recallFallback.enabled) {
+      const fallback = this.cfg.vector.recallFallback
+      const rescueFloor = Math.max(fallback.noiseFloor, this.cfg.vector.minScore - fallback.relax)
+      let best                                                     
+      if (allowVector && qvec?.[0] !== undefined) {
+        for (const { store } of stores) {
+          for (const [id, vec] of store.vectors) {
+            const rec = store.records.get(id)
+            if (rec === undefined) continue
+            if (!includeSuperseded && retired.has(rec.id)) continue
+            if (!isRecordVisible(rec, { includeDormant, includeTombstoned, includeExpired, now })) continue
+            if (kindFilter !== undefined && !kindFilter(rec.scope, rec.kind)) continue
+            const sim = cosine(qvec[0] , vec)
+            if (sim < rescueFloor) continue
+            if (best === undefined || sim > best.score) best = { record: rec, score: sim }
+          }
+        }
+        if (best !== undefined) {
+          const store = stores.find((entry) => entry.scope === best .record.scope)?.store
+          candidates.set(best.record.id, {
+            record: best.record,
+            recallScore: best.score,
+            vecScore: best.score,
+            isGlobal: best.record.scope === 'global',
+            vector: store?.vectors.get(best.record.id) ?? null,
+          })
+          fallbackIdSet.add(best.record.id)
+        }
+      }
+      // 纯词法库（没有向量后端）同样需要保底：覆盖率被长查询稀释 ≠ 没有词面重叠，
+      // hasStrongHit 是那道语义保险（要求至少共享一个 ≥2 字的 token）。
+      if (candidates.size === 0) {
+        let bestLex = 0
+        let bestRec                          
+        for (const { store } of stores) {
+          const all = [...store.records.values()]
+          const tokenSets = all.map((r) => new Set(tokenize(`${r.content} ${(r.tags ?? []).join(' ')}`)))
+          const stats = buildStats(tokenSets)
+          for (let i = 0; i < all.length; i++) {
+            const rec = all[i] 
+            if (!includeSuperseded && retired.has(rec.id)) continue
+            if (!isRecordVisible(rec, { includeDormant, includeTombstoned, includeExpired, now })) continue
+            if (kindFilter !== undefined && !kindFilter(rec.scope, rec.kind)) continue
+            if (!hasStrongHit(queryTokens, tokenSets[i] )) continue
+            const lex = lexicalScore(queryTokens, tokenSets[i] , stats)
+            if (lex > bestLex) {
+              bestLex = lex
+              bestRec = rec
+            }
+          }
+        }
+        if (bestRec !== undefined) {
+          const store = stores.find((entry) => entry.scope === bestRec .scope)?.store
+          candidates.set(bestRec.id, {
+            record: bestRec,
+            recallScore: bestLex,
+            isGlobal: bestRec.scope === 'global',
+            vector: store?.vectors.get(bestRec.id) ?? null,
+          })
+          fallbackIdSet.add(bestRec.id)
+        }
+      }
+    }
+
     // shape with recency/importance, sort, cut
     // 0.33.0：默认用"可解释强度排序"（相关度 × 保持度 × 效用提升 × 重要度），
     // 并提供 breakdown；老库没有 strength 字段时由 stabilityOf() 兼容推导，零迁移。
@@ -4352,7 +4446,7 @@ export class LocalMemoryService                             {
     if (shapingEnabled) {
       // 地板分作用在**匹配强度**(recallScore: 词法校准分/余弦)上，而不是衰减后的
       // 终态分 —— 否则一条很相关但很久没被访问的记忆会被 recency 压到线下误杀。
-      if (this.cfg.shaping.floor > 0) shaped = shaped.filter((c) => c.recallScore >= this.cfg.shaping.floor)
+      if (this.cfg.shaping.floor > 0) shaped = shaped.filter((c) => c.recallScore >= this.cfg.shaping.floor || fallbackIdSet.has(c.id))
       if (this.cfg.shaping.dedupeThreshold > 0 && shaped.length > 1) {
         const dedupe = semanticDedupe(shaped, this.cfg.shaping.dedupeThreshold)
         shaped = dedupe.hits
