@@ -12,7 +12,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { hasContentHit, isGenericCjkToken, tokenize } from '../src/scoring.ts'
+import { hasContentHit, isGenericCjkToken, isGenericOnlyQuery, tokenize } from '../src/scoring.ts'
 import { LocalMemoryService } from '../src/index.ts'
 
 const SCOPE = 'project:/w'
@@ -141,6 +141,47 @@ test('0.62.8：有内容词的查询照常走语义通道', async () => {
     const hits = await svc.search({ text: '磁盘', scope: SCOPE, topK: 5 })
     assert.equal(hits.length, 1, '「磁盘」是内容词，语义通道应正常放行')
     assert.equal(hits[0]!.record.id, rec.id)
+  } finally {
+    await embed.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('0.62.9：纯功能词判定——空分词（其它语种）与单字实义词都不算纯功能词', () => {
+  assert.equal(isGenericOnlyQuery([]), false, '分词为空（韩/泰/阿/俄…）必须放行语义通道')
+  assert.equal(isGenericOnlyQuery(['怎', '么', '办']), true, '「怎么办」全部是功能词')
+  assert.equal(isGenericOnlyQuery(['怎', '么', '存储']), false, '含实义词就不算纯功能词')
+  assert.equal(isGenericOnlyQuery(tokenize('怎么办')), true, '「怎么办」只由功能词组成')
+  assert.equal(isGenericOnlyQuery(tokenize('为什么')), true)
+  assert.equal(isGenericOnlyQuery(tokenize('盘')), false, '单字实义词要放行')
+  assert.equal(isGenericOnlyQuery(tokenize('이 기기의 남은 저장 공간은')), false, '韩语分词为空 → 放行')
+})
+
+test('0.62.9：韩语查询仍走语义通道（0.62.8 的回归已修复）', async () => {
+  const dir = tempDir()
+  const embed = await startEmbedServer()
+  const svc = vectorService(dir, embed.url)
+  try {
+    const rec = await svc.save({ scope: SCOPE, kind: 'fact', content: '本机存储空间还有 402G。' })
+    const hits = await svc.search({ text: '이 기기의 남은 저장 공간은 얼마나 되나요', scope: SCOPE, topK: 5 })
+    assert.equal(hits.length, 1, '非中英语种查询必须仍然可以走语义通道')
+    assert.equal(hits[0]!.record.id, rec.id)
+  } finally {
+    await embed.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('0.62.9：中文纯功能词查询仍被短路（回归修复没有回退 0.62.8 的行为）', async () => {
+  const dir = tempDir()
+  const embed = await startEmbedServer()
+  const svc = vectorService(dir, embed.url)
+  try {
+    await svc.save({ scope: SCOPE, kind: 'preference', content: '用户偏好：结论直接写在回复里，怎么输出都行。' })
+    for (const query of ['怎么办', '为什么', '这个怎么弄']) {
+      const hits = await svc.search({ text: query, scope: SCOPE, topK: 5 })
+      assert.equal(hits.length, 0, `「${query}」仍必须返回空`)
+    }
   } finally {
     await embed.close()
     rmSync(dir, { recursive: true, force: true })

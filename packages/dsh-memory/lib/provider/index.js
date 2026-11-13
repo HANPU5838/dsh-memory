@@ -53,7 +53,7 @@ import {
                    
 } from './scope-meta.js'
 import { mergeInjectSettings, normalizeInjectSettings,                     } from './inject-settings.js'
-import { buildStats, lexicalScore, recordScore, tokenize, cosine, normalizeInPlace, isGenericCjkToken, hasContentHit, finalFloor, semanticDedupe, mmrSelect } from './scoring.js'
+import { buildStats, lexicalScore, recordScore, tokenize, cosine, normalizeInPlace, isGenericOnlyQuery, hasContentHit, finalFloor, semanticDedupe, mmrSelect } from './scoring.js'
 import { adaptiveScopeThreshold, calibrateScore } from './retrieval/adapt.js'
 import { blendHybrid, expandQuery, expandQueries, hybridWeights, queryProfile } from './retrieval/expand.js'
 import { buildBm25Docs, bm25Score, rankByBm25 } from './retrieval/bm25.js'
@@ -4027,8 +4027,10 @@ export class LocalMemoryService                             {
     // 依据：BGE-M3 对「短泛化中文查询 × 长中文记忆」的基线余弦本身就有 0.50–0.53，
     // minScore=0.5 会被这类查询直接捅穿 —— 实测「怎么办」命中 3 条无关记忆
     // （content-only 余弦 0.512/0.529/0.502）。没有实义的查询不存在可匹配的语义目标。
-    const queryHasContentWord = queryTokens.some((token) => token.length >= 2 && !isGenericCjkToken(token))
-    const allowVector = queryHasContentWord && internal.vector !== false && this.cfg.vector.enabled && this.cfg.vector.configured
+    // 0.62.9：只有"纯功能词中文查询"才短路语义通道。分词为空的语种（韩/泰/阿/俄…）
+    // 不能判成无实义 —— 0.62.8 曾因此把它们整类查询的语义通道关掉。
+    const queryIsGenericOnly = isGenericOnlyQuery(queryTokens)
+    const allowVector = !queryIsGenericOnly && internal.vector !== false && this.cfg.vector.enabled && this.cfg.vector.configured
     const includeSuperseded = internal.includeSuperseded === true
     const includeExpired = internal.includeExpired === true
     // 0.32.0：休眠/墓碑记录默认不参与召回（面板历史浏览显式打开时才显示）。

@@ -358,5 +358,18 @@ export function hasContentHit(queryTokens          , recordTokens             ) 
   return false
 }
 
+/**
+ * 0.62.9：这条查询是不是"纯功能词"（只在中文场景下有意义）。
+ *
+ * 注意 `tokenize` 只覆盖 ASCII 与中日汉字：韩文/泰文/阿拉伯文/俄文等分词结果是**空数组**。
+ * 空数组绝不能判成"无实义"——那会把整条查询的语义通道关掉（0.62.8 的回归）。
+ * 判定规则：只有"分词非空、且每个 token 都是功能词"才算纯功能词查询；
+ * 单字实义词（如「盘」）与其它语种（空 token）都放行给向量通道。
+ */
+export function isGenericOnlyQuery(tokens                   )          {
+  if (tokens.length === 0) return false
+  return tokens.every((token) => isGenericCjkToken(token))
+}
+
 
 //# sourceURL=source/memory-local/src/scoring.ts
