@@ -48,6 +48,7 @@ import {
 import {
   MAX_SCOPE_DESCRIPTION_CHARS,
   ScopeMetaStore,
+  pruneEmptySessionScopes,
                  
                    
 } from './scope-meta.js'
@@ -306,7 +307,7 @@ function isInside(parent        , child        )          {
                                        
                                                                                  
    
-                                                                   
+                                                                                                                                         
                                                
                
                                                      
@@ -404,6 +405,7 @@ function isInside(parent        , child        )          {
    
                    
                             
+                                
                         
                                                           
                                        
@@ -857,6 +859,8 @@ export function resolveConfig(config                    = {})                 {
       topN: config.retrieval?.llm?.topN ?? 10,
     },
     maxRecordsPerScope: config.limits?.maxRecordsPerScope ?? 2000,
+    // 0.62.5：空会话作用域的保留天数。默认 1 天——空作用域没有数据，重建零成本。
+    sessionScopeMaxAgeDays: config.limits?.sessionScopeMaxAgeDays ?? 1,
     maxRecordChars: config.limits?.maxRecordChars ?? 4000,
     secrets: {
       enabled: config.secrets?.enabled ?? true,
@@ -2469,7 +2473,7 @@ export class LocalMemoryService                             {
     }
   }
 
-  runHousekeeping()                                                                                                                                                                                                                          {
+  runHousekeeping()                                                                                                                                                                                                                                                  {
     // 0.41.1：维护任务必须覆盖**磁盘上所有作用域**，不能只扫本进程已加载的。
     //（懒加载机制下，没被本会话碰过的旧 scope 不会被加载，否则休眠/墓碑清理/
     // 巩固/健康度都会漏掉它们。）
@@ -2490,13 +2494,23 @@ export class LocalMemoryService                             {
     const tombstones = purgeTombstones(this.store, { now: Date.now(), ...(liveScopes.length > 0 ? { scopes: liveScopes } : {}) })
     // 0.33.0：周期巩固（把同簇 episodic 记忆合并成一条 semantic 摘要）。
     const consolidated = this.consolidateNow().created
+    // 0.62.5：回收"从没用过"的历史会话作用域（元数据只增不减会越攒越多）。
+    const prunedScopes = pruneEmptySessionScopes(this.meta, {
+      maxAgeMs: this.cfg.sessionScopeMaxAgeDays * 86_400_000,
+      now: Date.now(),
+      hasRecords: (scope) => {
+        const scopeStore = this.store.peek(scope)
+        return scopeStore !== undefined && scopeStore.records.size > 0
+      },
+      frozen: (scope) => frozen(scope),
+    })
     // 0.40.0：P1 健康度快照（维护任务顺带算一次，面板可轮询）。
     let health
     try {
       const report = this.healthReport()
       health = { score: report.score, conflictRate: report.conflictRate, duplicateRate: report.duplicateRate, quarantined: report.quarantined, pending: report.pending }
     } catch { /* 健康度是增强，失败不影响维护 */ }
-    return { purged, evicted, dormant, tombstones, consolidated, ...(health !== undefined ? { health } : {}) }
+    return { purged, evicted, dormant, tombstones, consolidated, prunedScopes, ...(health !== undefined ? { health } : {}) }
   }
 
   /**

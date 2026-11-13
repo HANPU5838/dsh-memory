@@ -210,3 +210,47 @@ export class ScopeMetaStore {
     renameSync(tmp, file)
   }
 }
+
+/** 清理空会话作用域的选项。 */
+export interface PruneEmptySessionScopesOptions {
+  /** 超过这个年龄（毫秒）才删；<= 0 表示禁用。 */
+  maxAgeMs: number
+  /** 当前时间（测试可注入）。 */
+  now?: number
+  /** 该作用域是否已有记录；有记录一律不删（只清"从没用过"的作用域）。 */
+  hasRecords: (scope: string) => boolean
+  /** 冻结判定（如已归档会话）：返回 true 一律不删。 */
+  frozen?: (scope: string) => boolean
+}
+
+/**
+ * 0.62.5：清理"从没用过的历史会话作用域"。
+ *
+ * 为什么需要：系统会为每个会话自动创建 `session:<id>` 作用域元数据，但**从不回收** ——
+ * 开 N 次会话就攒 N 个空作用域，`memory_scopes` 目录会越来越长，用户也分不清哪些是
+ * 真在用的。会话作用域只有元数据（没有记录时不落 JSONL），所以清理是安全的：下次真
+ * 往里写记忆时会自动重建。
+ *
+ * 安全边界（三道）：
+ *   1. 只删 `origin === 'session'` 且**没有任何记录**的作用域（有记录的永不删）；
+ *   2. 只删 `updatedAt` 早于 `maxAgeMs` 的（活跃会话天然受保护）；
+ *   3. 冻结作用域（已归档会话）跳过。
+ */
+export function pruneEmptySessionScopes(
+  store: ScopeMetaStore,
+  options: PruneEmptySessionScopesOptions,
+): string[] {
+  if (!(options.maxAgeMs > 0)) return []
+  const now = options.now ?? Date.now()
+  const removed: string[] = []
+  for (const meta of store.list()) {
+    if (meta.origin !== 'session') continue
+    if (options.frozen?.(meta.scope) === true) continue
+    if (options.hasRecords(meta.scope)) continue
+    const age = now - (meta.updatedAt ?? meta.createdAt)
+    if (!(age >= options.maxAgeMs)) continue
+    store.remove(meta.scope)
+    removed.push(meta.scope)
+  }
+  return removed
+}
