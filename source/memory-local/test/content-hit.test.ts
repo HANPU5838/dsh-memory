@@ -9,6 +9,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
+import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { hasContentHit, isGenericCjkToken, tokenize } from '../src/scoring.ts'
@@ -80,6 +81,68 @@ test('集成：实义词查询照常命中（没有误伤）', async () => {
     assert.equal(hits.length, 1, '「存储空间」是实义词，必须照常命中')
     assert.equal(hits[0]!.record.id, rec.id)
   } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+/** 假嵌入服务：对任何输入都返回同一段高相似向量（把向量通道开成"必定放行"）。 */
+async function startEmbedServer() {
+  const vector = new Array<number>(1024).fill(0)
+  vector[0] = 1
+  const server = createServer((req, res) => {
+    req.resume()
+    req.on('end', () => {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ data: [{ embedding: vector }] }))
+    })
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const addr = server.address()
+  const port = typeof addr === 'object' && addr !== null ? addr.port : 0
+  return {
+    url: `http://127.0.0.1:${port}/v1/embeddings`,
+    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+  }
+}
+
+function vectorService(dir: string, endpoint: string) {
+  const svc = new LocalMemoryService({
+    storeDir: join(dir, 'store'),
+    scopes: { global: true, project: true },
+    retrieval: {
+      vector: { endpoint, model: 'bge-m3', dims: 1024, timeoutMs: 3000, spawn: { enabled: false } },
+    },
+  })
+  svc.setProjectScope(SCOPE)
+  return svc
+}
+
+test('0.62.8：整条查询没有内容词时，语义通道也不参与（向量相似度再高也不放行）', async () => {
+  const dir = tempDir()
+  const embed = await startEmbedServer()
+  const svc = vectorService(dir, embed.url)
+  try {
+    await svc.save({ scope: SCOPE, kind: 'preference', content: '用户偏好：结论直接写在回复里，怎么输出都行。' })
+    // 假服务让向量相似度恒为 1.0；如果没这道门禁，「怎么办」一定会命中。
+    const hits = await svc.search({ text: '怎么办', scope: SCOPE, topK: 5 })
+    assert.equal(hits.length, 0, '没有实义的查询不该命中任何记忆')
+  } finally {
+    await embed.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('0.62.8：有内容词的查询照常走语义通道', async () => {
+  const dir = tempDir()
+  const embed = await startEmbedServer()
+  const svc = vectorService(dir, embed.url)
+  try {
+    const rec = await svc.save({ scope: SCOPE, kind: 'fact', content: '本机磁盘还有 402G。' })
+    const hits = await svc.search({ text: '磁盘', scope: SCOPE, topK: 5 })
+    assert.equal(hits.length, 1, '「磁盘」是内容词，语义通道应正常放行')
+    assert.equal(hits[0]!.record.id, rec.id)
+  } finally {
+    await embed.close()
     rmSync(dir, { recursive: true, force: true })
   }
 })
