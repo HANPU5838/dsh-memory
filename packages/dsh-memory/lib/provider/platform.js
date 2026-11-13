@@ -215,7 +215,10 @@ export function canExecute(dir        )                 {
  * 一行人类可读的环境摘要（日志与面板自检共用）。
  * 例：`linux arm64 · Termux · 8 核 · 内存 7.5/15.0GB · glibc loader ✓`
  */
-export function describePlatform(info               = detectPlatform())         {
+export function describePlatform(
+  info               = detectPlatform(),
+  options                                                    = {},
+)         {
   const parts           = [`${info.platform} ${info.arch}`]
   if (info.termux) parts.push('Termux')
   if (info.cpuCount > 0) parts.push(`${info.cpuCount} 核`)
@@ -224,7 +227,12 @@ export function describePlatform(info               = detectPlatform())         
     const avail = info.availableMemMb === null ? '?' : (info.availableMemMb / 1024).toFixed(1)
     parts.push(`内存 ${avail}/${total}GB`)
   }
-  if (info.termux) parts.push(info.glibcLoader === null ? 'glibc loader ✗' : 'glibc loader ✓')
+  if (info.termux) {
+    // 用系统 llama-server（pkg install llama-cpp 的 bionic 原生构建）时没有 glibc
+    // 什么事 —— 面板上还打一个「glibc loader ✗」纯属吓人，会让人以为环境坏了。
+    if (options.runtimeSource === 'system') parts.push('系统 llama-server ✓（bionic，无需 glibc）')
+    else parts.push(info.glibcLoader === null ? 'glibc loader ✗' : 'glibc loader ✓')
+  }
   return parts.join(' · ')
 }
 

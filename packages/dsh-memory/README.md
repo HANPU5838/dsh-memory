@@ -2,7 +2,7 @@
   <img src="https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/preview/icon-128.png" width="84" alt="记忆系统">
 </p>
 
-> ### 📦 本仓库在上游基础上持续维护（v0.57.0）
+> ### 📦 本仓库在上游基础上持续维护（v0.58.0）
 >
 > 本项目是 **DSH 记忆系统**（npm 包 `@restregular/dsh-memory`，MIT）的分支维护版：
 > 在上游 v0.30.1 之上做了平台适配、插件化、可靠性加固、语义认知层与嵌入性能优化，并在 **0.40/0.41 补上 BM25+RRF、记忆健康度、冲突自动裁决、可疑写入隔离、本地备份与离线评测**。
@@ -10,7 +10,7 @@
 > | 项目 | 说明 |
 > | --- | --- |
 > | 原作者 | **RestRegular**（上游原项目 [RestRegular/dsh-memory](https://github.com/RestRegular/dsh-memory)，MIT）；本项目在其 v0.30.1 基础上维护 |
-> | 本仓库 | **v0.57.0** = 上游 v0.30.1 + 平台/可靠性改进 + 语义认知层 + 检索整形（BM25/RRF/MMR）+ 嵌入性能 + 记忆强度算法 + **智能关系分析（关系发现/冲突/聚类/演化/推理）**。完整清单见 [IMPROVEMENTS.md](IMPROVEMENTS.md)，架构见 [docs/architecture.md](docs/architecture.md) |
+> | 本仓库 | **v0.58.0** = 上游 v0.30.1 + 平台/可靠性改进 + 语义认知层 + 检索整形（BM25/RRF/MMR）+ 嵌入性能 + 记忆强度算法 + **智能关系分析（关系发现/冲突/聚类/演化/推理）**。完整清单见 [IMPROVEMENTS.md](IMPROVEMENTS.md)，架构见 [docs/architecture.md](docs/architecture.md) |
 > | 许可 | **MIT**，版权归原作者所有，见 [LICENSE](LICENSE)；转载、分发请保留原始版权声明 |
 > | 更新与反馈 | Issue / PR / 反馈请到 **[本仓库 Issues](https://github.com/HANPU5838/dsh-memory/issues)**；与上游的差异集中在 `IMPROVEMENTS.md` |
 >
@@ -25,7 +25,7 @@
 
 JSONL 落盘 · 本机向量检索 · 六个模型工具 · 自动召回 · 硬性规则 · 可视化管理面板
 
-[![version](https://img.shields.io/badge/version-v0.57.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![version](https://img.shields.io/badge/version-v0.58.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/HANPU5838/dsh-memory/blob/main/LICENSE)
 [![ci](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.13-5FA04E.svg)](https://nodejs.org/)
@@ -139,7 +139,7 @@ JSONL 落盘 · 本机向量检索 · 六个模型工具 · 自动召回 · 硬�
 注入链路、作用域审批、规则常驻、流程索引这些是它的差异点；0.32–0.41 补上了语义整理、生命周期、健康度与冲突自动裁决，
 把"档案"升级成了"会整理、会遗忘、可回滚"的记忆系统。
 
-## 现状与边界（截至 v0.57.0）
+## 现状与边界（截至 v0.58.0）
 
 > 说清楚"已经做到什么"和"还没做到什么"，比只说优点有用。
 
@@ -182,7 +182,7 @@ bge-m3 1024 维，llama-server CPU 6 线程，2026-11-10）：
 | 批量嵌入（batch=8 vs 1） | 3.8 rec/s vs 2.8 rec/s（≈1.4×，CPU 上省的是调度） |
 | 回填 | batch=8 3.2 rec/s；单条失败只留 null，不拖垮整批 |
 | ANN（纯 JS HNSW，合成 128 维） | 2k：P50 1.3ms/召回 100%；10k：1.15ms/98%（10.4×）；20k：1.73ms/94%（14.6×） |
-| 测试 | **1074 例 / 1073 pass / 1 skip / 0 fail**（v0.57.0） |
+| 测试 | **1077 例 / 1076 pass / 1 skip / 0 fail**（v0.58.0） |
 | 检索评测（合成集 94 条 / 48 查询，真实 bge-m3） | base recall@5 0.7708 → **产品默认 0.9167**；MRR 0.7483 / nDCG 0.7912（方法见 [docs/benchmark.md](docs/benchmark.md)） |
 
 复现：`node tools/bench/run.mjs`（live 模式需本地嵌入服务；无服务时自动合成数据）。
@@ -254,7 +254,7 @@ bge-m3 1024 维，llama-server CPU 6 线程，2026-11-10）：
 ## 安装
 
 > **安装来源提醒**：npm 上的 `@restregular/dsh-memory` 是**上游 0.30.1**（本项目基于它改进，
-> 但尚未发布到 npm）。要使用本仓库的 0.57.0，请从本仓库安装：
+> 但尚未发布到 npm）。要使用本仓库的 0.58.0，请从本仓库安装：
 
 ```bash
 # 方式一：直接从本仓库装（仓库内已包含构建产物 packages/）
@@ -290,6 +290,10 @@ pnpm add "file:/path/to/dsh-memory"
 > 插件会自动发现 `$PREFIX/bin/llama-server`（bionic 原生构建，直接 exec 即可），
 > 此时一键安装只下载模型。运行时来源用 `retrieval.vector.runtime` 控制：
 > `auto`（默认：托管已装优先，否则用系统的）/ `managed`（只用下载的）/ `system`（强制系统）。
+>
+> **零配置自举**：`retrieval.vector.autoBootstrap` 默认 `'auto'` —— Termux 上检测到还没有
+> 向量后端时，会自动 `pkg install -y llama-cpp`（系统里没有 llama-server 时）→ 只下模型 →
+> 托管启动，装完即用。显式写了 `endpoint` / `spawn`、或 `provider` 不是 `local` 时不会触发。
 
 > 宿主只允许**一个包名、一个解析源**，所以本插件是「一个包 + 一条 entry + 面板与服务端同包」。
 > 拆成两个包会触发 `resolves from multiple active Loader sources`，客户端图组合失败，

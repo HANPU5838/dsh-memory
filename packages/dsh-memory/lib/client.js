@@ -2303,7 +2303,9 @@ window.__ModuleLoader__.load({
       }
       if (!current) return null
       const hint = current === 'local'
-        ? '本机 llama-server（插件下载并托管）'
+        ? (status && status.runtimeSource === 'system'
+            ? '系统 llama-server（pkg 安装，bionic 原生，无需 glibc）'
+            : '本机 llama-server（插件下载并托管）')
         : current === 'off'
           ? '纯词法检索，不联网'
           : current === 'ollama'

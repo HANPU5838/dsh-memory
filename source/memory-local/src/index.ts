@@ -94,7 +94,8 @@ import { EmbedCache } from './embed-cache.ts'
 import { createAnnIndex, shouldUseAnn, type AnnIndex, type AnnKind } from './ann/index.ts'
 import { EmbedKeepAlive } from './embed.ts'
 import { MemoryEventBus } from './events.ts'
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { spawn } from 'node:child_process'
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import {
@@ -173,6 +174,13 @@ export interface MemoryLocalConfig {
        * `$PREFIX/bin/llama-server`），此时只下载模型，不走 glibc 兼容层。
        */
       runtime?: 'auto' | 'managed' | 'system'
+      /**
+       * Termux 自举：'auto'（默认）= 在 Termux/Android 上检测到「还没有向量后端」时，
+       * 自动 `pkg install -y llama-cpp`（系统里没有 llama-server 时）→ 只下模型 →
+       * 托管启动，做到零配置可用；'off' = 完全手动（面板按钮）。
+       * 只在 provider 为 local、且用户没显式写 endpoint / spawn 时生效。
+       */
+      autoBootstrap?: 'auto' | 'off'
       /**
        * 嵌入后端类型。默认按 endpoint 推断：本机回环地址 → 'local'（插件自己拉
        * llama-server），其它地址 → 'openai'（任意 OpenAI 兼容服务）；显式配置优先。
@@ -370,6 +378,10 @@ export interface ResolvedConfig {
     systemExe: string | null
     /** 最终实际使用的运行时来源；未安装为 'none'。 */
     runtimeSource: 'managed' | 'system' | 'none'
+    /** Termux 自举策略（见配置同名注释）。 */
+    autoBootstrap: 'auto' | 'off'
+    /** 用户是否显式写了 spawn（exe / enabled）——自举绝不能覆盖显式配置。 */
+    spawnExplicit: boolean
   }
   llm: RerankConfig
   maxRecordsPerScope: number
@@ -586,6 +598,41 @@ function explicitStrengthFields(input: Record<string, unknown>): Record<string, 
   return out
 }
 
+/** 自举动作：none=不动；install-package=先装 Termux 的 llama-cpp；download-model=只下模型。 */
+export type VectorBootstrapAction = 'none' | 'install-package' | 'download-model'
+
+export interface VectorBootstrapInput {
+  autoBootstrap: 'auto' | 'off'
+  provider: EmbeddingProviderKind
+  endpointConfigured: boolean
+  spawnExplicit: boolean
+  configured: boolean
+  /** Termux / Android 环境（其它平台一律不自举）。 */
+  termux: boolean
+  /** 系统里已有 llama-server（如 `pkg install llama-cpp` 装过）。 */
+  hasSystemServer: boolean
+  /** Termux 的 `$PREFIX/bin/pkg` 存在（能装包）。 */
+  hasPkg: boolean
+}
+
+/**
+ * Termux 自举决策（纯函数，便于测试）：环境「和本机同款」时自动把向量后端搭起来。
+ *
+ * 边界：
+ *  - 任何显式配置优先（endpoint / spawn / 已安装）——自举只补「什么都没配」的情况；
+ *  - 非 Termux 一律不动：桌面端不该被悄悄塞一个 400MB 模型 + `pkg install`；
+ *  - provider 必须是 local（用户指定 openai/ollama/off 时不抢）。
+ */
+export function planVectorBootstrap(input: VectorBootstrapInput): VectorBootstrapAction {
+  if (input.autoBootstrap === 'off') return 'none'
+  if (input.provider !== 'local') return 'none'
+  if (input.endpointConfigured || input.spawnExplicit || input.configured) return 'none'
+  if (!input.termux) return 'none'
+  if (input.hasSystemServer) return 'download-model'
+  if (input.hasPkg) return 'install-package'
+  return 'none'
+}
+
 export function resolveConfig(config: MemoryLocalConfig = {}): ResolvedConfig {
   const v = config.retrieval?.vector ?? {}
   // Do not touch an embedding backend the user never asked for: pointing at the
@@ -626,7 +673,8 @@ export function resolveConfig(config: MemoryLocalConfig = {}): ResolvedConfig {
   // offering the download button again.
   const spawnExe = v.spawn?.exe
   const spawnExeUsable = spawnExe === undefined || spawnExe === '' || existsSync(spawnExe)
-  const spawnConfigured = ((v.spawn?.enabled === true || (spawnExe ?? '') !== '') && spawnExeUsable) || installed !== null
+  const spawnExplicit = (v.spawn?.exe ?? '') !== '' || v.spawn?.enabled === true
+  const spawnConfigured = (spawnExplicit && spawnExeUsable) || installed !== null
   const configured = endpointConfigured || spawnConfigured
   const vectorEnabled = v.enabled ?? configured
   const flavor = selection.flavor ?? 'cpu'
@@ -658,6 +706,8 @@ export function resolveConfig(config: MemoryLocalConfig = {}): ResolvedConfig {
       runtimeMode,
       systemExe,
       runtimeSource: installed === null ? 'none' : (installed.system === true ? 'system' : 'managed'),
+      autoBootstrap: v.autoBootstrap ?? 'auto',
+      spawnExplicit,
       ...(v.autoInstall?.modelSources ? { installModelSources: v.autoInstall.modelSources } : {}),
       installModel: {
         file: selection.file,
@@ -1113,6 +1163,8 @@ export class LocalMemoryService implements MemoryServiceApi {
     this.embedCache = this.createEmbedCache()
     this.startMaintenance()
     this.startEmbedServer()
+    // Termux 自举：环境匹配就自己把向量后端搭起来（后台跑，绝不挡住宿主启动）。
+    this.bootstrapVectorBackend()
   }
 
   /** 设置文件:与记忆数据同目录,便于一起备份/清理。 */
@@ -1483,8 +1535,12 @@ export class LocalMemoryService implements MemoryServiceApi {
     wrapped: boolean
     /** 当前生效的嵌入后端类型（local / openai / ollama / off）。 */
     provider: EmbeddingProviderKind
-    /** 一行平台摘要（面板自检用），例：`linux arm64 · Termux · 8 核 · 内存 7.5/15.0GB · glibc loader ✓`。 */
+    /** 一行平台摘要（面板自检用），例：`linux arm64 · Termux · 8 核 · 内存 7.5/15.0GB · 系统 llama-server ✓`。 */
     platformSummary: string
+    /** 运行时来源：managed=插件下载的 / system=系统包安装的 / none=未安装。 */
+    runtimeSource: 'managed' | 'system' | 'none'
+    /** 系统 llama-server 的绝对路径（runtimeSource === 'system' 时有值）。 */
+    systemExe: string | null
     pendingEmbeds: number
     install: InstallProgress & { installed: boolean; root: string }
     /** What an uninstall would free, and how much data a wipe would remove. */
@@ -1514,7 +1570,7 @@ export class LocalMemoryService implements MemoryServiceApi {
       flavor: cfg.flavor,
       spawnConfigured: cfg.spawnConfigured,
       provider: cfg.provider,
-      platformSummary: describePlatform(),
+      platformSummary: describePlatform(detectPlatform(), { runtimeSource: this.cfg.vector.runtimeSource }),
       pendingEmbeds,
       install: this.installSnapshot(),
       maintenance: {
@@ -1530,7 +1586,10 @@ export class LocalMemoryService implements MemoryServiceApi {
       return {
         ...base, owned: false, pid: null, baseUrl: '', reachable: false,
         lastError: null, restarts: 0, unavailable: false, wrapped: false,
-        provider: cfg.provider, platformSummary: describePlatform(),
+        provider: cfg.provider,
+        platformSummary: describePlatform(detectPlatform(), { runtimeSource: cfg.runtimeSource }),
+        runtimeSource: cfg.runtimeSource,
+        systemExe: cfg.systemExe,
       }
     }
     const reachable = await mgr.healthCheck()
@@ -1783,6 +1842,118 @@ export class LocalMemoryService implements MemoryServiceApi {
    * state 文件(下次启动仍然生效),再按新选择下载。配置里写了 preset/customModel
    * 的话,配置永远优先 —— state 只是"面板选过什么"的记忆。
    */
+  /**
+   * Termux 自举：在「和本机同款」的环境里把向量后端自己搭起来。
+   *
+   * 为什么：目标环境（Android/Termux）本来就能 `pkg install llama-cpp` 拿到
+   * bionic 原生的 llama-server，唯一缺的是「模型 + 配置」这一步。让用户先翻
+   * README、再手填 spawn.exe、再自己 curl 一个 438MB 的 GGUF，是把最容易出错
+   * 的环节留给用户。这里把它变成：环境匹配 → 自动装包 → 自动下模型 → 自动托管。
+   *
+   * 全程 fire-and-forget：任何一步失败都只记日志并退回词法检索，绝不挡住宿主
+   * 启动，也绝不覆盖用户显式写的 endpoint / spawn 配置。
+   */
+  private bootstrapVectorBackend(): void {
+    // 测试环境绝不自动装包/下模型：node:test 的每个用例都会构造一次服务实例，
+    // 真按 Termux 自举走会拉起 `pkg install` 和 438MB 下载。Node 在测试子进程里
+    // 会设置 NODE_TEST_CONTEXT，用它做闸门比猜配置可靠。
+    if (process.env.NODE_TEST_CONTEXT !== undefined) return
+    if ((process.env.DSH_MEMORY_AUTO_BOOTSTRAP ?? '').trim() === 'off') return
+    if (this.bootstrapping) return
+    const cfg = this.cfg.vector
+    const info = detectPlatform()
+    const pkgPath = info.prefix === null ? null : join(info.prefix, 'bin', 'pkg')
+    const decided = planVectorBootstrap({
+      autoBootstrap: cfg.autoBootstrap,
+      provider: cfg.provider,
+      endpointConfigured: cfg.endpointConfigured,
+      spawnExplicit: cfg.spawnExplicit,
+      configured: cfg.configured,
+      termux: info.termux || info.platform === 'android',
+      hasSystemServer: (cfg.systemExe ?? findSystemLlamaServer()) !== null,
+      hasPkg: pkgPath !== null && existsSync(pkgPath),
+    })
+    this.bootstrapLog(`decision=${decided} termux=${info.termux || info.platform === 'android'} sys=${(cfg.systemExe ?? findSystemLlamaServer()) !== null} pkg=${pkgPath !== null && existsSync(pkgPath)} configured=${cfg.configured} endpointExplicit=${cfg.endpointConfigured} spawnExplicit=${cfg.spawnExplicit} provider=${cfg.provider}`)
+    if (decided === 'none') return
+    this.bootstrapping = true
+    void this.runBootstrap(decided).finally(() => { this.bootstrapping = false })
+  }
+
+  /** 自举日志落盘：服务器 stdout 看不到，排查「为什么没自动装」全靠它。 */
+  private bootstrapLog(line: string): void {
+    try {
+      mkdirSync(this.cfg.vector.installRoot, { recursive: true })
+      appendFileSync(join(this.cfg.vector.installRoot, 'bootstrap.log'), `${new Date().toISOString()} ${line}\n`, 'utf8')
+    } catch { /* 落盘失败不影响自举 */ }
+  }
+
+  private async runBootstrap(action: VectorBootstrapAction): Promise<void> {
+    const log = (message: string): void => {
+      console.warn(`[dsh-memory-local] Termux 自举：${message}`)
+      this.bootstrapLog(message)
+    }
+    try {
+      if (action === 'install-package') {
+        log('未检测到 llama-server，执行 pkg install -y llama-cpp（约 22MB）…')
+        const ok = await this.installSystemLlamaCpp()
+        if (!ok) {
+          log('pkg install llama-cpp 失败，向量后端保持关闭（检索走词法）；之后可在面板手动安装')
+          return
+        }
+        const exe = findSystemLlamaServer()
+        if (exe === null) {
+          log('安装完成但没找到 llama-server，向量后端保持关闭')
+          return
+        }
+        this.cfg.vector.systemExe = exe
+        this.cfg.vector.runtimeMode = 'system'
+        this.cfg.vector.runtimeSource = 'system'
+        log(`系统 llama-server 就绪：${exe}`)
+      }
+      log('开始准备模型（系统运行时：只下模型，不需要 glibc 运行时）')
+      // 模型已在 → 内部直接 adopt 并启动；缺失 → 系统运行时安装器只下模型。
+      this.installVectorBackend()
+    } catch (error) {
+      log(`自举失败（已忽略）：${(error as Error)?.message ?? String(error)}`)
+    }
+  }
+
+  /** 跑 `pkg install -y llama-cpp`；只在 Termux 上可用。返回是否成功。 */
+  private installSystemLlamaCpp(): Promise<boolean> {
+    return new Promise((resolve) => {
+      const info = detectPlatform()
+      const prefix = info.prefix
+      if (prefix === null) return resolve(false)
+      const pkg = join(prefix, 'bin', 'pkg')
+      if (!existsSync(pkg)) return resolve(false)
+      let settled = false
+      const timer = setTimeout(() => {
+        try { child.kill('SIGKILL') } catch { /* already gone */ }
+        finish(false)
+      }, 15 * 60_000)
+      timer.unref?.()
+      const finish = (ok: boolean): void => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        resolve(ok)
+      }
+      let child: ReturnType<typeof spawn>
+      try {
+        child = spawn(pkg, ['install', '-y', 'llama-cpp'], {
+          env: { ...process.env, PATH: `${join(prefix, 'bin')}:${process.env.PATH ?? ''}` },
+          stdio: 'ignore',
+          windowsHide: true,
+        })
+      } catch {
+        finish(false)
+        return
+      }
+      child.on('error', () => finish(false))
+      child.on('close', (code) => finish(code === 0))
+    })
+  }
+
   installVectorBackend(override: ModelOverride = {}): void {
     const flavor = this.applyModelSelection(override)
     const model = this.cfg.vector.installModel
@@ -1808,9 +1979,17 @@ export class LocalMemoryService implements MemoryServiceApi {
         ? { systemExe: this.cfg.vector.systemExe }
         : {}),
       ...(this.cfg.vector.runtimeMode === 'system' ? { preferSystem: true } : {}),
-      onProgress: (progress) => {
-        if (progress.phase === 'done') this.adoptInstalledBackend()
-      },
+      onProgress: (() => {
+        // 安装器每写一块都会回调：只记 phase 变化，否则日志被刷屏。
+        let lastPhase = ''
+        return (progress: InstallProgress) => {
+          if (progress.phase !== lastPhase) {
+            lastPhase = progress.phase
+            this.bootstrapLog(`installer phase=${progress.phase} ${progress.message}`)
+          }
+          if (progress.phase === 'done') this.adoptInstalledBackend()
+        }
+      })(),
     })
     this.installer.start()
   }
@@ -2115,6 +2294,8 @@ export class LocalMemoryService implements MemoryServiceApi {
   private queryTimeoutMs: number
   /** Lazily created by the panel's "download and configure" action. */
   private installer: VectorInstaller | null = null
+  /** 自举是否在进行（避免重复触发）。 */
+  private bootstrapping = false
   /** 硬件探测缓存(面板问了才探测,10 分钟内复用)。 */
   private hardwareCache: HostHardware | null = null
   private hardwareAt = 0

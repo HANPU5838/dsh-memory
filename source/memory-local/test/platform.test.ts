@@ -151,3 +151,18 @@ test('isLinuxLike / assetPlatform：Android 与 Linux 同语义（Termux 走 ubu
   assert.equal(assetPlatform('linux'), 'linux')
   assert.equal(assetPlatform('win32'), 'win32')
 })
+
+test('describePlatform：Termux 用系统 llama-server 时不再显示 glibc ✗', () => {
+  const info = detectPlatform({
+    env: fakeEnv({ PREFIX: '/data/data/com.termux/files/usr', TERMUX_VERSION: '0.118' }),
+    platform: 'android',
+    arch: 'arm64',
+    exists: () => false,
+    readFile: () => '',
+  })
+  const managed = describePlatform(info, { runtimeSource: 'managed' })
+  assert.ok(managed.includes('glibc loader ✗'), '托管运行时仍要如实显示缺 glibc')
+  const system = describePlatform(info, { runtimeSource: 'system' })
+  assert.ok(system.includes('系统 llama-server ✓'), `实际：${system}`)
+  assert.ok(!system.includes('glibc loader ✗'), '系统 bionic 二进制不需要 glibc，不该吓人')
+})

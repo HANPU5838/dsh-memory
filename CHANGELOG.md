@@ -2,6 +2,20 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.58.0 — Termux 零配置自举（2026-11-13）
+
+**自举：环境匹配就自己把向量后端搭起来**
+- 新增 `retrieval.vector.autoBootstrap`（默认 `'auto'`）：在 Termux/Android 上
+  检测到还没有向量后端时，自动
+  1. 没有系统 `llama-server` → `pkg install -y llama-cpp`（bionic 原生，约 22MB）；
+  2. 没有模型 → 只下载模型（默认 bge-m3 Q4_K_M，约 438MB，hf-mirror 优先）；
+  3. 托管启动系统 `llama-server`，此后检索自动走语义通道。
+- 边界：仅在 provider 为 `local`、且用户没有显式写 `endpoint` / `spawn` / 已安装
+  时生效；非 Termux 平台一律不动；失败只记日志、退回词法，绝不挡住宿主启动。
+- 决策是纯函数 `planVectorBootstrap()`，有专门回归用例。
+
+**测试**：1077 例 / 1076 pass / 1 skip / 0 fail。
+
 ## 0.57.0 — 移除知识图谱 + Termux 原生运行时（本仓库维护，2026-11-13）
 
 **移除：知识图谱（0.42~0.56 的实体共现图）**
