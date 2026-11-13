@@ -1261,7 +1261,7 @@ export function memoryForgetTool(opts: MemoryToolsOptions): ToolSpec<ForgetArgs,
     name: 'memory_forget',
     description: 'Delete a memory by id (any scope), or all memories matching a query in one scope (default: current session).',
     parameters: {
-      id: { type: 'string', description: 'Exact record id' },
+      id: { type: 'string', description: '记录 id：完整 id 或 8 位前缀（与 memory_get 一致）' },
       query: { type: 'string', description: 'Substring match; by default only the current session scope' },
       scope: { type: 'string', description: "省略=当前会话；显式指定只删那一个作用域。'all' 不能与 query 同用(防批量误删)。" },
       description: { type: 'string', description: DESCRIPTION_PARAM_DESCRIPTION },
@@ -1279,7 +1279,22 @@ export function memoryForgetTool(opts: MemoryToolsOptions): ToolSpec<ForgetArgs,
       const signal = (exec as { signal?: AbortSignal } | undefined)?.signal
       // ---- 按 id 删除:先查出这条记录在哪个 scope,再按可写范围判断 ----
       if (args.id) {
-        const matches = (service.getByIds?.([args.id]) ?? []).filter((record) => record.id === args.id)
+        // 支持 8 位短 id（与 memory_get 一致）：检索结果/注入摘要里展示的就是短 id，
+        // 用户复制过来应该能直接删。前缀命中多条时明确报歧义，绝不误删。
+        // 老 provider 没有 getByIds 时保持原行为：直接把 id 交给 forget，不做前缀解析。
+        const wanted = args.id.trim()
+        const candidates = typeof service.getByIds === 'function' ? service.getByIds([wanted]) : null
+        if (candidates !== null) {
+          const exact = candidates.find((record) => record.id === wanted)
+          if (exact === undefined && candidates.length === 0) {
+            throw new MemoryToolError('RECORD_NOT_FOUND', `id ${wanted} not found`)
+          }
+          if (exact === undefined && candidates.length > 1) {
+            throw new MemoryToolError('TARGET_AMBIGUOUS', `id ${wanted} 命中 ${candidates.length} 条记忆，请提供更长的 id 前缀`)
+          }
+          args.id = exact?.id ?? candidates[0]!.id
+        }
+        const matches = candidates === null ? [] : candidates.filter((record) => record.id === args.id)
         const blocked = matches.filter((record) => !scopeWritableBy(decide, service, agent, policy, record.scope))
         let approved = false
         if (blocked.length > 0) {

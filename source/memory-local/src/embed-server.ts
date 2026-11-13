@@ -687,13 +687,18 @@ export class EmbedServerManager {
   }
 
   /**
-   * glibc 包装时给子进程的环境:清掉 bionic 的 LD_PRELOAD。
+   * glibc 包装时给子进程的环境:清掉 bionic 的 LD_PRELOAD / LD_LIBRARY_PATH。
+   *
    * Termux 的 libtermux-exec.so 混进 glibc 进程会让 ld.so 报
-   * "Could not find a PHDR",而 glibc 子进程根本不需要它。
+   * "Could not find a PHDR";而 bionic 的 LD_LIBRARY_PATH（$PREFIX/lib 之类）
+   * 被 glibc ld.so 继承后，会去加载 bionic 的 .so 并崩在启动阶段。
+   * glibc 进程的库路径已经由 `--library-path $PREFIX/glibc/lib` 显式给了，
+   * 这里两个变量都删掉最稳。
    */
   private wrappedEnv(): NodeJS.ProcessEnv {
     const env: NodeJS.ProcessEnv = { ...process.env }
     delete env.LD_PRELOAD
+    delete env.LD_LIBRARY_PATH
     return env
   }
 

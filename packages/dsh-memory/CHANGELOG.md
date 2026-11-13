@@ -2,6 +2,24 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.62.0 — 收尾完善：CI 对齐 + forget 短 id + glibc 环境清理（2026-11-13）
+
+**CI 对齐**
+- `.github/workflows/ci.yml` 改为跑 `npm run verify:all`（测试 → 构建 → 面板 API 冒烟
+  → 向量后端实测；CI 无后端时第 4 层自动 SKIP），不再硬编码 0.56.1 的旧构建命令；
+  检索评测门禁保留。
+
+**一致性修复**
+- `memory_forget` 支持 8 位短 id（与 `memory_get` 一致）：检索结果里直接复制短 id 就能删；
+  短 id 命中多条时报「歧义」而非误删，不存在时报 `RECORD_NOT_FOUND`。新增 3 条回归用例。
+- Termux glibc 包装启动时同时清掉 `LD_LIBRARY_PATH`：避免 bionic 库路径被 glibc ld.so
+  继承导致启动即崩（托管运行时场景）。
+
+**文档**
+- README「界面」一节标注：截图为 v0.56 界面，v0.57 起已移除知识图谱视图，新截图待补。
+
+**测试**：1096 例 / 1095 pass / 1 skip / 0 fail；`npm run verify:all` → PASS。
+
 ## 0.61.1 — 文档版本对齐（2026-11-13）
 
 - README：修正测试数字（1093 例）；顶部「本仓库」说明补 0.57–0.61 变更；功能表新增

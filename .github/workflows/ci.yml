@@ -1,8 +1,3 @@
-# 最小 CI：不构建，直接跑源码测试。
-#
-# 为什么不需要构建步骤：所有测试都用 Node 内置的 TypeScript 类型擦除直接跑
-# `source/**/test/*.test.ts`，而 packages/ 里的产物只影响插件安装、不影响测试。
-# 这样 CI 反馈最快，也避免「CI 跑的是构建产物、本地跑的是源码」这种双份真相。
 name: ci
 
 on:
@@ -16,8 +11,8 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    name: test (node ${{ matrix.node }})
+  verify:
+    name: verify (node ${{ matrix.node }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -30,21 +25,17 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
 
-      - name: 版本信息
+      - name: 环境信息
         run: |
           node --version
           uname -a
 
-      # 真实 Windows 发行包 fixture 在 Linux CI 上不存在，对应用例会自行 skip；
-      # 跳过不等于失败，这里只要求退出码为 0。
-      - name: 运行测试
-        run: node --test source/*/test/*.test.ts
+      # 四层验收：全量测试 → 单包构建（产物与源码不同步是本项目最容易犯的错）
+      # → 面板 API 冒烟（16 个关键接口，临时记忆库）→ 向量后端实测。
+      # CI 上没有本机 llama-server，第 4 层自动 SKIP（不是失败）。
+      - name: 全功能验收（verify:all）
+        run: npm run verify:all
 
-      # 单包产物构建验证：不发布、不落包，只确认 source/ 能完整转译成 packages/ 形态。
-      # 产物与源码不同步是本项目最容易犯的错（DSH 实际加载的是 packages/lib/**）。
       # 检索质量门禁：合成集、无嵌入服务，几秒内完成（评测器退出码恒 0，不阻塞 CI）。
       - name: 检索评测（合成集）
         run: node tools/eval/run.mjs --mode synthetic --no-public --quiet
-
-      - name: 构建验证
-        run: node tools/build-single-package.mjs --scope @restregular --version 0.56.1 --repo https://github.com/HANPU5838/dsh-memory --out .verify --no-place
