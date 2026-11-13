@@ -2,7 +2,7 @@
   <img src="https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/preview/icon-128.png" width="84" alt="记忆系统">
 </p>
 
-> ### 📦 本仓库在上游基础上持续维护（v0.60.0）
+> ### 📦 本仓库在上游基础上持续维护（v0.61.0）
 >
 > 本项目是 **DSH 记忆系统**（npm 包 `@restregular/dsh-memory`，MIT）的分支维护版：
 > 在上游 v0.30.1 之上做了平台适配、插件化、可靠性加固、语义认知层与嵌入性能优化，并在 **0.40/0.41 补上 BM25+RRF、记忆健康度、冲突自动裁决、可疑写入隔离、本地备份与离线评测**。
@@ -10,7 +10,7 @@
 > | 项目 | 说明 |
 > | --- | --- |
 > | 原作者 | **RestRegular**（上游原项目 [RestRegular/dsh-memory](https://github.com/RestRegular/dsh-memory)，MIT）；本项目在其 v0.30.1 基础上维护 |
-> | 本仓库 | **v0.60.0** = 上游 v0.30.1 + 平台/可靠性改进 + 语义认知层 + 检索整形（BM25/RRF/MMR）+ 嵌入性能 + 记忆强度算法 + **智能关系分析（关系发现/冲突/聚类/演化/推理）**。完整清单见 [IMPROVEMENTS.md](IMPROVEMENTS.md)，架构见 [docs/architecture.md](docs/architecture.md) |
+> | 本仓库 | **v0.61.0** = 上游 v0.30.1 + 平台/可靠性改进 + 语义认知层 + 检索整形（BM25/RRF/MMR）+ 嵌入性能 + 记忆强度算法 + **智能关系分析（关系发现/冲突/聚类/演化/推理）**。完整清单见 [IMPROVEMENTS.md](IMPROVEMENTS.md)，架构见 [docs/architecture.md](docs/architecture.md) |
 > | 许可 | **MIT**，版权归原作者所有，见 [LICENSE](LICENSE)；转载、分发请保留原始版权声明 |
 > | 更新与反馈 | Issue / PR / 反馈请到 **[本仓库 Issues](https://github.com/HANPU5838/dsh-memory/issues)**；与上游的差异集中在 `IMPROVEMENTS.md` |
 >
@@ -25,12 +25,12 @@
 
 JSONL 落盘 · 本机向量检索 · 六个模型工具 · 自动召回 · 硬性规则 · 可视化管理面板
 
-[![version](https://img.shields.io/badge/version-v0.60.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![version](https://img.shields.io/badge/version-v0.61.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/HANPU5838/dsh-memory/blob/main/LICENSE)
 [![ci](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.13-5FA04E.svg)](https://nodejs.org/)
 
-[本仓库](https://github.com/HANPU5838/dsh-memory) · [问题反馈](https://github.com/HANPU5838/dsh-memory/issues) · [改进清单](https://github.com/HANPU5838/dsh-memory/blob/main/IMPROVEMENTS.md) · [更新日志](https://github.com/HANPU5838/dsh-memory/blob/main/CHANGELOG.md)
+[本仓库](https://github.com/HANPU5838/dsh-memory) · [问题反馈](https://github.com/HANPU5838/dsh-memory/issues) · [改进清单](https://github.com/HANPU5838/dsh-memory/blob/main/IMPROVEMENTS.md) · [更新日志](https://github.com/HANPU5838/dsh-memory/blob/main/CHANGELOG.md) · [验收手册](docs/verification.md)
 
 > **它解决的不是「存一段文本」，而是「让模型在该记的时候记住、该用的时候用上」。**
 > 记忆默认只落在本机；没有向量服务也能工作——检索自动退化为词法，不产生任何网络请求。
@@ -182,7 +182,7 @@ bge-m3 1024 维，llama-server CPU 6 线程，2026-11-10）：
 | 批量嵌入（batch=8 vs 1） | 3.8 rec/s vs 2.8 rec/s（≈1.4×，CPU 上省的是调度） |
 | 回填 | batch=8 3.2 rec/s；单条失败只留 null，不拖垮整批 |
 | ANN（纯 JS HNSW，合成 128 维） | 2k：P50 1.3ms/召回 100%；10k：1.15ms/98%（10.4×）；20k：1.73ms/94%（14.6×） |
-| 测试 | **1093 例 / 1092 pass / 1 skip / 0 fail**（v0.60.0） |
+| 测试 | **1093 例 / 1092 pass / 1 skip / 0 fail**（v0.61.0） |
 | 检索评测（合成集 94 条 / 48 查询，真实 bge-m3） | base recall@5 0.7708 → **产品默认 0.9167**；MRR 0.7483 / nDCG 0.7912（方法见 [docs/benchmark.md](docs/benchmark.md)） |
 
 复现：`node tools/bench/run.mjs`（live 模式需本地嵌入服务；无服务时自动合成数据）。
@@ -749,6 +749,26 @@ pnpm remove @restregular/dsh-memory   # 再从 profile 的 patch 里删掉那条
 
 插件被卸掉后面板就打不开了，所以这件事只能在卸载**之前**做。迁移时直接复制这两个目录即可；
 只想带走记忆内容，用「设置 → 数据 → 导出」。
+
+## 验收与自检（确认「全功能没坏」）
+
+一条命令跑四层验收——测试 / 构建 / 面板 API 冒烟 / 向量后端实测，任何一层失败退出码非 0：
+
+```bash
+npm run verify:all
+```
+
+```
+✓ 单元 / 集成测试：1093 例 / 1092 pass / 0 fail（20s）
+✓ 单包构建：78 文件 / 2143.5 KiB
+✓ 面板 API 冒烟：16/16 接口通过
+✓ 向量后端实测：http://127.0.0.1:8078/health · 1024 维
+结论：PASS（4 通过 / 0 失败 / 0 跳过）
+```
+
+- 用 `mkdtemp` 临时记忆库，**不碰真实数据**、不触发装包/下载；
+- 没有向量后端时第 4 层是 `SKIP`（词法模式是合法降级）；
+- 真机功能清单（16 项逐条打勾）与排障手册见 [docs/verification.md](docs/verification.md)。
 
 ## 开发
 
