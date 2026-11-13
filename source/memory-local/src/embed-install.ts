@@ -373,6 +373,16 @@ export function runtimeAssetPattern(
  * 13.4 也会沿用 `cudart-llama-bin-win-cuda-13.4-…` 这种无构建号形态。所以正则
  * 不能要求 `b<号>`，只能靠 cuda 次版本号把主包与伴生包配对。
  */
+/** 该平台 + 架构是否有可用的托管运行时发行资产（决定 autoBootstrap=always 能不能兜底）。 */
+export function supportsManagedRuntime(platform: NodeJS.Platform, arch: string): boolean {
+  try {
+    runtimeAssetPattern(platform, arch)
+    return true
+  } catch {
+    return false
+  }
+}
+
 export function runtimeCompanionPattern(
   platform: NodeJS.Platform,
   arch: string,

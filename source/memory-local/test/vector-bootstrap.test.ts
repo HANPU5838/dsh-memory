@@ -1,6 +1,9 @@
 /**
- * Termux 自举决策回归：环境「和本机同款」才自动装包/下模型，任何显式配置都优先。
- * 决策本身是纯函数；真正的 pkg install / 下载在 index.ts 里 fire-and-forget 执行。
+ * 自举决策回归：按「这台机器实际有什么」自动适配，而不是把某个设备写死。
+ *   - Termux + 无 llama-server + 有 pkg → 自动装包
+ *   - 任何平台 + 已有系统 llama-server → 只补模型
+ *   - autoBootstrap=always + 有托管资产 → 托管下载
+ *   - 显式配置 / 非 local provider / off 一律不动
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -15,11 +18,11 @@ const base: VectorBootstrapInput = {
   termux: true,
   hasSystemServer: false,
   hasPkg: true,
+  managedSupported: true,
 }
 
-test('自举：关掉开关 / 显式配置 / 非 Termux 一律不动', () => {
+test('自举：关掉开关 / 显式配置 / 非 local provider 一律不动', () => {
   assert.equal(planVectorBootstrap({ ...base, autoBootstrap: 'off' }), 'none')
-  assert.equal(planVectorBootstrap({ ...base, termux: false }), 'none', '桌面端不该被塞模型')
   assert.equal(planVectorBootstrap({ ...base, provider: 'openai' }), 'none', 'provider 不是 local 不抢')
   assert.equal(planVectorBootstrap({ ...base, provider: 'off' }), 'none')
   assert.equal(planVectorBootstrap({ ...base, endpointConfigured: true }), 'none', '显式 endpoint 优先')
@@ -27,8 +30,19 @@ test('自举：关掉开关 / 显式配置 / 非 Termux 一律不动', () => {
   assert.equal(planVectorBootstrap({ ...base, configured: true }), 'none', '已配置交给正常启动路径')
 })
 
-test('自举：Termux 上先看系统 llama-server，再看能不能装包', () => {
-  assert.equal(planVectorBootstrap({ ...base, hasSystemServer: true, hasPkg: false }), 'download-model', '已有系统 llama-server → 只下模型')
-  assert.equal(planVectorBootstrap({ ...base, hasSystemServer: false, hasPkg: true }), 'install-package', '没有 llama-server 但能 pkg install → 先装包')
-  assert.equal(planVectorBootstrap({ ...base, hasSystemServer: false, hasPkg: false }), 'none', '既没有服务也装不了包 → 不折腾')
+test('自举：系统已有 llama-server → 任何平台都只补模型（跨平台通用分支）', () => {
+  assert.equal(planVectorBootstrap({ ...base, termux: false, hasSystemServer: true, hasPkg: false }), 'download-model')
+  assert.equal(planVectorBootstrap({ ...base, termux: false, hasSystemServer: true, managedSupported: false }), 'download-model')
+})
+
+test('自举：Termux 无系统运行时 → 先装包；装不了且未开 always → 不动', () => {
+  assert.equal(planVectorBootstrap(base), 'install-package')
+  assert.equal(planVectorBootstrap({ ...base, hasPkg: false }), 'none', 'auto 模式不在非 Termux 悄悄装包')
+})
+
+test('自举：桌面端默认不下载托管运行时，除非显式 always', () => {
+  const desktop = { ...base, termux: false, hasPkg: false }
+  assert.equal(planVectorBootstrap(desktop), 'none', 'auto 模式桌面端不擅自下 400MB')
+  assert.equal(planVectorBootstrap({ ...desktop, autoBootstrap: 'always' }), 'managed-install')
+  assert.equal(planVectorBootstrap({ ...desktop, autoBootstrap: 'always', managedSupported: false }), 'none', '平台没有资产时兜底失败')
 })

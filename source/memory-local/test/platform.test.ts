@@ -10,6 +10,7 @@ import {
   ENV_SYSTEM_LLAMA_SERVER,
   assetPlatform,
   detectPlatform,
+  detectRuntimeEnvironment,
   describePlatform,
   findSystemLlamaServer,
   freeDiskBytes,
@@ -165,4 +166,66 @@ test('describePlatform：Termux 用系统 llama-server 时不再显示 glibc ✗
   const system = describePlatform(info, { runtimeSource: 'system' })
   assert.ok(system.includes('系统 llama-server ✓'), `实际：${system}`)
   assert.ok(!system.includes('glibc loader ✗'), '系统 bionic 二进制不需要 glibc，不该吓人')
+})
+
+// ─────────────── 跨平台运行环境适配层 ───────────────
+
+test('detectRuntimeEnvironment：Linux 发行版 + apt + 系统 llama-server 一次探清', () => {
+  const env = detectRuntimeEnvironment({
+    env: fakeEnv({ LLAMA_SERVER: '/opt/llama/bin/llama-server', PATH: '' }),
+    platform: 'linux',
+    arch: 'x64',
+    home: '/home/u',
+    readFile: (path) => (path === '/etc/os-release' ? ['NAME="Debian"', 'ID=debian', ''].join('\n') : ''),
+    exists: (path) => path === '/usr/bin/apt-get' || path === '/opt/llama/bin/llama-server',
+  })
+  assert.equal(env.platform, 'linux')
+  assert.equal(env.termux, false)
+  assert.equal(env.distro, 'debian')
+  assert.equal(env.packageManager?.kind, 'apt')
+  assert.deepEqual(env.packageManager?.install, ['install', '-y', 'llama.cpp'])
+  assert.equal(env.systemLlamaServer, '/opt/llama/bin/llama-server')
+})
+
+test('detectRuntimeEnvironment：Termux 用 pkg；macOS 用 brew（跨平台同一套适配）', () => {
+  const prefix = '/data/data/com.termux/files/usr'
+  const termux = detectRuntimeEnvironment({
+    env: fakeEnv({ PREFIX: prefix, TERMUX_VERSION: '0.118', PATH: '' }),
+    platform: 'android',
+    arch: 'arm64',
+    exists: (path) => path === `${prefix}/bin/pkg`,
+    readFile: () => '',
+  })
+  assert.equal(termux.termux, true)
+  assert.equal(termux.packageManager?.kind, 'pkg')
+  assert.deepEqual(termux.packageManager?.install, ['install', '-y', 'llama-cpp'])
+
+  const mac = detectRuntimeEnvironment({
+    env: fakeEnv({ PATH: '' }),
+    platform: 'darwin',
+    arch: 'arm64',
+    home: '/Users/u',
+    readFile: () => '',
+    exists: (path) => path === '/opt/homebrew/bin/brew',
+  })
+  assert.equal(mac.termux, false)
+  assert.equal(mac.distro, null)
+  assert.equal(mac.packageManager?.kind, 'brew')
+  assert.deepEqual(mac.packageManager?.install, ['install', 'llama.cpp'])
+})
+
+test('findSystemLlamaServer：不依赖 PATH 也能发现常见安装位置（brew/~/.local/源码编译）', () => {
+  const found = findSystemLlamaServer({
+    env: fakeEnv({ HOME: '/home/u', PATH: '' }),
+    exists: (path) => path === '/home/u/.local/bin/llama-server',
+  })
+  assert.equal(found, '/home/u/.local/bin/llama-server', 'GUI 进程 PATH 不完整时也要能找到')
+})
+
+test('describePlatform：非 Termux 平台也显示系统运行时与发行版，而不是硬编码 Termux 判断', () => {
+  const info = detectPlatform({ env: fakeEnv({}), platform: 'linux', arch: 'x64', exists: () => false, readFile: () => '' })
+  const text = describePlatform(info, { runtimeSource: 'system', distro: 'arch' })
+  assert.ok(text.includes('arch'), `应包含发行版：${text}`)
+  assert.ok(text.includes('系统 llama-server ✓'), `应显示系统运行时：${text}`)
+  assert.ok(!text.includes('glibc'), '非 Termux 不该出现 glibc 字样')
 })

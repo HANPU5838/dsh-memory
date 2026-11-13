@@ -2,6 +2,30 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.59.0 — 跨平台自动适配（2026-11-13）
+
+**平台适配层（新增）**
+- `detectRuntimeEnvironment()`：一次探清「平台 / 架构 / Termux / Linux 发行版
+  （/etc/os-release）/ 包管理器（pkg/apt/apk/dnf/pacman/zypper/brew/winget/choco）/
+  系统 llama-server」，是自动适配的唯一依据，不再是散落的 `=== 'linux'` 判断。
+- `findSystemLlamaServer()` 扩展发现位置：`$PREFIX/bin`、`/opt/homebrew/bin`、`/usr/local/bin`、
+  `/opt/local/bin`、`/snap/bin`、`~/.local/bin`、`~/llama.cpp/build/bin`、Windows scoop/winget 等，
+  不再只依赖 GUI 进程里经常不完整的 PATH。
+- 运行环境摘要（`describePlatform`）跨平台显示发行版/运行时来源；非 Termux 也如实展示。
+
+**自举策略泛化**
+- `retrieval.vector.autoBootstrap`：`auto`（默认）/ `always` / `off`。
+  - 任意平台已有系统 `llama-server` → 只下载模型；
+  - Termux + `pkg` → 自动装包；
+  - `always` + 平台有托管资产 → 下载托管运行时 + 模型；
+  - 桌面端默认不被悄悄下载几百 MB，只记录「该用什么命令装」的提示。
+- 自举决策 `planVectorBootstrap()` 新增 `managed-install` 动作与对应回归用例。
+
+**诊断**
+- 面板「环境自检」新增「系统 llama-server」检查项与发行版/包管理器信息；
+  glibc 检查只在「Termux + 托管运行时」时出现。
+- `embed/status` 增加 `environment`（os/arch/distro/包管理器/系统 llama-server）。
+
 ## 0.58.0 — Termux 零配置自举（2026-11-13）
 
 **自举：环境匹配就自己把向量后端搭起来**

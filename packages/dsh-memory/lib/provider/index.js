@@ -84,12 +84,12 @@ import { MERGE_THRESHOLD, planNearDuplicateMerge } from './cognitive/merge.js'
 import { assessConflicts, applyConflictMarker, hasCriticalDetailConflict } from './cognitive/conflict.js'
 import { isRecordVisible, revive, tombstone, purgeTombstones, markDormant, restore as restoreTombstoned, snapshot as writeSnapshot, restoreSnapshot as readSnapshotFile } from './cognitive/lifecycle.js'
 import { createEmbeddingProvider,                                                    } from './embedding-providers.js'
-import { canExecute, describePlatform, detectPlatform, findSystemLlamaServer, freeDiskBytes } from './platform.js'
+import { canExecute, describePlatform, detectPlatform, detectRuntimeEnvironment, findSystemLlamaServer, freeDiskBytes } from './platform.js'
 import { DailyBudget, blendScores, rerank,                                   } from './rerank.js'
 import { RerankCache } from './rerank-cache.js'
 import { scanSecrets, redactSecrets } from './secrets.js'
 import { EmbedServerManager,                                               } from './embed-server.js'
-import { VectorInstaller, detectInstalled, installPaths,                      } from './embed-install.js'
+import { VectorInstaller, detectInstalled, installPaths, supportsManagedRuntime,                      } from './embed-install.js'
 import { EmbedCache } from './embed-cache.js'
 import { createAnnIndex, shouldUseAnn,                             } from './ann/index.js'
 import { EmbedKeepAlive } from './embed.js'
@@ -180,7 +180,7 @@ function isInside(parent        , child        )          {
                                          
                                                           
          
-                                    
+                                               
          
                                                       
                                                               
@@ -378,8 +378,8 @@ function isInside(parent        , child        )          {
                             
                                     
                                                 
-                                
-                                 
+                         
+                                            
                                                       
                           
    
@@ -598,38 +598,50 @@ function explicitStrengthFields(input                         )                 
   return out
 }
 
-/** 自举动作：none=不动；install-package=先装 Termux 的 llama-cpp；download-model=只下模型。 */
-                                                                                 
+/**
+ * 自举动作：
+ *  - none           什么也不做
+ *  - install-package 用系统包管理器装 llama.cpp（目前只对 Termux 自动执行）
+ *  - download-model  系统已有 llama-server，只补模型
+ *  - managed-install 让插件下载托管运行时 + 模型（任何被支持的平台）
+ */
+                                                                                                     
 
                                        
-                               
+                                                           
+                                          
                                  
                              
                         
                      
-                                        
+                                                      
                  
-                                                          
+                                                    
                           
                                             
                  
+                                                    
+                           
  
 
 /**
- * Termux 自举决策（纯函数，便于测试）：环境「和本机同款」时自动把向量后端搭起来。
+ * 自举决策（纯函数，便于测试）：让插件按「这台机器实际有什么」自动适配，
+ * 而不是把某个设备写死。决策顺序：
  *
- * 边界：
- *  - 任何显式配置优先（endpoint / spawn / 已安装）——自举只补「什么都没配」的情况；
- *  - 非 Termux 一律不动：桌面端不该被悄悄塞一个 400MB 模型 + `pkg install`；
- *  - provider 必须是 local（用户指定 openai/ollama/off 时不抢）。
+ *  1. 任何显式配置优先（endpoint / spawn / 已安装）——自举只补「什么都没配」；
+ *  2. provider 必须是 local（用户指定 openai/ollama/off 时不抢）；
+ *  3. 系统已有 llama-server → 只补模型（跨平台通用，省一整份运行时下载）；
+ *  4. Termux/Android 且能 `pkg install` → 自动装包（bionic 原生，免 glibc）；
+ *  5. `autoBootstrap: 'always'` 且本平台有托管资产 → 下载托管运行时 + 模型；
+ *  6. 其余一律不动（桌面端默认不被悄悄下 400MB）。
  */
 export function planVectorBootstrap(input                      )                        {
   if (input.autoBootstrap === 'off') return 'none'
   if (input.provider !== 'local') return 'none'
   if (input.endpointConfigured || input.spawnExplicit || input.configured) return 'none'
-  if (!input.termux) return 'none'
   if (input.hasSystemServer) return 'download-model'
-  if (input.hasPkg) return 'install-package'
+  if (input.termux && input.hasPkg) return 'install-package'
+  if (input.autoBootstrap === 'always' && input.managedSupported) return 'managed-install'
   return 'none'
 }
 
@@ -1570,7 +1582,14 @@ export class LocalMemoryService                             {
       flavor: cfg.flavor,
       spawnConfigured: cfg.spawnConfigured,
       provider: cfg.provider,
-      platformSummary: describePlatform(detectPlatform(), { runtimeSource: this.cfg.vector.runtimeSource }),
+      platformSummary: describePlatform(detectPlatform(), {
+        runtimeSource: this.cfg.vector.runtimeSource,
+        distro: detectRuntimeEnvironment().distro,
+        packageManager: detectRuntimeEnvironment().packageManager?.kind ?? null,
+      }),
+      runtimeSource: this.cfg.vector.runtimeSource,
+      systemExe: this.cfg.vector.systemExe,
+      environment: this.environmentSnapshot(),
       pendingEmbeds,
       install: this.installSnapshot(),
       maintenance: {
@@ -1587,7 +1606,12 @@ export class LocalMemoryService                             {
         ...base, owned: false, pid: null, baseUrl: '', reachable: false,
         lastError: null, restarts: 0, unavailable: false, wrapped: false,
         provider: cfg.provider,
-        platformSummary: describePlatform(detectPlatform(), { runtimeSource: cfg.runtimeSource }),
+        platformSummary: describePlatform(detectPlatform(), {
+          runtimeSource: cfg.runtimeSource,
+          distro: detectRuntimeEnvironment().distro,
+          packageManager: detectRuntimeEnvironment().packageManager?.kind ?? null,
+        }),
+        environment: this.environmentSnapshot(),
         runtimeSource: cfg.runtimeSource,
         systemExe: cfg.systemExe,
       }
@@ -1621,9 +1645,28 @@ export class LocalMemoryService                             {
                                                                                     
      {
     const info = detectPlatform()
+    const env = detectRuntimeEnvironment()
     const checks                                                                           = []
-    checks.push({ id: 'platform', label: '运行环境', ok: true, detail: describePlatform(info) })
-    if (info.termux) {
+    checks.push({
+      id: 'platform',
+      label: '运行环境',
+      ok: true,
+      detail: describePlatform(info, {
+        runtimeSource: this.cfg.vector.runtimeSource,
+        distro: env.distro,
+        packageManager: env.packageManager?.kind ?? null,
+      }),
+    })
+    checks.push({
+      id: 'system-llama',
+      label: '系统 llama-server',
+      ok: env.systemLlamaServer !== null,
+      detail: env.systemLlamaServer ?? (env.packageManager === null
+        ? '未检测到包管理器；可手动安装 llama.cpp 后重启（或设 autoBootstrap: always 用托管运行时）'
+        : `未安装；可执行 \`${env.packageManager.bin} ${env.packageManager.install.join(' ')}\` 后重启`),
+    })
+    // glibc 只在「Termux + 用托管运行时」时才需要检查：系统 bionic 二进制不用 glibc。
+    if (info.termux && this.cfg.vector.runtimeSource !== 'system') {
       checks.push({
         id: 'glibc',
         label: 'glibc loader',
@@ -1685,9 +1728,25 @@ export class LocalMemoryService                             {
         availableMemMb: info.availableMemMb,
         glibcLoader: info.glibcLoader,
       },
-      summary: describePlatform(info),
+      summary: describePlatform(info, {
+        runtimeSource: this.cfg.vector.runtimeSource,
+        distro: env.distro,
+        packageManager: env.packageManager?.kind ?? null,
+      }),
       provider: this.cfg.vector.provider,
       checks,
+    }
+  }
+
+  /** 面板用的一行环境快照（跨平台：发行版 / 包管理器 / 系统运行时）。 */
+          environmentSnapshot()                                                                                                                       {
+    const env = detectRuntimeEnvironment()
+    return {
+      os: env.platform,
+      arch: env.arch,
+      distro: env.distro,
+      packageManager: env.packageManager?.kind ?? null,
+      systemLlamaServer: env.systemLlamaServer,
     }
   }
 
@@ -1861,20 +1920,38 @@ export class LocalMemoryService                             {
     if ((process.env.DSH_MEMORY_AUTO_BOOTSTRAP ?? '').trim() === 'off') return
     if (this.bootstrapping) return
     const cfg = this.cfg.vector
-    const info = detectPlatform()
-    const pkgPath = info.prefix === null ? null : join(info.prefix, 'bin', 'pkg')
+    // 跨平台环境探测：Termux / Linux 发行版 / macOS / Windows 走同一套决策。
+    const env = detectRuntimeEnvironment()
+    const termux = env.termux || env.platform === 'android'
+    const hasSystemServer = (cfg.systemExe ?? env.systemLlamaServer) !== null
+    const hasPkg = env.packageManager?.kind === 'pkg'
+    const managedSupported = supportsManagedRuntime(env.platform, env.arch)
     const decided = planVectorBootstrap({
       autoBootstrap: cfg.autoBootstrap,
       provider: cfg.provider,
       endpointConfigured: cfg.endpointConfigured,
       spawnExplicit: cfg.spawnExplicit,
       configured: cfg.configured,
-      termux: info.termux || info.platform === 'android',
-      hasSystemServer: (cfg.systemExe ?? findSystemLlamaServer()) !== null,
-      hasPkg: pkgPath !== null && existsSync(pkgPath),
+      termux,
+      hasSystemServer,
+      hasPkg,
+      managedSupported,
     })
-    this.bootstrapLog(`decision=${decided} termux=${info.termux || info.platform === 'android'} sys=${(cfg.systemExe ?? findSystemLlamaServer()) !== null} pkg=${pkgPath !== null && existsSync(pkgPath)} configured=${cfg.configured} endpointExplicit=${cfg.endpointConfigured} spawnExplicit=${cfg.spawnExplicit} provider=${cfg.provider}`)
-    if (decided === 'none') return
+    this.bootstrapLog(
+      `decision=${decided} os=${env.platform}/${env.arch} distro=${env.distro ?? '-'} pm=${env.packageManager?.kind ?? '-'} ` +
+      `termux=${termux} sys=${hasSystemServer} managed=${managedSupported} configured=${cfg.configured} ` +
+      `endpointExplicit=${cfg.endpointConfigured} spawnExplicit=${cfg.spawnExplicit} provider=${cfg.provider}`,
+    )
+    if (decided === 'none') {
+      // 环境里有包管理器、但既没装 llama-server 也没开 always：给出「地道」的安装命令。
+      if (!cfg.configured && !hasSystemServer && env.packageManager !== null && cfg.autoBootstrap !== 'always') {
+        this.bootstrapLog(
+          `hint 未自动安装：可执行 \`${env.packageManager.bin} ${env.packageManager.install.join(' ')}\` 后重启；` +
+          `或设 retrieval.vector.autoBootstrap: 'always' 让插件托管下载运行时与模型`,
+        )
+      }
+      return
+    }
     this.bootstrapping = true
     void this.runBootstrap(decided).finally(() => { this.bootstrapping = false })
   }
@@ -1910,8 +1987,19 @@ export class LocalMemoryService                             {
         this.cfg.vector.runtimeSource = 'system'
         log(`系统 llama-server 就绪：${exe}`)
       }
-      log('开始准备模型（系统运行时：只下模型，不需要 glibc 运行时）')
-      // 模型已在 → 内部直接 adopt 并启动；缺失 → 系统运行时安装器只下模型。
+      if (action === 'managed-install') {
+        log('本机没有系统 llama-server（autoBootstrap=always），改走托管下载：运行时 + 模型')
+      } else if (action === 'download-model') {
+        // resolveConfig 可能因为进程 PATH 不完整没找到系统二进制，这里再探一次并回填。
+        const exe = this.cfg.vector.systemExe ?? findSystemLlamaServer()
+        if (exe !== null) {
+          this.cfg.vector.systemExe = exe
+          if (this.cfg.vector.runtimeMode !== 'managed') this.cfg.vector.runtimeMode = 'system'
+          this.cfg.vector.runtimeSource = 'system'
+        }
+        log(`系统 llama-server 就绪：${exe ?? '(未找到，回退托管)'}；只下模型，不需要运行时下载`)
+      }
+      // 模型已在 → 内部直接 adopt 并启动；缺失 → 按来源下载（系统运行时只下模型）。
       this.installVectorBackend()
     } catch (error) {
       log(`自举失败（已忽略）：${(error         )?.message ?? String(error)}`)
@@ -2096,6 +2184,7 @@ export class LocalMemoryService                             {
     this.cfg.vector.configured = true
     this.cfg.vector.spawnConfigured = true
     this.cfg.vector.enabled = true
+    this.cfg.vector.runtimeSource = paths.system === true ? 'system' : 'managed'
     this.cfg.vector.spawn = {
       ...this.cfg.vector.spawn,
       enabled: true,

@@ -217,9 +217,16 @@ export function canExecute(dir        )                 {
  */
 export function describePlatform(
   info               = detectPlatform(),
-  options                                                    = {},
+  options   
+                                                 
+                                                     
+                          
+                                                  
+                                  
+    = {},
 )         {
   const parts           = [`${info.platform} ${info.arch}`]
+  if (options.distro !== undefined && options.distro !== null && options.distro !== '') parts.push(options.distro)
   if (info.termux) parts.push('Termux')
   if (info.cpuCount > 0) parts.push(`${info.cpuCount} 核`)
   if (info.totalMemMb > 0) {
@@ -227,11 +234,16 @@ export function describePlatform(
     const avail = info.availableMemMb === null ? '?' : (info.availableMemMb / 1024).toFixed(1)
     parts.push(`内存 ${avail}/${total}GB`)
   }
-  if (info.termux) {
-    // 用系统 llama-server（pkg install llama-cpp 的 bionic 原生构建）时没有 glibc
-    // 什么事 —— 面板上还打一个「glibc loader ✗」纯属吓人，会让人以为环境坏了。
-    if (options.runtimeSource === 'system') parts.push('系统 llama-server ✓（bionic，无需 glibc）')
-    else parts.push(info.glibcLoader === null ? 'glibc loader ✗' : 'glibc loader ✓')
+  // 运行时来源比 glibc 更贴近现实：系统 llama-server 在任何平台都不需要 glibc 兼容层。
+  if (options.runtimeSource === 'system') {
+    // 系统 bionic / 发行版二进制：不需要 glibc 兼容层，也不再显示 glibc 状态。
+    parts.push('系统 llama-server ✓')
+  } else {
+    if (options.runtimeSource === 'managed') parts.push('托管 llama-server ✓')
+    if (info.termux) parts.push(info.glibcLoader === null ? 'glibc loader ✗' : 'glibc loader ✓')
+  }
+  if (options.packageManager !== undefined && options.packageManager !== null && options.packageManager !== '') {
+    parts.push(`包管理器 ${options.packageManager}`)
   }
   return parts.join(' · ')
 }
@@ -285,14 +297,40 @@ export function findSystemLlamaServer(deps                  = {})               
   const env = deps.env ?? process.env
   const exists = deps.exists ?? existsSync
   const platform = deps.platform ?? osPlatform()
+  const home = (env.HOME ?? env.USERPROFILE ?? '').trim()
   const exeName = platform === 'win32' ? 'llama-server.exe' : 'llama-server'
   for (const raw of [env[ENV_SYSTEM_LLAMA_SERVER], env.LLAMA_SERVER]) {
     const value = (raw ?? '').trim()
     if (value !== '' && exists(value)) return value
   }
   const prefix = deps.prefix !== undefined ? deps.prefix : ((env.PREFIX ?? '').trim() || null)
-  if (prefix !== null && prefix !== '') {
-    const candidate = join(prefix, 'bin', exeName)
+  // 常见安装位置先于 PATH 查：PATH 在 GUI 进程里经常不完整（macOS 的 launchd、
+  // Windows 的服务会话、Termux 外的 Android 进程都这样），只信 PATH 会漏掉。
+  const candidates           = []
+  if (prefix !== null && prefix !== '') candidates.push(join(prefix, 'bin', exeName))
+  candidates.push(
+    '/opt/homebrew/bin/' + exeName,        // macOS Apple Silicon
+    '/usr/local/bin/' + exeName,           // macOS Intel / Linuxbrew / 手工编译
+    '/opt/local/bin/' + exeName,           // MacPorts
+    '/usr/bin/' + exeName,                 // 发行版包
+    '/snap/bin/' + exeName,                // snap
+  )
+  if (home !== '') {
+    candidates.push(
+      join(home, '.local', 'bin', exeName),          // pipx/手工
+      join(home, 'llama.cpp', 'build', 'bin', exeName), // 源码编译默认位置
+      join(home, '.llama', 'bin', exeName),
+      join(home, 'scoop', 'shims', exeName),         // Windows scoop
+      join(home, 'AppData', 'Local', 'Microsoft', 'WinGet', 'Links', exeName),
+    )
+  }
+  if (platform === 'win32') {
+    candidates.push(
+      join('C:\\', 'Program Files', 'llama.cpp', exeName),
+      join('C:\\', 'ProgramData', 'chocolatey', 'bin', exeName),
+    )
+  }
+  for (const candidate of candidates) {
     if (exists(candidate)) return candidate
   }
   const pathEnv = deps.pathEnv !== undefined ? deps.pathEnv : (env.PATH ?? '')
@@ -304,6 +342,131 @@ export function findSystemLlamaServer(deps                  = {})               
     if (exists(candidate)) return candidate
   }
   return null
+}
+
+/**
+ * 一个包管理器：用于给出「怎么在自己的系统上装 llama.cpp」的建议。
+ * **只有 Termux 的 pkg 会被自动执行**；其它平台只作为提示文案（自动 sudo 装包
+ * 是用户环境级操作，不该由插件擅自做）。
+ */
+                                     
+                                                                                         
+                   
+             
+                                 
+                   
+ 
+
+/** 跨平台运行环境快照：插件「自动适配」的唯一依据。 */
+                                     
+                           
+              
+                 
+                                   
+                       
+                                                               
+                       
+                           
+                                           
+                                          
+                                  
+ 
+
+                                                         
+                                                
+                                     
+                                                   
+               
+ 
+
+/** 在 PATH 里找一个可执行名；找不到返回 null。 */
+function findInPath(env                   , platform                 , name        )                {
+  const pathEnv = env.PATH ?? ''
+  const sep = platform === 'win32' ? ';' : ':'
+  for (const rawDir of pathEnv.split(sep)) {
+    const dir = rawDir.trim()
+    if (dir === '') continue
+    const candidate = join(dir, name)
+    try {
+      if (existsSync(candidate)) return candidate
+    } catch { /* 单个目录不可读就跳过 */ }
+  }
+  return null
+}
+
+/**
+ * 探测「这台机器到底是什么环境」——跨平台自动适配的唯一入口。
+ *
+ * 它回答三个问题：
+ *  1. 是什么平台（Termux / Linux 发行版 / macOS / Windows）；
+ *  2. 有没有现成的 llama-server 可以直接用（省掉下载）；
+ *  3. 如果没有，装 llama.cpp 的「地道」命令是什么（Termux 自动执行，其它只提示）。
+ *
+ * 所有探测都是 best-effort：读不到就返回 null，绝不抛。
+ */
+export function detectRuntimeEnvironment(deps                 = {})                     {
+  const env = deps.env ?? process.env
+  const readFile = deps.readFile ?? ((path        ) => readFileSync(path, 'utf8'))
+  const platform = deps.platform ?? osPlatform()
+  const arch = deps.arch ?? osArch()
+  const info = detectPlatform({ env, platform, arch, exists: deps.exists, readFile })
+  const exists = deps.exists ?? existsSync
+
+  // Linux 发行版：/etc/os-release 的 ID= 是各家通用约定（debian/ubuntu/arch/alpine…）。
+  let distro                = null
+  if (platform === 'linux') {
+    try {
+      const text = readFile('/etc/os-release')
+      const match = /^ID=(?:"([^"]+)"|'([^']+)'|([^\s]+))/mu.exec(text)
+      const id = match === null ? '' : (match[1] ?? match[2] ?? match[3] ?? '').trim().toLowerCase()
+      if (id !== '') distro = id
+    } catch { /* 非 systemd 发行版 / 容器里可能没有该文件 */ }
+  }
+
+  const home = (deps.home ?? env.HOME ?? env.USERPROFILE ?? '').trim()
+  const candidates                                                                                  = []
+  if (info.termux && info.prefix !== null) {
+    candidates.push({ kind: 'pkg', paths: [join(info.prefix, 'bin', 'pkg')], install: ['install', '-y', 'llama-cpp'] })
+  }
+  if (platform === 'linux') {
+    candidates.push(
+      { kind: 'apt', paths: ['/usr/bin/apt-get', '/bin/apt-get', '/usr/local/bin/apt-get'], install: ['install', '-y', 'llama.cpp'] },
+      { kind: 'apk', paths: ['/sbin/apk', '/usr/sbin/apk', '/usr/bin/apk'], install: ['add', 'llama.cpp'] },
+      { kind: 'dnf', paths: ['/usr/bin/dnf', '/usr/bin/dnf5'], install: ['install', '-y', 'llama-cpp'] },
+      { kind: 'pacman', paths: ['/usr/bin/pacman'], install: ['-S', '--noconfirm', 'llama.cpp'] },
+      { kind: 'zypper', paths: ['/usr/bin/zypper'], install: ['install', '-y', 'llama.cpp'] },
+    )
+  }
+  if (platform === 'darwin') {
+    candidates.push(
+      { kind: 'brew', paths: ['/opt/homebrew/bin/brew', '/usr/local/bin/brew', join(home, 'homebrew', 'bin', 'brew')], install: ['install', 'llama.cpp'] },
+    )
+  }
+  if (platform === 'win32') {
+    candidates.push(
+      { kind: 'winget', paths: ['C:\\Users\\Public\\winget.exe', join(home, 'AppData', 'Local', 'Microsoft', 'WindowsApps', 'winget.exe')], install: ['install', 'llama.cpp'] },
+      { kind: 'choco', paths: ['C:\\ProgramData\\chocolatey\\bin\\choco.exe'], install: ['install', 'llama-cpp', '-y'] },
+    )
+  }
+  let packageManager                            = null
+  for (const candidate of candidates) {
+    const bin = candidate.paths.find((path) => { try { return exists(path) } catch { return false } })
+      ?? findInPath(env, platform, candidate.kind === 'choco' ? 'choco' : candidate.kind)
+    if (bin !== null && bin !== undefined) {
+      packageManager = { kind: candidate.kind, bin, install: candidate.install }
+      break
+    }
+  }
+
+  return {
+    platform,
+    arch,
+    termux: info.termux,
+    prefix: info.prefix,
+    distro,
+    packageManager,
+    systemLlamaServer: findSystemLlamaServer({ env, prefix: info.prefix, platform, exists }),
+  }
 }
 
 /** 供 spawn 侧判断的「ELF 解释器是否需要被 Termux glibc loader 包装」。 */
