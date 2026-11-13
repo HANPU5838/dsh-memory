@@ -4,6 +4,24 @@
 > 本项目 [HANPU5838/dsh-memory](https://github.com/HANPU5838/dsh-memory) 在其 **v0.30.1** 基础上持续维护，
 > 以下是相对上游的完整改进清单（有源码改动 + 回归测试，不是临时补丁）。
 
+## 0.57–0.61（本仓库自维护版相对 0.56 的变更）
+
+> 这一段不是「相对上游」，而是本仓库在 0.56 之后的六个版本的变更总览；逐版本的细节、
+> 测试数字与验证方式见 [CHANGELOG.md](CHANGELOG.md) 与 [docs/verification.md](verification.md)。
+
+- **0.57 移除知识图谱**：删除实体共现图（建图/序列化/`/graph` 路由/面板视图/`graph.json`）；
+  实体抽取迁到 `analysis/entities.ts`，**「关系分析」完整保留**。桌面端与移动端 API 都少了一个功能面。
+- **0.57 Termux 原生运行时**：新增 `retrieval.vector.runtime`（auto/managed/system）；
+  系统 `llama-server` 优先，只下模型、不走 glibc 兼容层；修复 Android 平台判定（`isLinuxLike`/`assetPlatform`）。
+- **0.58 零配置自举**：`autoBootstrap`（auto/off/always）：Termux 自动装包 → 只下模型 → 托管启动；
+  决策抽成纯函数并有回归用例；过程落盘 `<installRoot>/bootstrap.log`。
+- **0.59 跨平台适配层**：`detectRuntimeEnvironment()`（平台/发行版/包管理器/系统 llama-server）；
+  系统 llama-server 发现覆盖 brew/`/usr/local/bin`/`~/.local/bin` 等；自检新增「系统 llama-server」项。
+- **0.60 更强自适应**：本机端点自动发现（Ollama/LM Studio/llama.cpp，同模型同维度才采用，零下载）；
+  端口冲突自动回退；Linux `lspci` GPU 探测（AMD/Intel → Vulkan）。
+- **0.61 可重复验收**：`npm run verify:all` 四层验收（测试/构建/面板 16 接口/向量实测）；
+  新增 [docs/verification.md](verification.md)（真机 16 项清单 + 排障手册 + CI 接法）。
+
 ## 一、改进清单
 
 ### 安装器（`embed-install.ts`）

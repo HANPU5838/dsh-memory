@@ -1,4 +1,4 @@
-# 架构说明（本仓库维护版 0.60.0）
+# 架构说明（本仓库维护版 0.61.1）
 
 > 本文说明这套记忆插件「为什么是插件」：哪些属于宿主、哪些属于插件、平台差异放在哪里。
 > 上游 `@restregular/dsh-memory@0.30.1` 的原始设计见其 README；本仓库在上游之上做了
@@ -25,6 +25,9 @@
 │  平台适配层（platform）—— 所有环境差异都在这里收敛             │
 │  · detectPlatform：Termux / $PREFIX / glibc loader / CPU 兜底  │
 │    / 可用内存（MemAvailable 与 cgroup 取小）/ TMPDIR           │
+│  · detectRuntimeEnvironment（0.59）：平台 / 发行版 / 包管理器   │
+│    / 系统 llama-server —— 自举与自检的唯一依据                 │
+│  · isLinuxLike / assetPlatform：Android 与 Linux 同语义归一    │
 │  · readElfInterpFromFile：判断二进制是否需要 glibc loader 包装 │
 │  · freeDiskBytes / canExecute：磁盘余量、目录可写性            │
 │  · describePlatform：日志与面板自检共用的一行摘要              │
@@ -73,7 +76,32 @@ retrieval.vector.provider
 - 记录与向量的删除一起发生（边车不会只增不减）；
 - `flush` 写盘失败只 warn、增量保留（绝不把异常抛出定时器）。
 
-## 4. 平台矩阵
+## 4. 自举流程（0.58–0.60）
+
+启动后后台执行（不阻塞宿主、不覆盖显式配置）：
+
+```
+1. 本机端点发现（endpoint-discovery.ts）
+   127.0.0.1: Ollama 11434 / LM Studio 1234 / llama.cpp 8080 / 通用 8000
+   → 列模型 → 挑 embedding 模型 → 真算一次向量 → 维度与当前模型一致才采用（零下载）
+
+2. 若没有现成端点，按环境决策（planVectorBootstrap，纯函数可测）
+   系统已有 llama-server（任意平台）→ 只补模型
+   Termux + pkg                 → pkg install -y llama-cpp → 只补模型
+   autoBootstrap: 'always'      → 托管下载运行时 + 模型（桌面端默认不走这条）
+   否则                         → 不动，bootstrap.log 记下该执行的安装命令
+
+3. 启动托管服务
+   端口被占 → 自动回退到下一个空闲端口（显式 spawn.port 除外）
+   失败 → 只记日志，检索退回词法，绝不挡住宿主启动
+```
+
+产物与日志：`<installRoot>/bootstrap.log`（决策 + 发现 + 安装进度）、
+`<installRoot>/llama-server.log`（后端输出）。相关模块：
+`platform.ts` / `endpoint-discovery.ts` / `embed-install.ts` / `embed-server.ts` /
+`index.ts` 的 `runBootstrapFlow`。
+
+## 5. 平台矩阵
 
 | 能力 | Linux (x64/arm64) | Termux (Android, glibc) | macOS | Windows |
 |---|---|---|---|---|
@@ -83,8 +111,12 @@ retrieval.vector.provider
 | 磁盘/权限自检 | ✅ | ✅ | ✅ | ✅ |
 | 孤儿清理 / pid 身份校验 | ✅ `/proc` | ✅ `/proc` | 不启用（保持旧行为） | 不启用 |
 | 安装后冒烟 | ✅（Termux 走 loader） | ✅ | ✅ | ✅ |
+| 系统 llama-server 自动发现 | ✅ | ✅ | ✅ | ✅ |
+| 自动装 llama.cpp | 提示命令 | ✅ `pkg install` | 提示 `brew install` | 提示 winget/choco |
+| 本机端点发现 | ✅ | ✅ | ✅ | ✅ |
+| 端口冲突回退 | ✅ | ✅ | ✅ | ✅ |
 
-## 5. 对外事件（可组合点）
+## 6. 对外事件（可组合点）
 
 ```
 memory/record-saved      { scope, id, kind, chars, deduped }
@@ -95,14 +127,14 @@ memory/record-forgotten  { scope, ids }
 - 经宿主 `ctx.emit` 转发；拿不到 `ctx.emit` 时降级为进程内广播。
 - payload 只含元数据（不含正文），emit 永不抛，监听器异常不影响主流程。
 
-## 6. 排障入口
+## 7. 排障入口
 
 1. 面板「向量服务 → 环境自检」：平台 / glibc loader / 后端 / 磁盘 / 权限逐条 `✓ ✗ —`。
 2. `~/.dsh/memory-vector/llama-server.log`：子进程真实日志（秒退时末尾会带进主日志）。
 3. 状态字段：`lastError`、`restarts`、`unavailable`、`wrapped`（是否 glibc 包装）。
 4. 测试：`node --test source/*/test/*.test.ts`（CI 在 ubuntu + Node 24 上跑同一命令）。
 
-## 7. 从上游同步
+## 8. 从上游同步
 
 ```bash
 git remote add upstream https://github.com/RestRegular/dsh-memory

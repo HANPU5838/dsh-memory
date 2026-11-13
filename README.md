@@ -2,7 +2,7 @@
   <img src="https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/preview/icon-128.png" width="84" alt="记忆系统">
 </p>
 
-> ### 📦 本仓库在上游基础上持续维护（v0.61.0）
+> ### 📦 本仓库在上游基础上持续维护（v0.61.1）
 >
 > 本项目是 **DSH 记忆系统**（npm 包 `@restregular/dsh-memory`，MIT）的分支维护版：
 > 在上游 v0.30.1 之上做了平台适配、插件化、可靠性加固、语义认知层与嵌入性能优化，并在 **0.40/0.41 补上 BM25+RRF、记忆健康度、冲突自动裁决、可疑写入隔离、本地备份与离线评测**。
@@ -10,7 +10,7 @@
 > | 项目 | 说明 |
 > | --- | --- |
 > | 原作者 | **RestRegular**（上游原项目 [RestRegular/dsh-memory](https://github.com/RestRegular/dsh-memory)，MIT）；本项目在其 v0.30.1 基础上维护 |
-> | 本仓库 | **v0.61.0** = 上游 v0.30.1 + 平台/可靠性改进 + 语义认知层 + 检索整形（BM25/RRF/MMR）+ 嵌入性能 + 记忆强度算法 + **智能关系分析（关系发现/冲突/聚类/演化/推理）**。完整清单见 [IMPROVEMENTS.md](IMPROVEMENTS.md)，架构见 [docs/architecture.md](docs/architecture.md) |
+> | 本仓库 | **v0.61.1** = 上游 v0.30.1 + 平台/可靠性改进 + 语义认知层 + 检索整形（BM25/RRF/MMR）+ 嵌入性能 + 记忆强度算法 + **智能关系分析（关系发现/冲突/聚类/演化/推理）** + **0.57–0.61：移除知识图谱、跨平台自动适配与零配置自举、本机端点发现、端口回退、全功能验收**。完整清单见 [IMPROVEMENTS.md](IMPROVEMENTS.md)，架构见 [docs/architecture.md](docs/architecture.md) |
 > | 许可 | **MIT**，版权归原作者所有，见 [LICENSE](LICENSE)；转载、分发请保留原始版权声明 |
 > | 更新与反馈 | Issue / PR / 反馈请到 **[本仓库 Issues](https://github.com/HANPU5838/dsh-memory/issues)**；与上游的差异集中在 `IMPROVEMENTS.md` |
 >
@@ -25,7 +25,7 @@
 
 JSONL 落盘 · 本机向量检索 · 六个模型工具 · 自动召回 · 硬性规则 · 可视化管理面板
 
-[![version](https://img.shields.io/badge/version-v0.61.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![version](https://img.shields.io/badge/version-v0.61.1-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/HANPU5838/dsh-memory/blob/main/LICENSE)
 [![ci](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.13-5FA04E.svg)](https://nodejs.org/)
@@ -95,6 +95,13 @@ JSONL 落盘 · 本机向量检索 · 六个模型工具 · 自动召回 · 硬�
 | **平台自检** | 面板「向量服务 → 环境自检」一次探测 平台 / glibc loader / 后端 / 磁盘 / 目录权限，Termux 与普通 Linux 都是自包含的（不改宿主、不需要环境变量） |
 | **插件事件** | 对外发 `memory/record-saved` / `memory/recalled` / `memory/record-forgotten` 事件（只含元数据，不含正文），其他插件可 `ctx.on(...)` 订阅 |
 | **跨进程安全** | 每个作用域一把写锁，锁内重新读盘再合并；多个 DSH 实例或 MCP server 共用一个 store 不丢数据 |
+| **跨平台自动适配（0.59.0）** | `detectRuntimeEnvironment()` 一次探清平台 / 架构 / Termux / Linux 发行版（`/etc/os-release`）/ 包管理器（pkg·apt·apk·dnf·pacman·zypper·brew·winget·choco）/ 系统 llama-server；`findSystemLlamaServer()` 覆盖 brew 前缀、`/usr/local/bin`、`/snap/bin`、`~/.local/bin`、源码编译目录等，不依赖 GUI 进程里经常残缺的 PATH |
+| **零配置自举（0.58.0~0.60.0）** | `retrieval.vector.autoBootstrap`：Termux 自动 `pkg install llama-cpp` → 只下模型 → 托管启动；任意平台已有系统 llama-server 只补模型；桌面端默认不擅自下载（`always` 才托管下载）；日志在 `<installRoot>/bootstrap.log` |
+| **本机端点自动发现（0.60.0）** | 自举前扫 `127.0.0.1`：Ollama(11434)/LM Studio(1234)/llama.cpp(8080)/通用 OpenAI 兼容(8000)，**同模型 + 同维度**验证通过就直接采用，零下载；维度不符宁可不采用 |
+| **端口冲突回退（0.60.0）** | 默认端口被占时自动换空闲端口并同步 endpoint（显式 `spawn.port` 不动），不再静默降级成词法 |
+| **Linux GPU 探测（0.60.0）** | `nvidia-smi` 之外补 `lspci -nn`，AMD/Intel 机器可推荐 Vulkan；显存读不到如实标「未知」 |
+| **全功能验收（0.61.0）** | `npm run verify:all`：测试 → 构建 → 面板 API 冒烟（16 接口）→ 向量后端实测，失败退出码非 0；真机清单与排障见 [docs/verification.md](docs/verification.md) |
+| **知识图谱已移除（0.57.0）** | 原 v0.42~0.56 的知识图谱（实体共现图 / 文件视图 / graph.json）已按维护决定移除；实体抽取保留给「关系分析」，历史文档与旧版本仍可在 tag 里查到 |
 
 ## 记忆强度算法（0.33.0）
 
@@ -139,7 +146,7 @@ JSONL 落盘 · 本机向量检索 · 六个模型工具 · 自动召回 · 硬�
 注入链路、作用域审批、规则常驻、流程索引这些是它的差异点；0.32–0.41 补上了语义整理、生命周期、健康度与冲突自动裁决，
 把"档案"升级成了"会整理、会遗忘、可回滚"的记忆系统。
 
-## 现状与边界（截至 v0.58.0）
+## 现状与边界（截至 v0.61.1）
 
 > 说清楚"已经做到什么"和"还没做到什么"，比只说优点有用。
 
@@ -153,7 +160,7 @@ JSONL 落盘 · 本机向量检索 · 六个模型工具 · 自动召回 · 硬�
 - 认知：语义合并、冲突检测 + 自动裁决、时间有效性、谱系、休眠/软删/恢复、周期巩固。
 - 运维：0–100 健康分、冲突中心、本地备份/恢复、审计事件、CI 门禁。
 - 安全：可疑写入扫描（指令注入/凭据/零宽字符）+ 自动隔离；作用域审批与只读授权。
-- 工程：零运行时依赖、**1081 例测试 / 0 fail**、GitHub Actions（测试 + 构建 + 合成集评测门禁）。
+- 工程：零运行时依赖、**1093 例测试 / 0 fail**、GitHub Actions（测试 + 构建 + 合成集评测门禁）。
 - 分析：六引擎（关系发现/冲突/聚类/演化/推理/校验）+ 关系状态机 + 证据与审核。
 
 **还没做到 / 明确不做**
@@ -182,7 +189,7 @@ bge-m3 1024 维，llama-server CPU 6 线程，2026-11-10）：
 | 批量嵌入（batch=8 vs 1） | 3.8 rec/s vs 2.8 rec/s（≈1.4×，CPU 上省的是调度） |
 | 回填 | batch=8 3.2 rec/s；单条失败只留 null，不拖垮整批 |
 | ANN（纯 JS HNSW，合成 128 维） | 2k：P50 1.3ms/召回 100%；10k：1.15ms/98%（10.4×）；20k：1.73ms/94%（14.6×） |
-| 测试 | **1093 例 / 1092 pass / 1 skip / 0 fail**（v0.61.0） |
+| 测试 | **1093 例 / 1092 pass / 1 skip / 0 fail**（v0.61.1） |
 | 检索评测（合成集 94 条 / 48 查询，真实 bge-m3） | base recall@5 0.7708 → **产品默认 0.9167**；MRR 0.7483 / nDCG 0.7912（方法见 [docs/benchmark.md](docs/benchmark.md)） |
 
 复现：`node tools/bench/run.mjs`（live 模式需本地嵌入服务；无服务时自动合成数据）。
@@ -254,7 +261,7 @@ bge-m3 1024 维，llama-server CPU 6 线程，2026-11-10）：
 ## 安装
 
 > **安装来源提醒**：npm 上的 `@restregular/dsh-memory` 是**上游 0.30.1**（本项目基于它改进，
-> 但尚未发布到 npm）。要使用本仓库的 0.58.0，请从本仓库安装：
+> 但尚未发布到 npm）。要使用本仓库的 0.61.1，请从本仓库安装：
 
 ```bash
 # 方式一：直接从本仓库装（仓库内已包含构建产物 packages/）
