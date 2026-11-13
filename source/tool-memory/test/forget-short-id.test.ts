@@ -30,14 +30,15 @@ function serviceWith(records) {
 
 test('memory_forget：8 位短 id 解析成完整 id 后删除', async () => {
   const tool = memoryForgetTool({ getService: () => serviceWith([{ ...base, id: 'abcdef12-3456-7890-abcd-ef1234567890' }]) })
-  const out = await tool.execute({ id: 'abcdef12' })
+  // 宿主运行时会冻结工具参数（防篡改），这里必须用冻结对象回归，否则会漏掉回写 args 的错误
+  const out = await tool.execute(Object.freeze({ id: 'abcdef12' }))
   assert.equal(out.removed, 1)
   assert.deepEqual(out.ids, ['abcdef12-3456-7890-abcd-ef1234567890'])
 })
 
 test('memory_forget：短 id 不存在 → RECORD_NOT_FOUND（而不是静默删 0 条）', async () => {
   const tool = memoryForgetTool({ getService: () => serviceWith([{ ...base, id: 'abcdef12-3456-7890-abcd-ef1234567890' }]) })
-  await assert.rejects(() => tool.execute({ id: 'deadbeef' }), (error) => error?.code === 'RECORD_NOT_FOUND')
+  await assert.rejects(() => tool.execute(Object.freeze({ id: 'deadbeef' })), (error) => error?.code === 'RECORD_NOT_FOUND')
 })
 
 test('memory_forget：短 id 命中多条 → 报歧义、不误删', async () => {
@@ -46,5 +47,5 @@ test('memory_forget：短 id 命中多条 → 报歧义、不误删', async () =
     { ...base, id: 'abcdef12-9999-0000-1111-222233334444' },
   ]
   const tool = memoryForgetTool({ getService: () => serviceWith(records) })
-  await assert.rejects(() => tool.execute({ id: 'abcdef12' }), (error) => error?.code === 'TARGET_AMBIGUOUS')
+  await assert.rejects(() => tool.execute(Object.freeze({ id: 'abcdef12' })), (error) => error?.code === 'TARGET_AMBIGUOUS')
 })

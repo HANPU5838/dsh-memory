@@ -1282,7 +1282,10 @@ export function memoryForgetTool(opts: MemoryToolsOptions): ToolSpec<ForgetArgs,
         // 支持 8 位短 id（与 memory_get 一致）：检索结果/注入摘要里展示的就是短 id，
         // 用户复制过来应该能直接删。前缀命中多条时明确报歧义，绝不误删。
         // 老 provider 没有 getByIds 时保持原行为：直接把 id 交给 forget，不做前缀解析。
-        const wanted = args.id.trim()
+        // 注意：工具参数对象在运行时可能是冻结的（宿主防篡改），绝不能回写 args.id，
+        // 解析结果放局部变量 targetId。
+        let targetId = args.id
+        const wanted = targetId.trim()
         const candidates = typeof service.getByIds === 'function' ? service.getByIds([wanted]) : null
         if (candidates !== null) {
           const exact = candidates.find((record) => record.id === wanted)
@@ -1292,18 +1295,18 @@ export function memoryForgetTool(opts: MemoryToolsOptions): ToolSpec<ForgetArgs,
           if (exact === undefined && candidates.length > 1) {
             throw new MemoryToolError('TARGET_AMBIGUOUS', `id ${wanted} 命中 ${candidates.length} 条记忆，请提供更长的 id 前缀`)
           }
-          args.id = exact?.id ?? candidates[0]!.id
+          targetId = exact?.id ?? candidates[0]!.id
         }
-        const matches = candidates === null ? [] : candidates.filter((record) => record.id === args.id)
+        const matches = candidates === null ? [] : candidates.filter((record) => record.id === targetId)
         const blocked = matches.filter((record) => !scopeWritableBy(decide, service, agent, policy, record.scope))
         let approved = false
         if (blocked.length > 0) {
           const decision = decide('write', blocked[0]!.scope)
           if (decision !== undefined) {
-            if (!decision.requestable) throw blockedRecordDecisionError(decision, blocked[0]!.scope, args.id)
+            if (!decision.requestable) throw blockedRecordDecisionError(decision, blocked[0]!.scope, targetId)
           } else if (level === 'absolute' || policyRule(policy, blocked[0]!.scope) !== undefined) {
             // 老 provider 没有授权判定时保持原有纯策略判断。
-            throw blockedRecordError(policy, blocked[0]!.scope, args.id)
+            throw blockedRecordError(policy, blocked[0]!.scope, targetId)
           }
           if (level === 'normal') {
             const verdict = await askOutOfScope(
@@ -1311,13 +1314,13 @@ export function memoryForgetTool(opts: MemoryToolsOptions): ToolSpec<ForgetArgs,
               agent,
               policy,
               'memory_forget',
-              args.id,
+              targetId,
               blocked,
               'delete',
               signal,
               descriptionOf(args.description),
             )
-            if (!verdictAllows(verdict, args.id)) {
+            if (!verdictAllows(verdict, targetId)) {
               throw visibilityError(verdict.outcome === 'allowed-once' ? 'rejected' : verdict.outcome, 'delete', blocked[0]!.scope)
             }
             approved = true
@@ -1325,7 +1328,7 @@ export function memoryForgetTool(opts: MemoryToolsOptions): ToolSpec<ForgetArgs,
         }
         try {
           return await service.forget({
-            id: args.id,
+            id: targetId,
             ...(agent !== undefined ? { agent } : {}),
             ...(approved ? { visibilityApproved: true } : {}),
           })

@@ -2,6 +2,16 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.62.1 — 修复冻结参数导致的 memory_forget 短 id 失效（2026-11-13）
+
+- 上一版（0.62.0）在 `memory_forget` 里把解析出的完整 id **回写进了参数对象**；
+  宿主运行时会把工具参数冻结（防篡改），于是真机上短 id 删除直接抛
+  `Cannot assign to read only property 'id'`。
+- 改为解析结果放局部变量 `targetId`，不再写回 `args`；回归用例改为**冻结参数**
+  （`Object.freeze`）执行，锁死这类「单测能过、真机才炸」的问题。
+
+**测试**：1096 例 / 1095 pass / 1 skip / 0 fail；`npm run verify:all` → PASS。
+
 ## 0.62.0 — 收尾完善：CI 对齐 + forget 短 id + glibc 环境清理（2026-11-13）
 
 **CI 对齐**
