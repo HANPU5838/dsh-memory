@@ -13,6 +13,8 @@
   实体抽取迁到 `analysis/entities.ts`，**「关系分析」完整保留**。桌面端与移动端 API 都少了一个功能面。
 - **0.57 Termux 原生运行时**：新增 `retrieval.vector.runtime`（auto/managed/system）；
   系统 `llama-server` 优先，只下模型、不走 glibc 兼容层；修复 Android 平台判定（`isLinuxLike`/`assetPlatform`）。
+- **0.62.6 保底召回精度**：地板 0.45 → 0.48（实测无关 0.459/0.454 vs 真命中 0.483/0.4995），
+  `recallFallback.relax` 默认 0.02；
 - **0.62.5 空会话作用域回收**：每小时维护任务清理「无记录且超期」的 session 作用域元数据
   （默认保留 1 天，`limits.sessionScopeMaxAgeDays` 可调），有记录/活跃/冻结一律不动；
 - **0.62.4 向量后端默认手动安装**：`autoBootstrap` 默认 `off`（不自动探测端点/装包/下模型），

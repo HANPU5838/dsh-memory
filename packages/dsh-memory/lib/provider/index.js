@@ -806,9 +806,13 @@ export function resolveConfig(config                    = {})                 {
       minScore: v.minScore ?? 0.5,
       // 0.62.3：保底召回（见 search() 里同名注释）。relax 与 minScore 同域（余弦），
       // noiseFloor 是无关文本对的实测地板——保底可以放宽准入，但绝不允许跌到噪声区。
+      //
+      // 0.62.6：relax 0.05 → 0.02（地板 0.45 → 0.48）。实测 15 条无关查询对 9 条活跃
+      // 记忆的最大余弦：2 条落在 0.45–0.50（0.459 / 0.454），而真命中在 0.483 / 0.4995
+      // ——0.45 会把这 2 条无关查询也捞出来，0.48 正好卡在两组之间。
       recallFallback: {
         enabled: v.recallFallback?.enabled ?? true,
-        relax: v.recallFallback?.relax ?? 0.05,
+        relax: v.recallFallback?.relax ?? 0.02,
         noiseFloor: v.recallFallback?.noiseFloor ?? 0.42,
       },
       modelSha256: v.modelSha256 ?? '',

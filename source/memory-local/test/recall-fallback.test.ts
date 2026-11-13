@@ -162,3 +162,34 @@ test('纯词法库的保底：无词面重叠时仍返回空（不硬凑）', as
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('保底召回精度边界：0.483 的真命中会被捞回（地板 0.48）', async () => {
+  const dir = tempDir()
+  const embed = await startEmbedServer('磁盘剩余空间', unit(0.483), unit(1))
+  const svc = vectorService(dir, embed.url)
+  try {
+    const rec = await svc.save({ scope: SCOPE, kind: 'fact', content: '运行环境：460GB 存储' })
+    svc.store.peek(SCOPE)!.vectors.set(rec.id, new Float32Array(unit(1)))
+    const hits = await svc.search({ text: '磁盘剩余空间', scope: SCOPE, topK: 5 })
+    assert.equal(hits.length, 1, '真命中余弦 0.483 > 地板 0.48，必须召回')
+    assert.equal(hits[0]!.record.id, rec.id)
+  } finally {
+    await embed.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('保底召回精度边界：0.459 的弱相关不再被捞出（0.62.6 精度修正）', async () => {
+  const dir = tempDir()
+  const embed = await startEmbedServer('怎么减肥', unit(0.459), unit(1))
+  const svc = vectorService(dir, embed.url)
+  try {
+    const rec = await svc.save({ scope: SCOPE, kind: 'fact', content: '运行环境：460GB 存储' })
+    svc.store.peek(SCOPE)!.vectors.set(rec.id, new Float32Array(unit(1)))
+    const hits = await svc.search({ text: '怎么减肥', scope: SCOPE, topK: 5 })
+    assert.equal(hits.length, 0, '0.459 < 地板 0.48：这是无关查询，不能硬凑出一条')
+  } finally {
+    await embed.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
