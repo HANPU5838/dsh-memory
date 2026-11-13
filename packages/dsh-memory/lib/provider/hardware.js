@@ -60,6 +60,8 @@ import { dirname } from 'node:path'
                                      
                                                  
                                       
+                                                            
+                                  
                             
  
 
@@ -109,6 +111,7 @@ export const defaultHardwareDeps               = {
     }
   },
   nvidiaSmi: () => run('nvidia-smi', ['--query-gpu=name,memory.total,driver_version', '--format=csv,noheader,nounits'], 2500),
+  lspci: () => run('lspci', ['-nn'], 3000),
   windowsGpu: () => run('powershell', [
     '-NoProfile', '-NonInteractive', '-Command',
     'Get-CimInstance Win32_VideoController | Select-Object Name,AdapterRAM | ConvertTo-Csv -NoTypeInformation',
@@ -140,6 +143,34 @@ export function parseNvidiaSmi(stdout               )                 {
     vramMb: Number.isFinite(vram) && vram > 0 ? vram : null,
     driver: parts[2] !== undefined && parts[2] !== '' ? parts[2] : null,
   }
+}
+
+/**
+ * `lspci -nn` 输出解析（Linux）：只挑 VGA / 3D / Display 控制器。
+ *
+ * 例：`01:00.0 VGA compatible controller [0300]: NVIDIA Corporation AD103 [GeForce RTX 4070] [10de:2706]`
+ *
+ * lspci 拿不到显存大小，所以 `vramMb` 一律 null（"未知"不能冒充"够用"）——
+ * 推荐逻辑会因此只推 Vulkan 而不是 CUDA。多块卡时优先独显（NVIDIA > AMD > Intel）。
+ */
+export function parseLspciGpu(stdout               )                 {
+  const lines = (stdout ?? '').split('\n').map((line) => line.trim()).filter((line) => line !== '')
+  let best                 = null
+  const rank = (gpu         )         =>
+    (gpu.vendor === 'nvidia' ? 3 : gpu.vendor === 'amd' ? 2 : gpu.vendor === 'intel' ? 1 : 0)
+  for (const line of lines) {
+    if (!/(VGA|3D|Display).*controller/iu.test(line)) continue
+    if (/microsoft basic|remote desktop|virtual|parsec|displaylink/iu.test(line)) continue
+    // 注意：第一个 ':' 在 PCI 地址里（`01:00.0`），不能直接 indexOf(':'); 用
+    // class code 的 `]:` 分隔位切（lspci -nn 固定格式）。
+    const sep = line.indexOf(']:')
+    const afterColon = (sep >= 0 ? line.slice(sep + 2) : line.slice(line.lastIndexOf(': ') + 1)).trim()
+    const name = afterColon.replace(/\s*\[[0-9a-f]{4}:[0-9a-f]{4}\]\s*$/iu, '').trim()
+    if (name === '') continue
+    const candidate          = { vendor: vendorOf(name), name, vramMb: null, driver: null }
+    if (best === null || rank(candidate) > rank(best)) best = candidate
+  }
+  return best
 }
 
 /**
@@ -206,6 +237,15 @@ export async function probeHardware(
       const win = parseWindowsGpu(await deps.windowsGpu().catch(() => null))
       if (win !== null) { gpu = win.gpu; notes.push(...win.notes) }
       else notes.push('未能探测到显卡(nvidia-smi 与系统查询都没结果),将以 CPU 运行')
+    } else if (deps.platform === 'linux' && deps.lspci !== undefined) {
+      // 非 NVIDIA 机器（AMD/Intel）nvidia-smi 必然失败，用 lspci 补一道。
+      const listed = parseLspciGpu(await deps.lspci().catch(() => null))
+      if (listed !== null) {
+        gpu = listed
+        notes.push(`lspci 发现 ${listed.name}；显存未能读取（按未知处理），推荐 Vulkan 运行时`)
+      } else {
+        notes.push('未能探测到显卡,将以 CPU 运行')
+      }
     } else {
       notes.push('未能探测到显卡,将以 CPU 运行')
     }

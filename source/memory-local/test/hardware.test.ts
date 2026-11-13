@@ -9,6 +9,7 @@ import assert from 'node:assert/strict'
 import {
   MIN_USEFUL_VRAM_MB,
   flavorsFor,
+  parseLspciGpu,
   parseNvidiaSmi,
   parseWindowsGpu,
   probeHardware,
@@ -113,4 +114,32 @@ test('探测:外部命令抛错也不许把插件带崩', async () => {
   assert.equal(hw.gpu, null)
   assert.equal(hw.freeDiskMb, null)
   assert.deepEqual(hw.flavors, ['cpu'])
+})
+
+// ─────────────── Linux：lspci 兜底（AMD/Intel 机器） ───────────────
+
+test('lspci 解析：识别 NVIDIA/AMD/Intel，显存一律未知，多卡优先独显', () => {
+  const out = [
+    '00:02.0 VGA compatible controller [0300]: Intel Corporation Raptor Lake-P [Iris Xe Graphics] [8086:a7a0]',
+    '01:00.0 VGA compatible controller [0300]: NVIDIA Corporation AD103 [GeForce RTX 4070] [10de:2706]',
+    '03:00.0 3D controller [0302]: Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 [Radeon RX 7900 XTX] [1002:744c]',
+  ].join('\n')
+  const gpu = parseLspciGpu(out)
+  assert.ok(gpu !== null)
+  assert.equal(gpu.vendor, 'nvidia', '多卡时优先 NVIDIA')
+  assert.equal(gpu.name, 'NVIDIA Corporation AD103 [GeForce RTX 4070]')
+  assert.equal(gpu.vramMb, null, 'lspci 不提供显存，不能编一个数')
+  assert.equal(parseLspciGpu(''), null)
+  assert.equal(parseLspciGpu(null), null)
+})
+
+test('探测：Linux 上 nvidia-smi 失败时用 lspci 补 AMD 卡 → 推荐 Vulkan', async () => {
+  const hw = await probeHardware({ dir: '/tmp/x' }, deps({
+    platform: 'linux',
+    nvidiaSmi: async () => null,
+    lspci: async () => '03:00.0 VGA compatible controller [0300]: Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 [Radeon RX 7900 XTX] [1002:744c]',
+  }))
+  assert.equal(hw.gpu?.vendor, 'amd')
+  assert.deepEqual(hw.flavors, ['vulkan', 'cpu'])
+  assert.ok(hw.notes.some((n) => n.includes('lspci')), '如实说明是 lspci 发现的')
 })

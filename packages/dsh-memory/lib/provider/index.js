@@ -84,6 +84,7 @@ import { MERGE_THRESHOLD, planNearDuplicateMerge } from './cognitive/merge.js'
 import { assessConflicts, applyConflictMarker, hasCriticalDetailConflict } from './cognitive/conflict.js'
 import { isRecordVisible, revive, tombstone, purgeTombstones, markDormant, restore as restoreTombstoned, snapshot as writeSnapshot, restoreSnapshot as readSnapshotFile } from './cognitive/lifecycle.js'
 import { createEmbeddingProvider,                                                    } from './embedding-providers.js'
+import { discoverLocalEndpoint,                         } from './endpoint-discovery.js'
 import { canExecute, describePlatform, detectPlatform, detectRuntimeEnvironment, findSystemLlamaServer, freeDiskBytes } from './platform.js'
 import { DailyBudget, blendScores, rerank,                                   } from './rerank.js'
 import { RerankCache } from './rerank-cache.js'
@@ -95,6 +96,7 @@ import { createAnnIndex, shouldUseAnn,                             } from './ann
 import { EmbedKeepAlive } from './embed.js'
 import { MemoryEventBus } from './events.js'
 import { spawn } from 'node:child_process'
+import { createConnection } from 'node:net'
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { homedir } from 'node:os'
@@ -596,6 +598,39 @@ function explicitStrengthFields(input                         )                 
     if (typeof value === 'number' && Number.isFinite(value)) out[key] = value
   }
   return out
+}
+
+/**
+ * 探测 host:port 是否已被占用（能连上 = 被占）。超时/连不上都算空闲。
+ * 端口回退用：8078 被别的进程占着时，不要直接让后端启动失败。
+ */
+export function probePortBusy(host        , port        , timeoutMs = 250)                   {
+  return new Promise((resolve) => {
+    let settled = false
+    const socket = createConnection({ host, port })
+    const finish = (busy         )       => {
+      if (settled) return
+      settled = true
+      try { socket.destroy() } catch { /* best effort */ }
+      resolve(busy)
+    }
+    socket.setTimeout(timeoutMs, () => finish(false))
+    socket.once('connect', () => finish(true))
+    socket.once('error', () => finish(false))
+  })
+}
+
+/** 从 start 起找第一个空闲端口（最多扫 count 个）；全占满返回 null。导出便于测试。 */
+export async function pickFreePort(
+  host        ,
+  start        ,
+  count = 20,
+  isBusy                                                   = probePortBusy,
+)                         {
+  for (let port = start; port < start + count; port += 1) {
+    if (!(await isBusy(host, port))) return port
+  }
+  return null
 }
 
 /**
@@ -1446,9 +1481,40 @@ export class LocalMemoryService                             {
     // 只有本地 provider 需要（也才有资格）托管 llama-server 子进程；
     // openai / ollama / off 都是遥控别人的服务，插件不该拉起任何进程。
     if (!this.embed.isLocalServer) return
-    this.embedServer = new EmbedServerManager(this.cfg.vector.spawn)
-    // fire-and-forget: activation must never block on a model load
-    void this.ensureEmbedServer(60_000).catch(() => { /* lifecycle never breaks activation */ })
+    // fire-and-forget: 端口回退 → 建 manager → 启动；activation 绝不阻塞在模型加载上。
+    void (async () => {
+      try { await this.applyPortFallback() } catch { /* 端口探测失败就按原配置启动 */ }
+      this.embedServer = new EmbedServerManager(this.cfg.vector.spawn)
+      await this.ensureEmbedServer(60_000)
+    })().catch(() => { /* lifecycle never breaks activation */ })
+  }
+
+  /**
+   * 端口回退：默认端口（8078）被占用时自动找一个空闲端口并同步改写 endpoint。
+   *
+   * 为什么需要：插件托管的服务是后台子进程，端口冲突时旧行为是「启动失败、
+   * 静默降级成词法」——用户只会看到语义检索时好时坏。端口是内部实现细节，
+   * 除非用户**显式**指定，否则不该成为故障点。
+   */
+          async applyPortFallback()                {
+    const cfg = this.cfg.vector
+    // 用户显式写了 spawn.port：尊重用户选择，不做回退。
+    if (cfg.spawnExplicit || cfg.spawn.port === undefined) return
+    const host = cfg.spawn.host ?? '127.0.0.1'
+    const current = cfg.spawn.port
+    if (!(await probePortBusy(host, current))) return
+    const free = await pickFreePort(host, current + 1, 20)
+    if (free === null) {
+      console.warn(`[dsh-memory-local] 端口 ${current} 被占用且后续 20 个端口都不可用，向量服务可能启动失败`)
+      return
+    }
+    cfg.spawn.port = free
+    try {
+      const url = new URL(cfg.endpoint)
+      url.port = String(free)
+      cfg.endpoint = url.toString()
+    } catch { /* endpoint 不是合法 URL 就只改 spawn 端口 */ }
+    console.warn(`[dsh-memory-local] 端口 ${current} 被占用，向量服务自动改用 ${free}`)
   }
 
   /**
@@ -1665,6 +1731,22 @@ export class LocalMemoryService                             {
         ? '未检测到包管理器；可手动安装 llama.cpp 后重启（或设 autoBootstrap: always 用托管运行时）'
         : `未安装；可执行 \`${env.packageManager.bin} ${env.packageManager.install.join(' ')}\` 后重启`),
     })
+    // 还没配置后端时，顺手告诉用户「本机其实已经有现成服务」——比装一套省事。
+    if (this.cfg.vector.provider === 'local' && !this.cfg.vector.configured && this.cfg.vector.autoBootstrap !== 'off') {
+      const found = await discoverLocalEndpoint({
+        expectedDims: this.cfg.vector.dims,
+        modelHint: this.cfg.vector.model,
+        timeoutMs: 400,
+      }).catch(() => null)
+      checks.push({
+        id: 'local-endpoints',
+        label: '本机现成端点',
+        ok: found !== null,
+        detail: found === null
+          ? '未发现 Ollama(11434)/LM Studio(1234)/llama.cpp(8080) 等本机服务'
+          : `${found.label} ${found.endpoint}（${found.dims} 维）—— 可直接采用，无需下载`,
+      })
+    }
     // glibc 只在「Termux + 用托管运行时」时才需要检查：系统 bionic 二进制不用 glibc。
     if (info.termux && this.cfg.vector.runtimeSource !== 'system') {
       checks.push({
@@ -1919,9 +2001,22 @@ export class LocalMemoryService                             {
     if (process.env.NODE_TEST_CONTEXT !== undefined) return
     if ((process.env.DSH_MEMORY_AUTO_BOOTSTRAP ?? '').trim() === 'off') return
     if (this.bootstrapping) return
+    this.bootstrapping = true
+    void this.runBootstrapFlow().finally(() => { this.bootstrapping = false })
+  }
+
+  /**
+   * 自举主流程（后台跑，绝不挡住宿主启动）：
+   *   1. 先找本机已经在跑的 embedding 服务（Ollama / LM Studio / llama.cpp…）——
+   *      有就直接采用，**零下载**；
+   *   2. 没有再按「系统 llama-server / 包管理器 / 托管资产」决定装包或下模型；
+   *   3. 任何一步失败都只记 bootstrap.log，检索退回词法。
+   */
+          async runBootstrapFlow()                {
     const cfg = this.cfg.vector
-    // 跨平台环境探测：Termux / Linux 发行版 / macOS / Windows 走同一套决策。
-    const env = detectRuntimeEnvironment()
+    try {
+      if (await this.tryAdoptLocalEndpoint()) return
+      const env = detectRuntimeEnvironment()
     const termux = env.termux || env.platform === 'android'
     const hasSystemServer = (cfg.systemExe ?? env.systemLlamaServer) !== null
     const hasPkg = env.packageManager?.kind === 'pkg'
@@ -1942,18 +2037,57 @@ export class LocalMemoryService                             {
       `termux=${termux} sys=${hasSystemServer} managed=${managedSupported} configured=${cfg.configured} ` +
       `endpointExplicit=${cfg.endpointConfigured} spawnExplicit=${cfg.spawnExplicit} provider=${cfg.provider}`,
     )
-    if (decided === 'none') {
-      // 环境里有包管理器、但既没装 llama-server 也没开 always：给出「地道」的安装命令。
-      if (!cfg.configured && !hasSystemServer && env.packageManager !== null && cfg.autoBootstrap !== 'always') {
-        this.bootstrapLog(
-          `hint 未自动安装：可执行 \`${env.packageManager.bin} ${env.packageManager.install.join(' ')}\` 后重启；` +
-          `或设 retrieval.vector.autoBootstrap: 'always' 让插件托管下载运行时与模型`,
-        )
+      if (decided === 'none') {
+        // 环境里有包管理器、但既没装 llama-server 也没开 always：给出「地道」的安装命令。
+        if (!cfg.configured && !hasSystemServer && env.packageManager !== null && cfg.autoBootstrap !== 'always') {
+          this.bootstrapLog(
+            `hint 未自动安装：可执行 \`${env.packageManager.bin} ${env.packageManager.install.join(' ')}\` 后重启；` +
+            `或设 retrieval.vector.autoBootstrap: 'always' 让插件托管下载运行时与模型`,
+          )
+        }
+        return
       }
-      return
+      await this.runBootstrap(decided)
+    } catch (error) {
+      this.bootstrapLog(`自举流程失败（已忽略）：${(error         )?.message ?? String(error)}`)
     }
-    this.bootstrapping = true
-    void this.runBootstrap(decided).finally(() => { this.bootstrapping = false })
+  }
+
+  /**
+   * 发现并采用本机现成端点：找到且模型一致才采用。
+   * 返回 true = 已采用（后续不再装包/下模型）。
+   */
+          async tryAdoptLocalEndpoint()                   {
+    const cfg = this.cfg.vector
+    if (cfg.configured || cfg.endpointConfigured || cfg.spawnExplicit) return false
+    if (cfg.provider !== 'local' || cfg.autoBootstrap === 'off') return false
+    const found = await discoverLocalEndpoint({ expectedDims: cfg.dims, modelHint: cfg.model })
+    if (found === null) {
+      this.bootstrapLog('discovery none（未发现可用的本机端点）')
+      return false
+    }
+    this.bootstrapLog(`discovery found ${found.label} ${found.endpoint} model=${found.model} dims=${found.dims}`)
+    const wanted = cfg.model.toLowerCase()
+    const sameModel = found.model.toLowerCase() === wanted || found.model.toLowerCase().startsWith(`${wanted}:`)
+    if (!sameModel) {
+      this.bootstrapLog(
+        `discovery 找到 ${found.label}，但模型 ${found.model} 与当前 ${cfg.model} 不一致，未采用（避免向量空间混用）；` +
+        `可把 retrieval.vector.model 改成 ${found.model} 后重启`,
+      )
+      return false
+    }
+    cfg.provider = found.provider
+    cfg.endpoint = found.endpoint
+    cfg.configured = true
+    cfg.enabled = true
+    cfg.endpointConfigured = true
+    cfg.spawnConfigured = false
+    cfg.runtimeSource = 'none'
+    this.embed = this.createEmbed()
+    this.persistProviderOverride(found.provider)
+    this.startEmbedKeepAlive()
+    this.bootstrapLog(`adopted ${found.label}：provider=${found.provider} endpoint=${found.endpoint}（零下载）`)
+    return true
   }
 
   /** 自举日志落盘：服务器 stdout 看不到，排查「为什么没自动装」全靠它。 */

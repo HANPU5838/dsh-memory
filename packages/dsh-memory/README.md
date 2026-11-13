@@ -2,7 +2,7 @@
   <img src="https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/preview/icon-128.png" width="84" alt="记忆系统">
 </p>
 
-> ### 📦 本仓库在上游基础上持续维护（v0.59.0）
+> ### 📦 本仓库在上游基础上持续维护（v0.60.0）
 >
 > 本项目是 **DSH 记忆系统**（npm 包 `@restregular/dsh-memory`，MIT）的分支维护版：
 > 在上游 v0.30.1 之上做了平台适配、插件化、可靠性加固、语义认知层与嵌入性能优化，并在 **0.40/0.41 补上 BM25+RRF、记忆健康度、冲突自动裁决、可疑写入隔离、本地备份与离线评测**。
@@ -10,7 +10,7 @@
 > | 项目 | 说明 |
 > | --- | --- |
 > | 原作者 | **RestRegular**（上游原项目 [RestRegular/dsh-memory](https://github.com/RestRegular/dsh-memory)，MIT）；本项目在其 v0.30.1 基础上维护 |
-> | 本仓库 | **v0.59.0** = 上游 v0.30.1 + 平台/可靠性改进 + 语义认知层 + 检索整形（BM25/RRF/MMR）+ 嵌入性能 + 记忆强度算法 + **智能关系分析（关系发现/冲突/聚类/演化/推理）**。完整清单见 [IMPROVEMENTS.md](IMPROVEMENTS.md)，架构见 [docs/architecture.md](docs/architecture.md) |
+> | 本仓库 | **v0.60.0** = 上游 v0.30.1 + 平台/可靠性改进 + 语义认知层 + 检索整形（BM25/RRF/MMR）+ 嵌入性能 + 记忆强度算法 + **智能关系分析（关系发现/冲突/聚类/演化/推理）**。完整清单见 [IMPROVEMENTS.md](IMPROVEMENTS.md)，架构见 [docs/architecture.md](docs/architecture.md) |
 > | 许可 | **MIT**，版权归原作者所有，见 [LICENSE](LICENSE)；转载、分发请保留原始版权声明 |
 > | 更新与反馈 | Issue / PR / 反馈请到 **[本仓库 Issues](https://github.com/HANPU5838/dsh-memory/issues)**；与上游的差异集中在 `IMPROVEMENTS.md` |
 >
@@ -25,7 +25,7 @@
 
 JSONL 落盘 · 本机向量检索 · 六个模型工具 · 自动召回 · 硬性规则 · 可视化管理面板
 
-[![version](https://img.shields.io/badge/version-v0.59.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![version](https://img.shields.io/badge/version-v0.60.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/HANPU5838/dsh-memory/blob/main/LICENSE)
 [![ci](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.13-5FA04E.svg)](https://nodejs.org/)
@@ -182,7 +182,7 @@ bge-m3 1024 维，llama-server CPU 6 线程，2026-11-10）：
 | 批量嵌入（batch=8 vs 1） | 3.8 rec/s vs 2.8 rec/s（≈1.4×，CPU 上省的是调度） |
 | 回填 | batch=8 3.2 rec/s；单条失败只留 null，不拖垮整批 |
 | ANN（纯 JS HNSW，合成 128 维） | 2k：P50 1.3ms/召回 100%；10k：1.15ms/98%（10.4×）；20k：1.73ms/94%（14.6×） |
-| 测试 | **1083 例 / 1082 pass / 1 skip / 0 fail**（v0.59.0） |
+| 测试 | **1093 例 / 1092 pass / 1 skip / 0 fail**（v0.60.0） |
 | 检索评测（合成集 94 条 / 48 查询，真实 bge-m3） | base recall@5 0.7708 → **产品默认 0.9167**；MRR 0.7483 / nDCG 0.7912（方法见 [docs/benchmark.md](docs/benchmark.md)） |
 
 复现：`node tools/bench/run.mjs`（live 模式需本地嵌入服务；无服务时自动合成数据）。
@@ -300,6 +300,13 @@ pnpm add "file:/path/to/dsh-memory"
 > | 任意平台已有 `llama-server`（apt/brew/源码/`$PATH`/brew 前缀/`~/.local/bin`…） | 直接用它，只补模型 |
 > | Linux / macOS / Windows（无系统 llama-server） | 默认不动（不擅自下几百 MB）；`autoBootstrap: 'always'` 时下载托管运行时 + 模型 |
 > | 显式配了 `endpoint` / `spawn`、或 `provider` 不是 `local` | 一律不触发 |
+>
+> **本机现成端点优先（0.60.0）**：自举前先扫 127.0.0.1 上已在跑的服务——
+> Ollama(11434)、LM Studio(1234)、llama.cpp(8080)、通用 OpenAI 兼容(8000)，
+> 「同模型 + 同维度」验证通过就直接采用，**零下载**。维度不符宁可不采用（防止向量空间混用）。
+>
+> **端口自动回退**：默认端口被占时自动换下一个空闲端口（用户显式指定 `spawn.port` 时不动）。
+> **Linux 显卡探测**：nvidia-smi 之外补 `lspci`，AMD/Intel 机器也能推荐 Vulkan 运行时。
 >
 > 运行时来源用 `retrieval.vector.runtime` 控制：`auto`（默认：系统 > 托管）/ `managed` / `system`。
 > 自举过程写在 `<installRoot>/bootstrap.log`，面板「服务 → 环境自检」也会列出发行版/包管理器/
