@@ -177,9 +177,16 @@ export interface MemoryLocalConfig {
        */
       runtime?: 'auto' | 'managed' | 'system'
       /**
-       * Termux 自举：'auto'（默认）= 在 Termux/Android 上检测到「还没有向量后端」时，
-       * 自动 `pkg install -y llama-cpp`（系统里没有 llama-server 时）→ 只下模型 →
-       * 托管启动，做到零配置可用；'off' = 完全手动（面板按钮）。
+       * 向量后端获取方式。**默认 'off' = 完全手动**：不自动装包、不自动下模型、
+       * 也不自动探测本机端点，一切等用户去面板点「下载并安装」。
+       *
+       * 为什么默认手动（0.62.4 起的改动）：模型动辄 400MB+，在手机上还会先
+       * `pkg install` 一个运行时；「只要启用向量就自动装」意味着用户从没同意过
+       * 的一次几百 MB 下载 + 后台起服务。下载/安装属于**一次性、可感知**的成本，
+       * 应该由用户显式点击发起，而不是由「启用」隐式触发。
+       *
+       * 'auto' = 旧行为（Termux/Android 检测到没有后端时自动装包/下模型）；
+       * 'always' = 强制托管下载运行时 + 模型。
        * 只在 provider 为 local、且用户没显式写 endpoint / spawn 时生效。
        */
       autoBootstrap?: 'auto' | 'off' | 'always'
@@ -763,7 +770,7 @@ export function resolveConfig(config: MemoryLocalConfig = {}): ResolvedConfig {
       runtimeMode,
       systemExe,
       runtimeSource: installed === null ? 'none' : (installed.system === true ? 'system' : 'managed'),
-      autoBootstrap: v.autoBootstrap ?? 'auto',
+      autoBootstrap: v.autoBootstrap ?? 'off',
       spawnExplicit,
       ...(v.autoInstall?.modelSources ? { installModelSources: v.autoInstall.modelSources } : {}),
       installModel: {

@@ -7,7 +7,10 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { planVectorBootstrap, type VectorBootstrapInput } from '../src/index.ts'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { planVectorBootstrap, resolveConfig, type VectorBootstrapInput } from '../src/index.ts'
 
 const base: VectorBootstrapInput = {
   autoBootstrap: 'auto',
@@ -45,4 +48,16 @@ test('自举：桌面端默认不下载托管运行时，除非显式 always', (
   assert.equal(planVectorBootstrap(desktop), 'none', 'auto 模式桌面端不擅自下 400MB')
   assert.equal(planVectorBootstrap({ ...desktop, autoBootstrap: 'always' }), 'managed-install')
   assert.equal(planVectorBootstrap({ ...desktop, autoBootstrap: 'always', managedSupported: false }), 'none', '平台没有资产时兜底失败')
+})
+
+test('默认手动：没显式配置 autoBootstrap 时就是 off，不会自动装包/下模型', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-mem-bootstrap-default-'))
+  try {
+    const cfg = resolveConfig({ storeDir: join(dir, 'store') })
+    assert.equal(cfg.vector.autoBootstrap, 'off', '默认必须是手动，下载/安装由面板按钮显式触发')
+    // 同样的输入在旧默认（auto）下会决策成 install-package / download-model。
+    assert.equal(planVectorBootstrap({ ...base, autoBootstrap: cfg.vector.autoBootstrap }), 'none')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })

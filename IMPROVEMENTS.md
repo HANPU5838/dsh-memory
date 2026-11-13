@@ -13,6 +13,10 @@
   实体抽取迁到 `analysis/entities.ts`，**「关系分析」完整保留**。桌面端与移动端 API 都少了一个功能面。
 - **0.57 Termux 原生运行时**：新增 `retrieval.vector.runtime`（auto/managed/system）；
   系统 `llama-server` 优先，只下模型、不走 glibc 兼容层；修复 Android 平台判定（`isLinuxLike`/`assetPlatform`）。
+- **0.62.4 向量后端默认手动安装**：`autoBootstrap` 默认 `off`（不自动探测端点/装包/下模型），
+  下载与安装由面板按钮显式触发；显式设 `auto`/`always` 才恢复自动自举；
+- **0.62.3 保底召回**：两路准入门槛同时擦线时整条漏召回，新增 `recallFallback`
+  （默认开，只在 0 结果时放宽一次，仍高于噪声地板）；
 - **0.58 零配置自举**：`autoBootstrap`（auto/off/always）：Termux 自动装包 → 只下模型 → 托管启动；
   决策抽成纯函数并有回归用例；过程落盘 `<installRoot>/bootstrap.log`。
 - **0.59 跨平台适配层**：`detectRuntimeEnvironment()`（平台/发行版/包管理器/系统 llama-server）；

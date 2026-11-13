@@ -177,9 +177,16 @@ function isInside(parent        , child        )          {
          
                                              
          
-                                                               
-                                                                    
-                                         
+                                                   
+                                     
+        
+                                                 
+                                                   
+                                                   
+                                  
+        
+                                                       
+                                   
                                                           
          
                                                
@@ -763,7 +770,7 @@ export function resolveConfig(config                    = {})                 {
       runtimeMode,
       systemExe,
       runtimeSource: installed === null ? 'none' : (installed.system === true ? 'system' : 'managed'),
-      autoBootstrap: v.autoBootstrap ?? 'auto',
+      autoBootstrap: v.autoBootstrap ?? 'off',
       spawnExplicit,
       ...(v.autoInstall?.modelSources ? { installModelSources: v.autoInstall.modelSources } : {}),
       installModel: {

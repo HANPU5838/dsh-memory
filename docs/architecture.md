@@ -1,4 +1,4 @@
-# 架构说明（本仓库维护版 0.62.3）
+# 架构说明（本仓库维护版 0.62.4）
 
 > 本文说明这套记忆插件「为什么是插件」：哪些属于宿主、哪些属于插件、平台差异放在哪里。
 > 上游 `@restregular/dsh-memory@0.30.1` 的原始设计见其 README；本仓库在上游之上做了
@@ -76,9 +76,11 @@ retrieval.vector.provider
 - 记录与向量的删除一起发生（边车不会只增不减）；
 - `flush` 写盘失败只 warn、增量保留（绝不把异常抛出定时器）。
 
-## 4. 自举流程（0.58–0.60）
+## 4. 自举流程（0.58–0.62.4）
 
-启动后后台执行（不阻塞宿主、不覆盖显式配置）：
+**默认不执行（0.62.4 起）**：`autoBootstrap` 默认 `'off'` —— 启动时既不探测本机端点、
+也不装包/下模型，向量后端由面板「下载并安装」显式发起。下面是显式设为 `'auto'`/`'always'`
+后的流程：
 
 ```
 1. 本机端点发现（endpoint-discovery.ts）
@@ -88,8 +90,8 @@ retrieval.vector.provider
 2. 若没有现成端点，按环境决策（planVectorBootstrap，纯函数可测）
    系统已有 llama-server（任意平台）→ 只补模型
    Termux + pkg                 → pkg install -y llama-cpp → 只补模型
-   autoBootstrap: 'always'      → 托管下载运行时 + 模型（桌面端默认不走这条）
-   否则                         → 不动，bootstrap.log 记下该执行的安装命令
+   autoBootstrap: 'always'      → 托管下载运行时 + 模型（桌面端 'auto' 不走这条）
+   autoBootstrap: 'off'（默认）  → 全部跳过，bootstrap.log 记 decision=none + 安装提示
 
 3. 启动托管服务
    端口被占 → 自动回退到下一个空闲端口（显式 spawn.port 除外）
