@@ -1498,7 +1498,11 @@ export class LocalMemoryService                             {
    */
           async applyPortFallback()                {
     const cfg = this.cfg.vector
-    // 用户显式写了 spawn.port：尊重用户选择，不做回退。
+    // 只有「插件真的要拉起子进程」时才谈端口回退：
+    //  - spawn 没开（external 端点、openai/ollama、或用户自己的本地服务）→ 端口是
+    //    别人的，改了只会把用户配置改坏；
+    //  - 用户显式写了 spawn.port：尊重用户选择，不做回退。
+    if (cfg.spawn.enabled !== true) return
     if (cfg.spawnExplicit || cfg.spawn.port === undefined) return
     const host = cfg.spawn.host ?? '127.0.0.1'
     const current = cfg.spawn.port

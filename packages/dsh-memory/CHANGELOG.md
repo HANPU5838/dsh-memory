@@ -2,6 +2,18 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.62.2 — 修复端口回退误改外部端点（2026-11-13）
+
+- **回归**：0.60 加的「端口冲突自动回退」没有判断「插件是否真的要托管子进程」。
+  当用户用自己的本地服务（如本机 Ollama / 自建 llama-server）并把 `spawn.enabled`
+  保持关闭时，插件仍会把**用户的 endpoint 端口**改掉（8078 被占 → 改成 8079），
+  语义检索随即失效。
+- 修复：`applyPortFallback()` 只在 `spawn.enabled === true` 时生效；外部端点、
+  openai/ollama、用户显式端口一律不动。
+- 新增回归用例：占住一个随机端口 + 外部 endpoint + spawn 关闭 → endpoint 必须原样保留。
+
+**测试**：1097 例 / 1096 pass / 1 skip / 0 fail；`npm run verify:all` → PASS。
+
 ## 0.62.1 — 修复冻结参数导致的 memory_forget 短 id 失效（2026-11-13）
 
 - 上一版（0.62.0）在 `memory_forget` 里把解析出的完整 id **回写进了参数对象**；
