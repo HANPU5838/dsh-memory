@@ -321,5 +321,42 @@ export class LruSet    {
   }
 }
 
+/** 常见汉语功能词单字：只由这些字组成的 token 不算"内容词"。 */
+const GENERIC_CJK_CHARS                      = new Set([
+  '的', '了', '是', '在', '有', '和', '与', '或', '就', '都', '也', '很', '会', '能', '要', '想',
+  '我', '你', '他', '她', '它', '们', '这', '那', '哪', '什', '么', '怎', '如', '何', '为', '吗',
+  '呢', '吧', '啊', '呀', '哦', '嗯', '个', '些', '点', '下', '上', '中', '里', '天', '时', '候',
+  '多', '少', '好', '可', '以', '办', '弄', '搞', '做', '事', '情', '样', '法', '话', '说', '等',
+  '把', '被', '让', '给', '对', '从', '向', '到', '于', '而', '但', '却', '又', '再', '还', '只',
+  '更', '最', '太', '挺', '才', '已', '经', '过', '着', '得', '地', '之', '其', '此', '该', '每',
+  '各', '某', '谁', '啥', '俩', '您', '咱', '正', '刚', '快', '慢', '真', '假', '像', '跟', '同',
+])
+
+/**
+ * 0.62.7：这个 token 是不是"通用功能词"（不含任何实义）。
+ * 单字：字在功能词表里；多字：**每个字**都是功能词（如「怎么」「什么」「多少」「为什么」）。
+ * 英文/数字 token 一律视为内容词（功能词表只针对汉字）。
+ */
+export function isGenericCjkToken(token        )          {
+  if (!/^[\u3400-\u4dbf\u4e00-\u9fff]+$/u.test(token)) return false
+  for (const char of token) if (!GENERIC_CJK_CHARS.has(char)) return false
+  return true
+}
+
+/**
+ * 0.62.7：词法准入要求"命中至少一个内容词"（≥2 字的非功能词）。
+ *
+ * 为什么：`hasStrongHit` 把任何 ≥2 字重叠都当强命中，于是「怎么办」「怎么减肥」
+ * 这类查询会命中任何正文里带「怎么」的记忆 —— 实测「怎么办」返回了 3 条无关记忆，
+ * 「怎么减肥」命中了含「怎么输出」的沟通偏好。功能词重叠不构成相关性证据；
+ * 语义相关交给向量通道，词法通道只认实义。
+ */
+export function hasContentHit(queryTokens          , recordTokens             )          {
+  for (const token of queryTokens) {
+    if (token.length >= 2 && recordTokens.has(token) && !isGenericCjkToken(token)) return true
+  }
+  return false
+}
+
 
 //# sourceURL=source/memory-local/src/scoring.ts

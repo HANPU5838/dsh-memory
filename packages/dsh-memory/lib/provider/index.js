@@ -53,7 +53,7 @@ import {
                    
 } from './scope-meta.js'
 import { mergeInjectSettings, normalizeInjectSettings,                     } from './inject-settings.js'
-import { buildStats, lexicalScore, recordScore, tokenize, cosine, normalizeInPlace, hasStrongHit, finalFloor, semanticDedupe, mmrSelect } from './scoring.js'
+import { buildStats, lexicalScore, recordScore, tokenize, cosine, normalizeInPlace, hasStrongHit, hasContentHit, finalFloor, semanticDedupe, mmrSelect } from './scoring.js'
 import { adaptiveScopeThreshold, calibrateScore } from './retrieval/adapt.js'
 import { blendHybrid, expandQuery, expandQueries, hybridWeights, queryProfile } from './retrieval/expand.js'
 import { buildBm25Docs, bm25Score, rankByBm25 } from './retrieval/bm25.js'
@@ -4101,7 +4101,11 @@ export class LocalMemoryService                             {
           globalThreshold: this.cfg.globalThreshold,
           projectThreshold: this.cfg.projectThreshold,
         })
-        const effective = hasStrongHit(queryTokens, tokenSets[i] ) ? floor : Math.max(floor, REAL_HIT_FLOOR)
+        // 0.62.7：功能词重叠不算相关性证据（见 hasContentHit 注释）——只由「怎么/什么/
+        // 多少」这类功能词构成的词面重叠**直接拒绝**，不靠抬高门槛（实测 0.357 仍会过线）。
+        // 语义相关交给向量通道，词法通道只认实义词。
+        if (!hasContentHit(queryTokens, tokenSets[i] )) continue
+        const effective = floor
         if (lex < effective) continue
         const calibrated = calibrateScore(lex, rec.scope)
         candidates.set(rec.id, { record: rec, recallScore: calibrated, lexScore: calibrated, isGlobal, vector: store.vectors.get(rec.id) ?? null })
@@ -4392,7 +4396,7 @@ export class LocalMemoryService                             {
             if (!includeSuperseded && retired.has(rec.id)) continue
             if (!isRecordVisible(rec, { includeDormant, includeTombstoned, includeExpired, now })) continue
             if (kindFilter !== undefined && !kindFilter(rec.scope, rec.kind)) continue
-            if (!hasStrongHit(queryTokens, tokenSets[i] )) continue
+            if (!hasContentHit(queryTokens, tokenSets[i] )) continue
             const lex = lexicalScore(queryTokens, tokenSets[i] , stats)
             if (lex > bestLex) {
               bestLex = lex
