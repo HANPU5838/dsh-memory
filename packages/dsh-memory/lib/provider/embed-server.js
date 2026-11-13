@@ -28,7 +28,7 @@ import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSyn
 import { createConnection } from 'node:net'
 import { basename, dirname, join } from 'node:path'
                                               
-import { DEFAULT_TERMUX_PREFIX as PLATFORM_TERMUX_PREFIX, readElfInterpFromFile } from './platform.js'
+import { DEFAULT_TERMUX_PREFIX as PLATFORM_TERMUX_PREFIX, isLinuxLike, readElfInterpFromFile } from './platform.js'
 
                                     
                                                                                    
@@ -360,7 +360,7 @@ export class EmbedServerManager {
    * 也绝不清理自己正在托管的子进程。
    */
           async cleanupOrphan()                {
-    if (this.deps.platform !== 'linux') return
+    if (!isLinuxLike(this.deps.platform)) return
     const pid = this.readPidFile()
     if (pid === null) return
     if (!this.isAlive(pid)) {
@@ -439,6 +439,19 @@ export class EmbedServerManager {
         this.deps.kill(pid)
         killed = true
         this.deps.log(`embed server: 已停止 pid=${pid}`)
+        // SIGTERM 之后不等待会留下卡在模型加载/系统调用里的子进程：它还占着
+        // 8078，下一轮启动直接 PORT_IN_USE（Termux 上进程被 LMK 打断很常见）。
+        // 3s 后复核 pid 身份再升级 SIGKILL，避免 PID 复用误杀无关进程。
+        const target = pid
+        const escalation = setTimeout(() => {
+          try {
+            if (!this.isAlive(target)) return
+            if (this.pidIdentity(target) === 'foreign') return
+            this.deps.log(`embed server: pid=${target} 未响应 SIGTERM，升级 SIGKILL`)
+            this.deps.kill(target, 'SIGKILL')
+          } catch { /* best effort */ }
+        }, ORPHAN_GRACE_MS)
+        escalation.unref?.()
       }
     }
     this.child = null
@@ -646,7 +659,7 @@ export class EmbedServerManager {
     const mode = this.glibcMode()
     const direct             = { file: exe, args, wrapped: false }
     if (mode === 'off') return direct
-    if (this.deps.platform !== 'linux') {
+    if (!isLinuxLike(this.deps.platform)) {
       if (mode === 'on') this.deps.log(`embed server: glibcWrap='on' 只在 Linux 上生效,本机是 ${this.deps.platform},直接启动`)
       return direct
     }
@@ -723,7 +736,7 @@ export class EmbedServerManager {
    * 当作「是」,避免在拿不到证据时把服务弄丢。
    */
           pidIdentity(pid        )                                 {
-    if (this.deps.platform !== 'linux') return 'unknown'
+    if (!isLinuxLike(this.deps.platform)) return 'unknown'
     let cmdline               
     try {
       cmdline = this.deps.readProcCmdline(pid)

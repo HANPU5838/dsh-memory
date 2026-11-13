@@ -32,6 +32,12 @@ export interface HostHardware {
   arch: string
   cpuCount: number
   totalRamMb: number
+  /**
+   * 当前**可用**内存（MB，已扣 cgroup/LMK 限制）；读不到为 null。
+   * Android 上物理内存远大于 App 实际能拿到的量，模型预算必须优先按它算，
+   * 否则会推荐一个刚加载就被 LMK 杀掉的模型。
+   */
+  availableRamMb: number | null
   /** 安装目录所在盘的空闲空间;拿不到为 null。 */
   freeDiskMb: number | null
   diskPath: string | null
@@ -47,6 +53,8 @@ export interface HardwareDeps {
   arch: string
   cpuCount(): number
   totalRamMb(): number
+  /** 可用内存（Termux/Android 上低于 totalRamMb）；不注入则按 null 处理。 */
+  availableRamMb?(): number | null
   freeDiskMb(dir: string): number | null
   /** nvidia-smi 的原始输出;不可用时 null。 */
   nvidiaSmi(): Promise<string | null>
@@ -86,6 +94,8 @@ export const defaultHardwareDeps: HardwareDeps = {
   // 空数组会让「按核数推荐线程」算出 0 / NaN —— detectPlatform 会兜底成 4。
   cpuCount: () => detectPlatform().cpuCount,
   totalRamMb: () => Math.round(totalmem() / 1048576),
+  // LMK 会让 App 的实际可用内存远小于物理内存：预算按这个值算才真实。
+  availableRamMb: () => detectPlatform().availableMemMb,
   freeDiskMb: (dir) => {
     // statfs 需要真实存在的路径:从目标目录往上找到第一个存在的祖先。
     let probe = dir
@@ -213,6 +223,9 @@ export async function probeHardware(
     arch: deps.arch,
     cpuCount: Math.max(1, deps.cpuCount()),
     totalRamMb: Math.max(0, deps.totalRamMb()),
+    availableRamMb: (() => {
+      try { return deps.availableRamMb?.() ?? null } catch { return null }
+    })(),
     freeDiskMb,
     diskPath: freeDiskMb === null ? null : dir,
     gpu,

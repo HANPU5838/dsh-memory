@@ -92,7 +92,12 @@ export function recommendModel(input: RecommendationInput): Recommendation {
   const chineseUi = input.locale.toLowerCase().startsWith('zh')
   const flavor = pickFlavor(hw)
   const gpuCapable = flavor === 'cuda' || flavor === 'vulkan' || flavor === 'metal'
-  const ramBudget = usableRamMb(hw.totalRamMb)
+  // 内存预算优先用「可用内存」：Android/Termux 上物理内存 15GB 而 LMK 下实际
+  // 常只有 2–4GB，按 totalRamMb 算会推荐一个刚加载就被杀掉的模型。
+  const ramBasis = hw.availableRamMb != null && hw.availableRamMb > 0
+    ? Math.min(hw.totalRamMb, hw.availableRamMb)
+    : hw.totalRamMb
+  const ramBudget = usableRamMb(ramBasis)
   const vramBudget = hw.gpu?.vramMb != null ? usableVramMb(hw.gpu.vramMb) : 0
 
   const candidates: ScoredCandidate[] = []

@@ -213,11 +213,6 @@ export class CordisMemoryService extends Service {
   analysisGraph()                                                  { return this.impl.analysisGraph() }
   analysisHistory(input                                                       )                                                    { return this.impl.analysisHistory(input) }
 
-  /** 0.42.0：知识图谱（实体共现图）。 */
-  entityGraph(opts                                                   )                                                {
-    return this.impl.entityGraph(opts)
-  }
-
   /** 0.40.0（P1）：健康度报告。 */
   healthReport()                                                 {
     return this.impl.healthReport()

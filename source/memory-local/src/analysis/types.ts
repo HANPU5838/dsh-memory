@@ -256,7 +256,7 @@ export interface AnalysisState {
 
 export interface AnalyzeOptions {
   mode: AnalysisMode
-  /** 只分析这些实体类型（缺省全部）；与 graph.extractEntities 的类型一致。 */
+  /** 只分析这些实体类型（缺省全部）；与 entities.extractEntities 的类型一致。 */
   entityTypes?: string[]
   /** 只分析 updatedAt >= since 的记忆。 */
   since?: number

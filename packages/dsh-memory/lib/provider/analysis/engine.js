@@ -25,7 +25,7 @@
  * 本模块不做任何 I/O；持久化见 analysis/store.ts。
  */
 import { createHash } from 'node:crypto'
-import { entityNodeId, extractEntities,             } from '../cognitive/graph.js'
+import { entityNodeId, extractEntities,             } from './entities.js'
 import { hasCriticalDetailConflict } from '../cognitive/conflict.js'
 import { assessContradiction } from '../cognitive/contradiction.js'
              
@@ -252,7 +252,7 @@ function normalizeContent(content        )         {
             
                
               
-                                                  
+                                                     
                 
  
 

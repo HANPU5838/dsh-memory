@@ -2,6 +2,36 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.57.0 — 移除知识图谱 + Termux 原生运行时（本仓库维护，2026-11-13）
+
+**移除：知识图谱（0.42~0.56 的实体共现图）**
+- 后端删除 `cognitive/graph.ts`（建图 / 序列化 / 统计 / 关系查询）；实体抽取迁到
+  `analysis/entities.ts`，「关系分析」继续复用，抽取行为与旧版逐字节一致。
+- 服务：`entityGraph()` 与面板 `GET /graph` 路由移除；`analysis/graph.json` 不再写读，
+  `GET /analysis/graph`（关系分析画布）改为每次即时构建，不会读到过期的图。
+- 面板：记忆树标签页的「知识图谱 / 文件视图」、`.kg-*` 样式、类型图例、实体详情与
+  拖动平移一并删除；**记忆树与关系分析页不受影响**（-692 行）。
+- 文档：删除 `docs/graph.md`，README / architecture / comparison 同步清理。
+
+**Termux / Android 原生运行时（新增）**
+- 系统 llama-server 探测：`DSH_MEMORY_LLAMA_SERVER` → `LLAMA_SERVER` →
+  `$PREFIX/bin/llama-server` → PATH。命中即走「只下模型」路径，不下载运行时、
+  也不需要 glibc 兼容层（`pkg install llama-cpp` 提供 bionic 原生构建）。
+- 新配置 `retrieval.vector.runtime`：`auto`（默认）/ `managed` / `system`。
+- 修复 Android 平台判定：`process.platform === 'android'` 之前被所有 `=== 'linux'`
+  闸门当成「非 Linux」——资产匹配报「暂不支持该平台」、glibc 包装被跳过（下载回来
+  的 ubuntu 二进制必然 ENOENT）、孤儿清理与 `/proc` pid 校验静默失效。现统一走
+  `isLinuxLike()` / `assetPlatform()`。
+
+**修复（审计发现）**
+- 冷启动超时后语义召回永久失效：`vectorWarming` 只看 `!ready && !unavailable`，
+  而 60s 超时只记日志 → 给冷启动窗口加 180s 截止时间，超时后恢复尝试。
+- 模型推荐按物理内存而非可用内存：Android 上 LMK 实际可用常 2–4GB，现优先用
+  `availableRamMb`（cgroup / MemAvailable 取小值）。
+- 系统运行时冒烟失败不再误删别人的 `llama-server`。
+
+**测试**：1072 例 / 1070 pass / 2 skip / 0 fail。
+
 ## 0.56.1 — 文档版本对齐（本仓库维护，2026-11-11）
 
 - README「现状与边界」/安装说明更新到 0.56.0，并补一段明确判断：它现在是**闭环的本地记忆系统**，

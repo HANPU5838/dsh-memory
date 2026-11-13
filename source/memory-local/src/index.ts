@@ -65,6 +65,7 @@ import { applyConsolidationPlan, clusterRecords, planConsolidation } from './cog
 import { computeHealth, type HealthReport } from './cognitive/health.ts'
 import { AnalysisRepository } from './analysis/store.ts'
 import { analyzeMemories } from './analysis/engine.ts'
+import { entityNodeId, extractEntities } from './analysis/entities.ts'
 import {
   type AnalysisMemory,
   type AnalysisMode,
@@ -79,12 +80,11 @@ import {
 } from './analysis/types.ts'
 import { resolveConflict, applyConflictResolution } from './cognitive/resolve.ts'
 import { scanMemoryContent, quarantineRecord, clearQuarantine } from './cognitive/guard.ts'
-import { buildEntityGraph, serializeGraph, type EntityGraphOptions, type SerializableEntityGraph, type GraphMemory } from './cognitive/graph.ts'
 import { MERGE_THRESHOLD, planNearDuplicateMerge } from './cognitive/merge.ts'
 import { assessConflicts, applyConflictMarker, hasCriticalDetailConflict } from './cognitive/conflict.ts'
 import { isRecordVisible, revive, tombstone, purgeTombstones, markDormant, restore as restoreTombstoned, snapshot as writeSnapshot, restoreSnapshot as readSnapshotFile } from './cognitive/lifecycle.ts'
 import { createEmbeddingProvider, type EmbeddingProvider, type EmbeddingProviderKind } from './embedding-providers.ts'
-import { canExecute, describePlatform, detectPlatform, freeDiskBytes } from './platform.ts'
+import { canExecute, describePlatform, detectPlatform, findSystemLlamaServer, freeDiskBytes } from './platform.ts'
 import { DailyBudget, blendScores, rerank, type LlmInvoke, type RerankConfig } from './rerank.ts'
 import { RerankCache } from './rerank-cache.ts'
 import { scanSecrets, redactSecrets } from './secrets.ts'
@@ -166,6 +166,13 @@ export interface MemoryLocalConfig {
     recencyHalfLifeDays?: number
     vector?: {
       enabled?: boolean
+      /**
+       * 运行时来源：'auto'（默认）= 托管运行时已装就用它，否则有系统 llama-server
+       * 就用系统的；'managed' = 只用一键安装下载的运行时，从不碰系统二进制；
+       * 'system' = 强制用系统 llama-server（如 Termux `pkg install llama-cpp` 的
+       * `$PREFIX/bin/llama-server`），此时只下载模型，不走 glibc 兼容层。
+       */
+      runtime?: 'auto' | 'managed' | 'system'
       /**
        * 嵌入后端类型。默认按 endpoint 推断：本机回环地址 → 'local'（插件自己拉
        * llama-server），其它地址 → 'openai'（任意 OpenAI 兼容服务）；显式配置优先。
@@ -357,6 +364,12 @@ export interface ResolvedConfig {
       efSearch?: number
     }
     spawn: EmbedServerConfig
+    /** 运行时来源策略（配置值）。 */
+    runtimeMode: 'auto' | 'managed' | 'system'
+    /** 系统 llama-server 路径（运行时策略为 'managed' 或系统里没装时为 null）。 */
+    systemExe: string | null
+    /** 最终实际使用的运行时来源；未安装为 'none'。 */
+    runtimeSource: 'managed' | 'system' | 'none'
   }
   llm: RerankConfig
   maxRecordsPerScope: number
@@ -597,7 +610,15 @@ export function resolveConfig(config: MemoryLocalConfig = {}): ResolvedConfig {
   // 模型选择:自定义 → 显式 preset → 用 model 字符串去清单里找 → 内置默认。
   // 这一步必须在 detectInstalled 之前:安装判据是「exe + **所选模型的**文件」。
   const selection = resolveModelSelection(v, installRoot)
-  const installed = detectInstalled(installRoot, selection.file)
+  // 运行时来源：能 `pkg install llama-cpp` 的环境（Termux/Android）优先用系统
+  // llama-server —— bionic 原生二进制，既不用下载 ubuntu 构建，也不用 Termux
+  // glibc 兼容层。托管运行时已存在时保持原行为（auto 下托管优先）。
+  const runtimeMode = v.runtime ?? 'auto'
+  const systemExe = runtimeMode === 'managed' ? null : findSystemLlamaServer()
+  const installed = detectInstalled(installRoot, selection.file, {
+    systemExe,
+    preferSystem: runtimeMode === 'system',
+  })
   const endpointConfigured = v.endpoint !== undefined
   // A configured spawn path that no longer exists (plugin uninstalled the
   // backend, or the user moved it) must not count as configured: that would
@@ -634,6 +655,9 @@ export function resolveConfig(config: MemoryLocalConfig = {}): ResolvedConfig {
       endpointConfigured,
       spawnConfigured,
       installRoot,
+      runtimeMode,
+      systemExe,
+      runtimeSource: installed === null ? 'none' : (installed.system === true ? 'system' : 'managed'),
       ...(v.autoInstall?.modelSources ? { installModelSources: v.autoInstall.modelSources } : {}),
       installModel: {
         file: selection.file,
@@ -964,6 +988,8 @@ export class LocalMemoryService implements MemoryServiceApi {
   private embedKeepAlive: EmbedKeepAlive | null = null
   /** 0.40.1：本地嵌入服务是否已就绪（模型加载完成）。冷启动期间跳过语义召回，避免超时刷屏。 */
   private embedServerReady = false
+  /** 本次托管启动的时刻；用于给「冷启动跳过语义召回」设截止时间。 */
+  private embedServerWarmSince: number | null = null
   private warmSkipLogged = false
   /**
    * 0.40.2：查询嵌入串行链。
@@ -1325,6 +1351,7 @@ export class LocalMemoryService implements MemoryServiceApi {
     this.embedKeepAlive?.stop()
     this.embedKeepAlive = null
     this.embedServerReady = false
+    this.embedServerWarmSince = null
     this.warmSkipLogged = false
     this.embed = this.createEmbed()
     // 缓存身份跟着模型/维度/pooling：不一致时 setIdentity 会整体作废旧缓存。
@@ -1348,6 +1375,7 @@ export class LocalMemoryService implements MemoryServiceApi {
   /** Own the embedding backend's lifetime: spawn on activation, stop on dispose. */  private startEmbedServer(): void {
     // 新的一轮托管：等 waitUntilReady 成功后才把就绪标记置 true。
     this.embedServerReady = false
+    this.embedServerWarmSince = Date.now()
     // Nothing configured and retrieval switched off → do not even build the
     // manager, so no probe, no spawn attempt, no misleading panel state.
     if (!this.cfg.vector.enabled || !this.cfg.vector.configured) return
@@ -1386,7 +1414,10 @@ export class LocalMemoryService implements MemoryServiceApi {
     }
     const ready = await mgr.waitUntilReady(waitMs)
     this.embedServerReady = ready
-    if (ready) this.warmSkipLogged = false
+    if (ready) {
+      this.embedServerWarmSince = null
+      this.warmSkipLogged = false
+    }
     // 0.32.0：服务就绪后预热一次并开始周期探活（后台被杀能自动恢复）。
     if (ready) this.startEmbedKeepAlive()
     if (!ready) console.warn('[dsh-memory-local] embed server: 启动超时,检索继续走词法降级')
@@ -1601,18 +1632,27 @@ export class LocalMemoryService implements MemoryServiceApi {
     }
   }
 
+  /** detectInstalled / 安装器统一用的系统运行时选项。 */
+  private systemRuntimeOptions(): { systemExe: string | null; preferSystem: boolean } {
+    return {
+      systemExe: this.cfg.vector.runtimeMode === 'managed' ? null : this.cfg.vector.systemExe,
+      preferSystem: this.cfg.vector.runtimeMode === 'system',
+    }
+  }
+
   /** Installer state for the panel (idle when nothing was ever requested). */
   private installSnapshot(): InstallProgress & { installed: boolean; root: string } {
     const root = this.cfg.vector.installRoot
     const modelFile = this.cfg.vector.installModel.file
-    const installed = detectInstalled(root, modelFile) !== null
+    const detected = detectInstalled(root, modelFile, this.systemRuntimeOptions())
+    const installed = detected !== null
     const progress = this.installer?.progress ?? {
       phase: 'idle' as const,
       message: '',
       receivedBytes: 0,
       totalBytes: null,
       error: null,
-      paths: installed ? installPaths(root, modelFile) : null,
+      paths: detected ?? null,
     }
     return { ...progress, installed, root }
   }
@@ -1645,12 +1685,12 @@ export class LocalMemoryService implements MemoryServiceApi {
       languages: model.languages,
       contextTokens: model.contextTokens,
       sizeBytes: variantBytes(model, this.cfg.vector.presetId === model.id ? this.cfg.vector.variantId : undefined),
-      installed: model.variants.some((variant) => detectInstalled(root, variant.file) !== null),
+      installed: model.variants.some((variant) => detectInstalled(root, variant.file, this.systemRuntimeOptions()) !== null),
       // 逐档判断"装没装":bge-m3 装了 Q4_K_M 不等于 Q8_0 也装了。
       // 判据与 detectInstalled 一致 —— 运行时 exe + 该档模型文件都在。
       variants: model.variants.map((variant) => ({
         id: variant.id, label: variant.label, bytes: variant.bytes, file: variant.file,
-        installed: detectInstalled(root, variant.file) !== null,
+        installed: detectInstalled(root, variant.file, this.systemRuntimeOptions()) !== null,
       })),
     }))
     const records = this.store.allScopes().reduce((n, s) => n + s.records.size, 0)
@@ -1746,7 +1786,7 @@ export class LocalMemoryService implements MemoryServiceApi {
   installVectorBackend(override: ModelOverride = {}): void {
     const flavor = this.applyModelSelection(override)
     const model = this.cfg.vector.installModel
-    if (detectInstalled(this.cfg.vector.installRoot, model.file)) {
+    if (detectInstalled(this.cfg.vector.installRoot, model.file, this.systemRuntimeOptions())) {
       this.adoptInstalledBackend()
       return
     }
@@ -1763,6 +1803,11 @@ export class LocalMemoryService implements MemoryServiceApi {
       ...(flavor === 'auto' ? {} : { flavor }),
       ...(this.cfg.vector.runtimeSha256 !== undefined ? { runtimeSha256: this.cfg.vector.runtimeSha256 } : {}),
       ...(this.cfg.vector.installModelSources && model.sources === undefined ? { modelSources: this.cfg.vector.installModelSources } : {}),
+      // 系统运行时（Termux `pkg install llama-cpp`）：只下模型，不碰运行时下载。
+      ...(this.cfg.vector.runtimeMode !== 'managed' && this.cfg.vector.systemExe !== null
+        ? { systemExe: this.cfg.vector.systemExe }
+        : {}),
+      ...(this.cfg.vector.runtimeMode === 'system' ? { preferSystem: true } : {}),
       onProgress: (progress) => {
         if (progress.phase === 'done') this.adoptInstalledBackend()
       },
@@ -1867,7 +1912,7 @@ export class LocalMemoryService implements MemoryServiceApi {
    * config from the installed layout and start it. Idempotent.
    */
   private adoptInstalledBackend(): void {
-    const paths = detectInstalled(this.cfg.vector.installRoot, this.cfg.vector.installModel.file)
+    const paths = detectInstalled(this.cfg.vector.installRoot, this.cfg.vector.installModel.file, this.systemRuntimeOptions())
     if (!paths) return
     this.cfg.vector.configured = true
     this.cfg.vector.spawnConfigured = true
@@ -3620,8 +3665,14 @@ export class LocalMemoryService implements MemoryServiceApi {
     // 只会刷一屏"嵌入请求超时"并白等。本轮先走词法，模型就绪后自动恢复语义召回。
     // 只对**本地托管**的服务做冷启动跳闸：外部 endpoint（openai/ollama/自建服务）没有
     // 模型加载阶段，不能套用这个判断，否则会一直跳过语义召回。
+    // 冷启动窗口必须有截止时间：llama-server 在低配机上可能 60s 内没 ready，
+    // 而 ensureEmbedServer 的超时只记一句日志、不会把 unavailable 置真 —— 若只看
+    // 「!ready && !unavailable」，整个进程生命周期都会跳过查询嵌入，语义召回静默
+    // 失效（手机冷加载 >60s 完全可能）。超过 WARMING_MAX_MS 就恢复尝试。
+    const warmElapsed = this.embedServerWarmSince === null ? 0 : Date.now() - this.embedServerWarmSince
     const vectorWarming = this.cfg.vector.enabled && this.cfg.vector.configured && this.cfg.vector.spawnConfigured
       && this.embedServer !== null && !this.embedServerReady && !this.embedServer.unavailable
+      && warmElapsed < WARMING_MAX_MS
     if (vectorWarming && !this.warmSkipLogged) {
       this.warmSkipLogged = true
       console.warn('[dsh-memory-local] 嵌入模型加载中：本轮语义召回先跳过，就绪后自动恢复（避免启动期超时刷屏）')
@@ -4122,37 +4173,6 @@ export class LocalMemoryService implements MemoryServiceApi {
     return { restored: result.ok, ...(result.reason !== undefined ? { reason: result.reason } : {}) }
   }
 
-  /**
-   * 0.42.0：知识图谱 —— 实体共现图（零依赖规则抽取，实体=节点、共现=边）。
-   * 只使用可见记录（墓碑/失效/隔离/休眠默认排除），返回可 JSON 化的图。
-   */
-  entityGraph(opts: EntityGraphOptions = {}): SerializableEntityGraph {
-    this.discoverScopes()
-    const now = Date.now()
-    // 作用域参数先归一（project:/x、session:... 的写法差异），再进建图。
-    const wanted = Array.isArray(opts.scopes)
-      ? opts.scopes.map((scope) => this.canonicalScope(scope as MemoryScope))
-      : typeof opts.scopes === 'string' ? [this.canonicalScope(opts.scopes as MemoryScope)] : undefined
-    const records: GraphMemory[] = []
-    for (const scopeStore of this.store.allScopes()) {
-      if (wanted !== undefined && !wanted.includes(scopeStore.scope)) continue
-      for (const rec of scopeStore.records.values()) {
-        // 知识图谱用「活记忆 + 休眠」：墓碑/失效/隔离不进图（休眠只是降权，不算删除）。
-        if (!isRecordVisible(rec, { now, includeDormant: true })) continue
-        records.push({
-          id: rec.id,
-          scope: rec.scope,
-          kind: rec.kind,
-          content: rec.content,
-          tags: rec.tags,
-          expiredAt: (rec as { expiredAt?: number }).expiredAt,
-          tombstonedAt: (rec as { tombstonedAt?: number }).tombstonedAt,
-        })
-      }
-    }
-    return serializeGraph(buildEntityGraph(records, { ...opts, scopes: undefined, now: opts.now ?? now }))
-  }
-
   // -------------------------------------------------------------------------
   // 0.50.0：智能关系分析（六引擎 + 任务队列 + 可审核关系）
   // -------------------------------------------------------------------------
@@ -4340,7 +4360,6 @@ export class LocalMemoryService implements MemoryServiceApi {
       const mergedConflicts = mergeAnalysisConflicts(repo.listConflicts(), result.conflicts, result.preservedConflicts)
       repo.saveRelations(mergedRelations)
       repo.saveConflicts(mergedConflicts)
-      this.persistAnalysisGraph()
       const nextState: AnalysisState = {
         version: 1,
         fingerprints: result.fingerprints,
@@ -4397,7 +4416,6 @@ export class LocalMemoryService implements MemoryServiceApi {
     }
     relations[index] = next
     repo.saveRelations(relations)
-    this.persistAnalysisGraph()
     return next
   }
 
@@ -4431,7 +4449,6 @@ export class LocalMemoryService implements MemoryServiceApi {
     }
     relations.push(record)
     repo.saveRelations(relations)
-    this.persistAnalysisGraph()
     return record
   }
 
@@ -4539,20 +4556,38 @@ export class LocalMemoryService implements MemoryServiceApi {
     }
   }
 
-  /** 0.52.0：图谱快照文件（以文件形式存在：analysis/graph.json）。 */
-  private get analysisGraphPath(): string {
-    return join(this.cfg.storeDir, 'analysis', 'graph.json')
-  }
-
-  /** 从当前实体图 + 关系构建图谱（节点=实体，边=已确认/推荐关系）。 */
+  /**
+   * 从当前可见记忆 + 已确认/推荐关系即时构建图谱（节点=实体，边=关系）。
+   * 节点聚合口径与旧构建一致：count = 出现在多少条记忆里，按 count↓ / id↑ 排序取前 200；
+   * 标签用抽取时的展示标签（首次出现的写法归一而来）。
+   */
   private buildAnalysisGraph(): {
     nodes: Array<{ id: string; label: string; type: string; count: number }>
     edges: Array<{ a: string; b: string; weight: number; status: string; type: string; confidence: number; inferred: boolean }>
     generatedAt?: number
   } {
-    const entities = this.entityGraph()
+    this.discoverScopes()
+    const now = Date.now()
+    // 活记忆 + 休眠：墓碑/失效/隔离不进图（休眠只是降权，不算删除）。
+    const nodeById = new Map<string, { id: string; label: string; type: string; count: number }>()
+    const seenMemoryIds = new Set<string>()
+    for (const scopeStore of this.store.allScopes()) {
+      for (const rec of scopeStore.records.values()) {
+        if (!isRecordVisible(rec, { now, includeDormant: true })) continue
+        if (seenMemoryIds.has(rec.id)) continue
+        seenMemoryIds.add(rec.id)
+        for (const entity of extractEntities(rec.content, { tags: rec.tags })) {
+          const id = entityNodeId(entity.type, entity.normalized)
+          const node = nodeById.get(id)
+          if (node === undefined) nodeById.set(id, { id, label: entity.label, type: entity.type, count: 1 })
+          else node.count++
+        }
+      }
+    }
+    const nodes = [...nodeById.values()]
+      .sort((a, b) => b.count - a.count || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      .slice(0, 200)
     const relations = this.analysisRepo.listRelations().filter((item) => item.status === 'confirmed' || item.status === 'suggested')
-    const nodes = entities.nodes.map((node) => ({ id: node.id, label: node.label, type: node.type, count: node.count }))
     const nodeIds = new Set(nodes.map((node) => node.id))
     const edges = relations
       .filter((relation) => nodeIds.has(relation.sourceEntityId) && nodeIds.has(relation.targetEntityId))
@@ -4560,28 +4595,10 @@ export class LocalMemoryService implements MemoryServiceApi {
     return { nodes, edges, generatedAt: Date.now() }
   }
 
-  /** 0.52.0：把图谱写入 analysis/graph.json（原子写；失败不影响主流程）。 */
-  private persistAnalysisGraph(): void {
-    try {
-      const graph = this.buildAnalysisGraph()
-      mkdirSync(dirname(this.analysisGraphPath), { recursive: true })
-      const tmp = `${this.analysisGraphPath}.tmp-${process.pid}`
-      writeFileSync(tmp, JSON.stringify(graph), 'utf8')
-      renameSync(tmp, this.analysisGraphPath)
-    } catch { /* 快照失败不影响分析/操作 */ }
-  }
-
   analysisGraph(): {
     nodes: Array<{ id: string; label: string; type: string; count: number }>
     edges: Array<{ a: string; b: string; weight: number; status: string; type: string; confidence: number; inferred: boolean }>
   } {
-    // 文件优先：图谱以 analysis/graph.json 形式存在；没有文件时即时构建。
-    try {
-      const raw = JSON.parse(readFileSync(this.analysisGraphPath, 'utf8')) as { nodes?: unknown; edges?: unknown }
-      if (Array.isArray(raw.nodes) && Array.isArray(raw.edges)) {
-        return { nodes: raw.nodes as never, edges: raw.edges as never }
-      }
-    } catch { /* 回退即时构建 */ }
     return this.buildAnalysisGraph()
   }
 
@@ -5436,6 +5453,8 @@ function portOf(endpoint: string): number | null {
  * Measured score floor of genuine lexical hits; below this only single-char
  * coincidences live. Used to gate weak-only overlaps regardless of config.
  */
+/** 本地嵌入服务冷启动窗口：超过它与「服务就绪」无关，必须恢复语义召回。 */
+const WARMING_MAX_MS = 180_000
 const REAL_HIT_FLOOR = 0.25
 
 function memoryError(code: string, message: string): Error & { code: string } {

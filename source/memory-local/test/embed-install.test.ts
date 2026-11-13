@@ -1925,3 +1925,68 @@ test('cancel：在途下载被中止时 .part 与 .part.meta 一起清掉', asyn
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+// ─────────────── 系统运行时（Termux pkg install llama-cpp 等） ───────────────
+
+test('detectInstalled：模型 + 系统 llama-server → 视为可用，并标 system', () => {
+  const root = tempDir('dsh-install-sys-')
+  try {
+    const paths = installPaths(root)
+    mkdirSync(dirname(paths.model), { recursive: true })
+    writeFileSync(paths.model, 'gguf')
+    const sysExe = join(root, 'sys-bin', 'llama-server')
+    mkdirSync(dirname(sysExe), { recursive: true })
+    writeFileSync(sysExe, 'bin')
+
+    const detected = detectInstalled(root, MODEL_FILE_NAME, { systemExe: sysExe })
+    assert.ok(detected !== null, '只有模型 + 系统运行时也算可用')
+    assert.equal(detected.system, true)
+    assert.equal(detected.exe, sysExe)
+    assert.equal(detected.model, paths.model)
+
+    // 托管运行时存在时默认优先托管；显式 preferSystem 才改用系统运行时。
+    mkdirSync(dirname(paths.exe), { recursive: true })
+    writeFileSync(paths.exe, 'bin')
+    assert.equal(detectInstalled(root, MODEL_FILE_NAME, { systemExe: sysExe })?.system, undefined)
+    assert.equal(detectInstalled(root, MODEL_FILE_NAME, { systemExe: sysExe, preferSystem: true })?.exe, sysExe)
+
+    // 没有模型时，系统运行时也救不了。
+    rmSync(paths.model, { force: true })
+    assert.equal(detectInstalled(root, MODEL_FILE_NAME, { systemExe: sysExe }), null)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('系统运行时安装：只下模型，完全不碰 GitHub 发行版与托管运行时', async () => {
+  const root = tempDir('dsh-install-sysrun-')
+  try {
+    const sysExe = join(root, 'sys', 'llama-server')
+    mkdirSync(dirname(sysExe), { recursive: true })
+    writeFileSync(sysExe, 'bin')
+    let releaseCalls = 0
+    const fetchImpl = fakeFetch((url) => {
+      if (/api\.github\.com/u.test(url)) {
+        releaseCalls += 1
+        return new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } })
+      }
+      return new Response(Buffer.from('GGUFfake'), { status: 200, headers: { 'content-length': '8' } })
+    })
+    const installer = new VectorInstaller({
+      root,
+      fetchImpl,
+      systemExe: sysExe,
+      model: { file: 'custom-test.gguf', sources: ['https://example.test/custom-test.gguf'] },
+      probeVersion: () => ({ ok: true, status: 0, version: '0.9.0 android', via: '直接执行' }),
+    })
+    installer.start()
+    await waitFor(() => installer.progress.phase === 'done', '安装完成')
+    assert.equal(releaseCalls, 0, '系统运行时不查 GitHub 发行版')
+    assert.equal(existsSync(installPaths(root, 'custom-test.gguf').exe), false, '不下载托管运行时')
+    assert.equal(existsSync(installPaths(root, 'custom-test.gguf').model), true, '模型已落地')
+    assert.equal(installer.progress.paths?.system, true)
+    assert.equal(installer.progress.paths?.exe, sysExe)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})

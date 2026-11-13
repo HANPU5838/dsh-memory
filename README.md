@@ -2,7 +2,7 @@
   <img src="https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/preview/icon-128.png" width="84" alt="记忆系统">
 </p>
 
-> ### 📦 本仓库在上游基础上持续维护（v0.56.0）
+> ### 📦 本仓库在上游基础上持续维护（v0.57.0）
 >
 > 本项目是 **DSH 记忆系统**（npm 包 `@restregular/dsh-memory`，MIT）的分支维护版：
 > 在上游 v0.30.1 之上做了平台适配、插件化、可靠性加固、语义认知层与嵌入性能优化，并在 **0.40/0.41 补上 BM25+RRF、记忆健康度、冲突自动裁决、可疑写入隔离、本地备份与离线评测**。
@@ -10,7 +10,7 @@
 > | 项目 | 说明 |
 > | --- | --- |
 > | 原作者 | **RestRegular**（上游原项目 [RestRegular/dsh-memory](https://github.com/RestRegular/dsh-memory)，MIT）；本项目在其 v0.30.1 基础上维护 |
-> | 本仓库 | **v0.56.0** = 上游 v0.30.1 + 平台/可靠性改进 + 语义认知层 + 检索整形（BM25/RRF/MMR）+ 嵌入性能 + 记忆强度算法 + **智能关系分析（关系发现/冲突/聚类/演化/推理）** + **知识图谱（文件视图/画布，落盘 graph.json）**。完整清单见 [IMPROVEMENTS.md](IMPROVEMENTS.md)，架构见 [docs/architecture.md](docs/architecture.md) |
+> | 本仓库 | **v0.57.0** = 上游 v0.30.1 + 平台/可靠性改进 + 语义认知层 + 检索整形（BM25/RRF/MMR）+ 嵌入性能 + 记忆强度算法 + **智能关系分析（关系发现/冲突/聚类/演化/推理）**。完整清单见 [IMPROVEMENTS.md](IMPROVEMENTS.md)，架构见 [docs/architecture.md](docs/architecture.md) |
 > | 许可 | **MIT**，版权归原作者所有，见 [LICENSE](LICENSE)；转载、分发请保留原始版权声明 |
 > | 更新与反馈 | Issue / PR / 反馈请到 **[本仓库 Issues](https://github.com/HANPU5838/dsh-memory/issues)**；与上游的差异集中在 `IMPROVEMENTS.md` |
 >
@@ -25,7 +25,7 @@
 
 JSONL 落盘 · 本机向量检索 · 六个模型工具 · 自动召回 · 硬性规则 · 可视化管理面板
 
-[![version](https://img.shields.io/badge/version-v0.56.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![version](https://img.shields.io/badge/version-v0.57.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/HANPU5838/dsh-memory/blob/main/LICENSE)
 [![ci](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.13-5FA04E.svg)](https://nodejs.org/)
@@ -73,9 +73,8 @@ JSONL 落盘 · 本机向量检索 · 六个模型工具 · 自动召回 · 硬�
 | **可疑写入隔离（0.40.0）** | 写入时扫描指令注入/凭据/零宽字符：高风险且来源为 agent/auto 的内容自动**隔离**（不进检索与注入），面板显示「隔离待复核」并可一键解除 |
 | **本地备份（0.40.0）** | 面板维护区可「立即备份 / 恢复最近备份」，备份固定落在 `<storeDir>/backups`（gzip JSONL），恢复只补齐不覆盖 |
 | **离线评测（0.40.0）** | `tools/eval/run.mjs`：合成集 94 条/48 查询 × 16 组开关矩阵，输出 recall@k / MRR / nDCG / purity；方法见 [docs/benchmark.md](docs/benchmark.md)，竞品对比见 [docs/comparison.md](docs/comparison.md) |
-| **记忆树任意缩放（0.42.0）** | 记忆树/知识图谱内 **5%–1000%** 自由缩放：滚轮、手机双指捏合、双击适应、键盘 `+ − 0 F`；**不显示缩放条**（不遮挡内容），比例本地记忆 |
+| **记忆树任意缩放（0.42.0）** | 记忆树内 **5%–1000%** 自由缩放：滚轮、手机双指捏合、双击适应、键盘 `+ − 0 F`；**不显示缩放条**（不遮挡内容），比例本地记忆 |
 | **智能关系分析（0.50.0）** | 独立「关系分析」页：潜在关系发现（语义+实体+时间+来源，带证据）、冲突检测（更新/矛盾/语境）、知识聚类、演化时间线、2-hop 推理；关系状态 suggested/confirmed/rejected/ignored，推断与事实分离；增量分析 + 任务队列 + 全量/暂停/历史。详见 [docs/analysis.md](docs/analysis.md) |
-| **知识图谱（0.56.0）** | 零依赖实体共现图，**默认「文件视图」**：按类型分文件夹、每个实体一行**「类型 · 名称」+ 关联记忆摘要**（不再只有几个字母），展开看相关记忆；支持**实体/记忆全文搜索**；可切回 SVG 图谱。图谱以 `<storeDir>/analysis/graph.json` 文件形式落盘。详见 [docs/graph.md](docs/graph.md) |
 | **记忆树可视化（0.35.0）** | 删除/失效/休眠/冲突直接体现在节点样式与徽章上；记忆强度条（1~3 格）+ 效用点；「只看问题」过滤 + 状态图例，树上一眼看出哪些记忆需要处理 |
 | **记忆树缩放（0.34.1）** | 「记忆树」画布可**随意缩大缩小**：− / 百分比 / + / 100% / 适应画布，范围 **20%~300%**；**Ctrl/⌘ + 滚轮**连续缩放且锚定鼠标位置；比例持久化在浏览器本地，下次打开保持不变 |
 | **全链路一致性（0.34.0）** | 可见性判定收敛成**唯一函数**（软删/休眠/过期/失效），检索、列表、注入、巩固、面板全部走同一套；配套「不变量测试」锁住三读路径、三写路径与删除/恢复往返，防止修一处断一处 |
@@ -140,12 +139,12 @@ JSONL 落盘 · 本机向量检索 · 六个模型工具 · 自动召回 · 硬�
 注入链路、作用域审批、规则常驻、流程索引这些是它的差异点；0.32–0.41 补上了语义整理、生命周期、健康度与冲突自动裁决，
 把"档案"升级成了"会整理、会遗忘、可回滚"的记忆系统。
 
-## 现状与边界（截至 v0.56.0）
+## 现状与边界（截至 v0.57.0）
 
 > 说清楚"已经做到什么"和"还没做到什么"，比只说优点有用。
 
 **一句话判断**：在「DSH 本地记忆插件」这个定位内，它已经是一个**完整闭环的记忆系统**——
-写入 → 存储 → 检索 → 注入 → 认知维护（合并/冲突/时间/谱系）→ 健康与备份 → 关系分析 → 知识图谱 → 人工审核。
+写入 → 存储 → 检索 → 注入 → 认知维护（合并/冲突/时间/谱系）→ 健康与备份 → 关系分析 → 人工审核。
 它不是通用 AGI 记忆平台：不宣称官方基准分数、不做多用户/云同步、没有图数据库级规模。
 
 **已经做到（本仓库实测/有测试覆盖）**
@@ -155,14 +154,14 @@ JSONL 落盘 · 本机向量检索 · 六个模型工具 · 自动召回 · 硬�
 - 运维：0–100 健康分、冲突中心、本地备份/恢复、审计事件、CI 门禁。
 - 安全：可疑写入扫描（指令注入/凭据/零宽字符）+ 自动隔离；作用域审批与只读授权。
 - 工程：零运行时依赖、**1081 例测试 / 0 fail**、GitHub Actions（测试 + 构建 + 合成集评测门禁）。
-- 分析：六引擎（关系发现/冲突/聚类/演化/推理/校验）+ 关系状态机 + 证据与审核；知识图谱文件视图/画布、`analysis/graph.json` 落盘。
+- 分析：六引擎（关系发现/冲突/聚类/演化/推理/校验）+ 关系状态机 + 证据与审核。
 
 **还没做到 / 明确不做**
 
 | 项 | 状态 |
 | --- | --- |
 | LongMemEval / LoCoMo **官方口径**分数 | ❌ 未接官方评测；只有自建合成集与 LoCoMo 单会话子集，**不可与公开分数直接比较** |
-| 知识图谱 / 多跳推理 | ⚠️ 已做规则式实体共现图 + 2-hop 推理；不做图数据库/多跳全图推理 |
+| 多跳推理 | ⚠️ 已做关系分析内的 2-hop 路径推理；不做图数据库 / 全图推理 |
 | LLM 抽取式记忆整理 | ❌ 不做（零依赖、默认不联网；用向量+规则代替 LLM 抽取） |
 | 多设备同步 / 多用户隔离 | ❌ 不做（本地优先，单进程） |
 | 多模态（图片/音频记忆） | ❌ 未做 |
@@ -183,7 +182,7 @@ bge-m3 1024 维，llama-server CPU 6 线程，2026-11-10）：
 | 批量嵌入（batch=8 vs 1） | 3.8 rec/s vs 2.8 rec/s（≈1.4×，CPU 上省的是调度） |
 | 回填 | batch=8 3.2 rec/s；单条失败只留 null，不拖垮整批 |
 | ANN（纯 JS HNSW，合成 128 维） | 2k：P50 1.3ms/召回 100%；10k：1.15ms/98%（10.4×）；20k：1.73ms/94%（14.6×） |
-| 测试 | **1081 例 / 1080 pass / 1 skip / 0 fail** |
+| 测试 | **1072 例 / 1070 pass / 2 skip / 0 fail**（v0.57.0，移除图谱后） |
 | 检索评测（合成集 94 条 / 48 查询，真实 bge-m3） | base recall@5 0.7708 → **产品默认 0.9167**；MRR 0.7483 / nDCG 0.7912（方法见 [docs/benchmark.md](docs/benchmark.md)） |
 
 复现：`node tools/bench/run.mjs`（live 模式需本地嵌入服务；无服务时自动合成数据）。
@@ -255,7 +254,7 @@ bge-m3 1024 维，llama-server CPU 6 线程，2026-11-10）：
 ## 安装
 
 > **安装来源提醒**：npm 上的 `@restregular/dsh-memory` 是**上游 0.30.1**（本项目基于它改进，
-> 但尚未发布到 npm）。要使用本仓库的 0.56.0，请从本仓库安装：
+> 但尚未发布到 npm）。要使用本仓库的 0.57.0，请从本仓库安装：
 
 ```bash
 # 方式一：直接从本仓库装（仓库内已包含构建产物 packages/）
@@ -286,6 +285,11 @@ pnpm add "file:/path/to/dsh-memory"
 
 **不写任何配置就能用**：检索退化为词法，不产生任何网络请求。需要语义检索时，
 在面板「服务 → 向量服务」里一键装本机后端即可。
+
+> **Termux / Android 原生**：不用下载 glibc 运行时——`pkg install llama-cpp` 后，
+> 插件会自动发现 `$PREFIX/bin/llama-server`（bionic 原生构建，直接 exec 即可），
+> 此时一键安装只下载模型。运行时来源用 `retrieval.vector.runtime` 控制：
+> `auto`（默认：托管已装优先，否则用系统的）/ `managed`（只用下载的）/ `system`（强制系统）。
 
 > 宿主只允许**一个包名、一个解析源**，所以本插件是「一个包 + 一条 entry + 面板与服务端同包」。
 > 拆成两个包会触发 `resolves from multiple active Loader sources`，客户端图组合失败，
@@ -529,6 +533,7 @@ memory_scopes({
 - **内置 8 个模型**：BGE-M3（Q4_K_M / Q8_0）、Qwen3-Embedding 0.6B / 4B / 8B、Nomic Embed v1.5、BGE 中文 small / base / large。
 - **维度与 pooling 自动配对**：每个模型自带 `dims` 与 `pooling`，选它就自动写入。维度写错会让向量通道静默失效，这是最容易踩的坑。
 - **按本机推荐**：探测 CPU 核数 / 内存 / 磁盘剩余 / 显卡与显存；质量优先，能整块放进显存就用 GPU；CPU 上重罚 4B / 8B；显存 < 4GB 的核显不算可用显卡。
+- **运行时来源**：`auto`（默认）/ `managed` / `system`。系统里已有 `llama-server`（如 Termux `pkg install llama-cpp`）时优先用系统二进制，只下载模型，不需要 glibc 兼容层。
 - **运行时风味**：`cpu` / `vulkan` / `cuda` / `metal` / `auto`。Vulkan 自包含；CUDA 会一并下载 cudart 伴随包；所选风味找不到时退回 CPU 并在面板说明。
 - **自定义 GGUF**：填 URL + 维度即可装清单之外的模型；需要前缀的模型（Nomic 的 `search_query:` / `search_document:`）自动带上。
 - **一次只保留一份**：已装运行时 + 模型时不能再装第二个；换模型先去「维护 → 卸载向量服务」，否则「现在跑的是哪个」说不清。
@@ -538,6 +543,7 @@ retrieval:
   vector:
     preset: 'qwen3-embedding-0.6b'   # 清单 id
     variant: 'q8_0'                  # 量化档
+    runtime: 'auto'                  # auto / managed / system（Termux 可设 system）
     flavor: 'auto'                   # auto / cpu / vulkan / cuda / metal
     # customModel: { url: 'https://…/model.gguf', dims: 1024, pooling: 'auto' }
 ```

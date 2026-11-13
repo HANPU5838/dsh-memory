@@ -213,11 +213,6 @@ export class CordisMemoryService extends Service {
   analysisGraph(): ReturnType<LocalMemoryService['analysisGraph']> { return this.impl.analysisGraph() }
   analysisHistory(input?: Parameters<LocalMemoryService['analysisHistory']>[0]): ReturnType<LocalMemoryService['analysisHistory']> { return this.impl.analysisHistory(input) }
 
-  /** 0.42.0：知识图谱（实体共现图）。 */
-  entityGraph(opts?: Parameters<LocalMemoryService['entityGraph']>[0]): ReturnType<LocalMemoryService['entityGraph']> {
-    return this.impl.entityGraph(opts)
-  }
-
   /** 0.40.0（P1）：健康度报告。 */
   healthReport(): ReturnType<LocalMemoryService['healthReport']> {
     return this.impl.healthReport()

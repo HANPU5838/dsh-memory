@@ -56,7 +56,7 @@ import type { Dirent, WriteStream } from 'node:fs'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import { gunzipSync, inflateRawSync } from 'node:zlib'
 import type { RuntimeFlavor } from './hardware.ts'
-import { detectPlatform, glibcLoaderFor, readElfInterpFromFile } from './platform.ts'
+import { assetPlatform, detectPlatform, glibcLoaderFor, isLinuxLike, readElfInterpFromFile } from './platform.ts'
 
 /** 模型文件名：下载目标与「是否已安装」的判据都用它，不要在两处各写一遍。 */
 export const MODEL_FILE_NAME = 'bge-m3-Q4_K_M.gguf'
@@ -126,6 +126,11 @@ export interface InstallPaths {
   model: string
   /** `<root>/llama-server.log` */
   logFile: string
+  /**
+   * true = `exe` 指向**系统安装的** llama-server（如 Termux `pkg install llama-cpp`），
+   * 而不是 `<root>/llamacpp` 里下载来的运行时。此时只有模型需要下载。
+   */
+  system?: boolean
 }
 
 /** 要安装的模型：文件名是唯一事实来源（落盘名 + 「装没装」判据）。 */
@@ -209,6 +214,17 @@ export interface InstallerOptions {
    * 测试注入假 probe 即可，不需要真的拉起子进程。
    */
   probeVersion?: VersionProbe
+  /**
+   * 系统安装的 llama-server（`findSystemLlamaServer()` 的结果）。给了就走
+   * **只下模型**的路径：跳过运行时下载/解压/链接校验，直接冒烟 + 校验落地。
+   * null / 省略 = 保持原有「下载运行时 + 模型」的托管安装行为。
+   */
+  systemExe?: string | null
+  /**
+   * 强制优先系统运行时（`retrieval.vector.runtime: 'system'`）：即使托管运行时
+   * 已存在也不使用它。
+   */
+  preferSystem?: boolean
 }
 
 /** zip 中央目录里一条记录（只保留解压需要的字段）。 */
@@ -248,18 +264,41 @@ export function installPaths(root: string, modelFile: string = MODEL_FILE_NAME):
 }
 
 /**
- * 已安装则返回布局，否则 null（判据：exe 与**所选模型的**文件都在）。
+ * 已安装则返回布局，否则 null（判据：**所选模型的**文件在，且运行时可用）。
+ *
+ * 运行时可以是两种来源：
+ *  - 托管：`<root>/llamacpp/llama-server`（一键安装下载的）
+ *  - 系统：`options.systemExe`（如 Termux `pkg install llama-cpp` 的
+ *    `$PREFIX/bin/llama-server`），此时只有模型需要下载 —— 这是 Termux /
+ *    Android 的原生路径：bionic 二进制，不需要 glibc loader 兼容层。
  *
  * 只看「存在」就够：安装器永远先写 .part 再 rename，所以这两个路径上不可能
  * 出现半成品；反过来，用户手工放好的文件也会被如实采纳（这正是
  * `<root>/llamacpp` + `<root>/models` 这套既有布局的意义）。
  * 绝不抛异常：它在 resolveConfig 里被同步调用。
  */
-export function detectInstalled(root: string, modelFile: string = MODEL_FILE_NAME): InstallPaths | null {
+export interface DetectInstalledOptions {
+  /** 系统安装的 llama-server；null / 省略 = 只认托管运行时。 */
+  systemExe?: string | null
+  /** true = 即使托管运行时存在也优先用系统运行时（显式 `runtime: 'system'`）。 */
+  preferSystem?: boolean
+}
+
+export function detectInstalled(
+  root: string,
+  modelFile: string = MODEL_FILE_NAME,
+  options: DetectInstalledOptions = {},
+): InstallPaths | null {
   try {
     const paths = installPaths(root, modelFile)
-    if (!isFile(paths.exe) || !isFile(paths.model)) return null
-    return paths
+    if (!isFile(paths.model)) return null
+    const systemCandidate = options.systemExe ?? null
+    const systemExe = systemCandidate !== null && isFile(systemCandidate) ? systemCandidate : null
+    const asSystem = (): InstallPaths => ({ ...paths, exe: systemExe as string, cwd: dirname(systemExe as string), system: true })
+    if (options.preferSystem === true && systemExe !== null) return asSystem()
+    if (isFile(paths.exe)) return paths
+    if (systemExe !== null) return asSystem()
+    return null
   } catch {
     return null
   }
@@ -289,7 +328,7 @@ export function runtimeAssetPattern(
   arch: string,
   flavor: RuntimeFlavor = 'cpu',
 ): RegExp {
-  const key = `${platform}-${arch}`
+  const key = `${assetPlatform(platform)}-${arch}`
   const cpu = (): RegExp => {
     switch (key) {
       case 'win32-x64': return /^llama-.*-bin-win-cpu-x64\.zip$/
@@ -340,7 +379,7 @@ export function runtimeCompanionPattern(
   flavor: RuntimeFlavor,
 ): RegExp | null {
   if (flavor !== 'cuda') return null
-  switch (`${platform}-${arch}`) {
+  switch (`${assetPlatform(platform)}-${arch}`) {
     case 'win32-x64': return /^cudart-.*bin-win-cuda-12\.4-x64\.zip$/
     case 'win32-arm64': return /^cudart-.*bin-win-cuda-13\.4-arm64\.zip$/
     case 'linux-x64': return /^cudart-.*bin-ubuntu-cuda-12\.8-x64\.tar\.gz$/
@@ -1282,7 +1321,7 @@ interface VersionProbeCommand {
  */
 function versionProbeCommands(exe: string): VersionProbeCommand[] {
   const direct: VersionProbeCommand = { file: exe, args: ['--version'], via: '直接执行' }
-  if (process.platform !== 'linux') return [direct]
+  if (!isLinuxLike(process.platform)) return [direct]
   try {
     const interp = readElfInterpFromFile(exe)
     if (interp === null || existsSync(interp)) return [direct]
@@ -1412,7 +1451,11 @@ export class VectorInstaller {
   /** 幂等：已在跑、或已装好，直接返回。 */
   start(): void {
     if (this.running) return
-    const installed = detectInstalled(this.opts.root)
+    const installed = detectInstalled(
+      this.opts.root,
+      this.opts.model?.file ?? MODEL_FILE_NAME,
+      { systemExe: this.opts.systemExe ?? null, preferSystem: this.opts.preferSystem === true },
+    )
     if (installed) {
       this.report(this.generation, {
         phase: 'done',
@@ -1476,6 +1519,12 @@ export class VectorInstaller {
     const flavor: RuntimeFlavor = this.opts.flavor ?? 'cpu'
     const paths = installPaths(root, model.file)
     try {
+      const systemExe = this.opts.systemExe ?? null
+      if (systemExe !== null) {
+        // 系统运行时（Termux `pkg install llama-cpp` 等）：只下模型，不碰运行时。
+        await this.installWithSystemRuntime(gen, paths, model, systemExe)
+        return
+      }
       this.setPhase(gen, 'preparing', `准备安装目录 ${root}`)
       ensureDir(root, '创建安装根目录')
       ensureDir(paths.dir, '创建运行时目录')
@@ -1905,6 +1954,56 @@ export class VectorInstaller {
   }
 
   /**
+   * 系统运行时安装路径：运行时用系统的 llama-server（Termux `pkg install
+   * llama-cpp` / PATH 里的 llama-server），只负责把模型下到
+   * `<root>/models/`，然后冒烟 + 校验。
+   *
+   * 为什么值得单独一条路：托管路径要下载约 100MB~1GB 的运行时装 ubuntu
+   * glibc 二进制，在 Android 上还得靠 Termux glibc loader 兼容层才能启动；
+   * 而 Termux 官方仓库的 llama-cpp 是 bionic 原生构建，直接 exec 就能跑，
+   * 版本与系统库天然匹配。这条路把「跑不起来」的整条故障面砍掉了。
+   */
+  private async installWithSystemRuntime(
+    gen: number,
+    paths: InstallPaths,
+    model: InstallModel,
+    systemExe: string,
+  ): Promise<void> {
+    ensureDir(paths.root, '创建安装根目录')
+    ensureDir(dirname(paths.model), '创建模型目录')
+    this.setPhase(gen, 'preparing', `使用系统 llama-server：${systemExe}（跳过运行时下载）`)
+    if (model.bytes !== undefined) {
+      const need = Math.round(model.bytes * MODEL_DISK_FACTOR) + EXTRA_DISK_RESERVE_BYTES
+      const free = (this.opts.freeBytes ?? freeDiskBytes)(paths.root)
+      this.setPhase(gen, 'preparing', `磁盘预检：需要约 ${formatBytes(need)}，可用 ${free === null ? '未知（跳过预检）' : formatBytes(free)}`)
+      if (free !== null && free < need) {
+        throw new Error(
+          `磁盘空间不足：模型约需 ${formatBytes(need)}，安装目录 ${paths.root} 所在磁盘只剩 ${formatBytes(free)}`,
+        )
+      }
+    }
+    if (fileSize(paths.model) > 0) {
+      this.setPhase(gen, 'downloading-model', '模型已存在，跳过下载', { receivedBytes: 0, totalBytes: null })
+    } else {
+      this.setPhase(gen, 'downloading-model', `正在下载 ${model.file}${model.bytes !== undefined ? `（约 ${formatBytes(model.bytes)}）` : ''}`)
+      const got = await this.downloadModel(gen, paths.model, model)
+      this.report(gen, { message: `模型下载完成（已下载 ${formatBytes(got.bytes)}，来源：${got.source.label}）` })
+    }
+    const systemPaths: InstallPaths = { ...paths, exe: systemExe, cwd: dirname(systemExe), system: true }
+    this.smokeTest(gen, systemPaths)
+    const installed = detectInstalled(paths.root, model.file, { systemExe, preferSystem: true })
+    if (installed === null) throw new Error('安装校验失败：模型文件缺失')
+    this.report(gen, {
+      phase: 'done',
+      message: `安装完成：模型 ${formatBytes(fileSize(installed.model))}，运行时 系统 llama-server（${basename(systemExe)}）`,
+      error: null,
+      receivedBytes: 0,
+      totalBytes: null,
+      paths: installed,
+    })
+  }
+
+  /**
    * 安装后冒烟：文件齐了不等于跑得起来，跑一次 `exe --version` 才算装完。
    *
    * 探测方式是注入的（默认 spawnSync，4s 超时；Termux 上自动用 glibc loader
@@ -1936,7 +2035,11 @@ export class VectorInstaller {
       const tail = stderrTail(result.stderr)
       const how = result.status === null || result.status === undefined ? '无法执行' : `退出码 ${result.status}`
       const via = result.via === undefined ? '' : `（${result.via}）`
-      try { rmSync(paths.exe, { force: true }) } catch { /* 尽力而为 */ }
+      // 系统运行时是别人的文件（$PREFIX/bin/llama-server），绝不能因为冒烟失败
+      // 就把它删了；只有托管运行时（我们下载到 <root>/llamacpp 的）才清。
+      if (paths.system !== true) {
+        try { rmSync(paths.exe, { force: true }) } catch { /* 尽力而为 */ }
+      }
       throw new Error(
         `安装后冒烟测试失败：${basename(paths.exe)} --version ${how}${via}` +
         (tail === '' ? '' : `\nstderr 尾部：\n${tail}`) +

@@ -25,7 +25,7 @@
  * 本模块不做任何 I/O；持久化见 analysis/store.ts。
  */
 import { createHash } from 'node:crypto'
-import { entityNodeId, extractEntities, type Entity } from '../cognitive/graph.ts'
+import { entityNodeId, extractEntities, type Entity } from './entities.ts'
 import { hasCriticalDetailConflict } from '../cognitive/conflict.ts'
 import { assessContradiction } from '../cognitive/contradiction.ts'
 import type {
@@ -252,7 +252,7 @@ interface EntityInfo {
   id: string
   label: string
   type: string
-  /** 抽取时的信号权重（graph.extractEntities 的 weight）。 */
+  /** 抽取时的信号权重（entities.extractEntities 的 weight）。 */
   weight: number
 }
 

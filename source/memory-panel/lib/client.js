@@ -379,11 +379,6 @@ window.__ModuleLoader__.load({
       '.memp .tree-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;color:var(--dsw-alias-label-secondary);font-size:12.5px;line-height:1.6;text-align:center;padding:24px;z-index:1}',
       '.memp .tree-empty .big{font-size:22px;opacity:.65}',
       '.memp .tree-empty button{padding:4px 12px;font-size:12px}',
-      '.memp .tree-mode-toggle{display:inline-flex;gap:2px}',
-      '.memp .tree-mode-toggle button{padding:3px 9px;border-radius:7px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);font-size:11.5px;color:var(--dsw-alias-label-secondary)}',
-      '.memp .tree-mode-toggle button.on{color:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 10%,transparent)}',
-      '@keyframes kgSpin{to{transform:rotate(360deg)}}',
-      '@keyframes kgDetailIn{from{opacity:0;transform:translateX(10px)}to{opacity:1;transform:translateX(0)}}',
       '@keyframes memFadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}',
       '.memp .tabs .tab{transition:background .16s ease,color .16s ease}',
       '.memp .ana{display:flex;flex-direction:column;gap:12px;padding:2px}',
@@ -452,65 +447,11 @@ window.__ModuleLoader__.load({
       '.memp .ana-overview-detail{font-size:11px;line-height:1.6}',
       '.memp .tree-tab,.memp .memp-body{animation:memFadeIn .18s ease-out both}',
       '.memp .tree-canvas{transition:transform .1s ease-out}',
-      '.memp .kg-node{transition:transform .45s cubic-bezier(.2,.8,.2,1),opacity .2s ease}',
-      '.memp .kg-node circle{transition:fill-opacity .18s ease,stroke-width .18s ease}',
-      '.memp .kg-node:hover circle{fill-opacity:.95}',
-      '.memp .kg-node.hovered circle{fill-opacity:1;stroke:var(--dsw-alias-label-primary);stroke-width:1.2}',
-      '.memp .kg-edge{transition:stroke .18s ease,stroke-opacity .18s ease,stroke-width .18s ease}',
-      '.memp .kg-edge.lit{stroke:var(--dsw-alias-brand-primary);stroke-opacity:.85}',
-      '.memp .kg-detail{animation:kgDetailIn .2s ease-out both}',
-      '.memp .kg-hoverbar{position:absolute;left:10px;top:10px;z-index:3;display:flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 90%,transparent);border:1px solid var(--dsw-alias-border-l1);font-size:10.5px;color:var(--dsw-alias-label-primary);pointer-events:none;backdrop-filter:blur(6px);box-shadow:0 2px 10px rgba(0,0,0,.10)}',
-      '.memp .kg-hoverbar .kg-dot{width:8px;height:8px}',
-      '.memp .kg-legend-sep{width:1px;height:14px;background:var(--dsw-alias-border-l1);margin:0 4px}',
-      '.memp .kg-node{opacity:1;transition:opacity .2s ease,transform .45s cubic-bezier(.2,.8,.2,1)}',
-      '.memp .kg-node.dim{opacity:.24}',
-      '.memp .kg-halo{transition:fill-opacity .2s ease}',
-      '.memp .kg-label{font-size:9px;font-weight:500}',
-      '.memp .kg-loading{display:flex;align-items:center;justify-content:center;gap:9px;padding:26px 0;font-size:11.5px;color:var(--dsw-alias-label-secondary)}',
-      '.memp .kg-spinner{width:18px;height:18px;border-radius:50%;border:2px solid var(--dsw-alias-border-l1);border-top-color:var(--dsw-alias-brand-primary);animation:kgSpin .8s linear infinite}',
-      '.memp .kchip,.memp .tree-mode-toggle button,.memp .tree-toolbar button{transition:background .15s ease,color .15s ease,border-color .15s ease,transform .1s ease}',
-      '.memp .kchip:active,.memp .tree-mode-toggle button:active,.memp .tree-toolbar button:active{transform:scale(.96)}',
-      '.memp .kg-rel-chip,.memp .kg-memory{transition:background .15s ease,transform .1s ease}',
-      '.memp .kg-rel-chip:active,.memp .kg-memory:active{transform:scale(.98)}',
-      '@media (prefers-reduced-motion: reduce){.memp .tree-tab,.memp .kg-detail,.memp .kg-spinner,.memp .kg-node,.memp .tree-canvas,.memp .tabs .tab{animation:none!important;transition:none!important}}',
-      '.memp .kg-files{display:flex;flex-direction:column;gap:8px}',
-      '.memp .kg-files-meta{display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--dsw-alias-label-secondary);padding:2px 2px 0}',
-      '.memp .kg-folder{border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1);overflow:hidden}',
-      '.memp .kg-folder-head{display:flex;align-items:center;gap:7px;padding:8px 10px;cursor:pointer;user-select:none;font-size:11.5px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-2) 55%,transparent)}',
-      '.memp .kg-folder-caret,.memp .kg-file-caret{width:12px;color:var(--dsw-alias-label-secondary);font-size:10px;flex:none}',
-      '.memp .kg-folder-body{border-top:1px solid var(--dsw-alias-border-l1);padding:4px 6px 6px}',
-      '.memp .kg-file-block{border-bottom:1px dashed color-mix(in srgb,var(--dsw-alias-border-l1) 60%,transparent)}',
-      '.memp .kg-file-block:last-child{border-bottom:0}',
-      '.memp .kg-file{display:flex;flex-direction:column;gap:2px;padding:6px 7px;border-radius:7px;cursor:pointer;user-select:none;font-size:11.5px;min-width:0}','.memp .kg-file-row{display:flex;align-items:center;gap:7px;min-width:0}',
-      '.memp .kg-file:hover{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 7%,transparent)}',
-      '.memp .kg-file-icon{font-size:11px;flex:none}',
-      '.memp .kg-file-name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-      '.memp .kg-file-value{font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:34%}','.memp .kg-file-sub{font-size:10px;color:var(--dsw-alias-label-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-left:26px}',
-      '.memp .kg-file-memories{margin:0 0 6px 20px;display:flex;flex-direction:column;gap:3px}',
-      '.memp .kg-file-memory{display:flex;gap:6px;align-items:flex-start;font-size:10.5px;padding:3px 6px;border-radius:6px;background:var(--dsw-alias-bg-layer-2)}',
-      '.memp .kg-file-memory-kind{flex:none;color:var(--dsw-alias-label-secondary)}',
-      '.memp .kg-file-memory-text{flex:1;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}',
-      '.memp .kg-selbar{position:absolute;left:50%;top:10px;transform:translateX(-50%);z-index:4;display:flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 92%,transparent);color:var(--dsw-alias-label-primary);font-size:11px;backdrop-filter:blur(6px);white-space:nowrap;box-shadow:0 2px 10px rgba(0,0,0,.08)}',
-      '.memp .kg-selbar .linkbtn{color:var(--dsw-alias-brand-primary)}',
-      '.memp .kg-legend{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:4px 2px 0;font-size:10.5px;color:var(--dsw-alias-label-secondary)}',
-      '.memp .kg-svg{display:block;user-select:none}',
+      '.memp .kchip,.memp .tree-toolbar button{transition:background .15s ease,color .15s ease,border-color .15s ease,transform .1s ease}',
+      '.memp .kchip:active,.memp .tree-toolbar button:active{transform:scale(.96)}',
+      '@media (prefers-reduced-motion: reduce){.memp .tree-tab,.memp .tree-canvas,.memp .tabs .tab{animation:none!important;transition:none!important}}',
       '.memp .tree-wrap{cursor:grab}','.memp .tree-wrap:focus-visible{outline:2px solid color-mix(in srgb,var(--dsw-alias-brand-primary) 45%,transparent);outline-offset:2px}',
       '.memp .tree-wrap:active{cursor:grabbing}',
-      '.memp .kg-edge{stroke:var(--dsw-alias-border-l1);stroke-linecap:round}',
-      '.memp .kg-node{cursor:pointer}',
-      '.memp .kg-node:hover circle{stroke:var(--dsw-alias-label-primary);stroke-width:1.2}',
-      '.memp .kg-label{font-size:10px;fill:var(--dsw-alias-label-secondary);pointer-events:none;paint-order:stroke;stroke:var(--dsw-alias-bg-layer-1);stroke-width:2.5px}',
-      '.memp .kg-detail{position:absolute;right:10px;top:10px;width:min(300px,78vw);max-height:calc(100% - 64px);overflow:auto;z-index:4;border:1px solid var(--dsw-alias-border-l1);border-radius:11px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 94%,transparent);backdrop-filter:blur(8px);box-shadow:0 8px 24px rgba(0,0,0,.16);padding:9px 10px;display:flex;flex-direction:column;gap:7px}',
-      '.memp .kg-detail-head{display:flex;align-items:center;gap:6px;font-size:12px}',
-      '.memp .kg-dot{width:9px;height:9px;border-radius:50%;flex:none}',
-      '.memp .kg-detail-value{font-size:10.5px;color:var(--dsw-alias-label-secondary);word-break:break-all}',
-      '.memp .kg-related{display:flex;flex-direction:column;gap:4px}',
-      '.memp .kg-rel-chip{display:inline-flex;align-items:center;gap:4px;align-self:flex-start;padding:2px 7px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);font-size:10.5px;color:var(--dsw-alias-label-primary)}',
-      '.memp .kg-memories{display:flex;flex-direction:column;gap:4px}',
-      '.memp .kg-memory{display:flex;gap:6px;padding:5px 6px;border-radius:7px;background:var(--dsw-alias-bg-layer-2);cursor:pointer;font-size:10.5px;line-height:1.4}',
-      '.memp .kg-memory:hover{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 8%,var(--dsw-alias-bg-layer-2))}',
-      '.memp .kg-memory-kind{flex:none;color:var(--dsw-alias-label-secondary)}',
-      '.memp .kg-memory-text{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}',
       '.memp .tree-legend{position:absolute;left:10px;bottom:10px;display:flex;gap:10px;align-items:center;font-size:10.5px;color:var(--dsw-alias-label-secondary);padding:3px 9px;border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 88%,transparent);border:1px solid var(--dsw-alias-border-l1);backdrop-filter:blur(6px);z-index:2;pointer-events:none}',
       '.memp .tree-legend .line{display:inline-block;width:18px;height:0;border-top:1.5px dashed #D9A441;margin-right:4px;vertical-align:middle}',
       '.memp .tree-detail{position:absolute;z-index:4;top:10px;left:10px;bottom:10px;width:min(322px,calc(100% - 20px));display:flex;flex-direction:column;gap:10px;padding:12px;border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 96%,transparent);backdrop-filter:blur(10px);box-shadow:0 16px 42px rgba(0,0,0,.22);overflow:auto;font-size:11.5px;scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--dsw-alias-label-secondary) 30%,transparent) transparent}',
@@ -1651,9 +1592,8 @@ window.__ModuleLoader__.load({
       if (!Number.isFinite(value)) return 1
       return Math.max(TREE_ZOOM_MIN, Math.min(TREE_ZOOM_MAX, Math.round(value * 1000) / 1000))
     }
-    // ---------------------------------------------------------------------
-    // 0.42.0：知识图谱（实体共现图）—— 零依赖 SVG 力导向布局 + 类型筛选 + 详情
-    // ---------------------------------------------------------------------
+
+    // 实体类型元数据（关系分析页的实体配色 / 中文标签）。
     const KG_TYPE_META = {
       path: { label: '路径', color: '#2563eb' },
       url: { label: '网址', color: '#0ea5e9' },
@@ -1666,57 +1606,6 @@ window.__ModuleLoader__.load({
       tool: { label: '工具', color: '#ea580c' },
       tag: { label: '标签', color: '#65a30d' },
       identifier: { label: '标识符', color: '#0f766e' },
-    }
-    const KG_LAYOUT_CACHE = new Map()
-
-    /**
-     * 图谱过滤（客户端，避免每次筛选都请求服务端）：
-     * 1) 去掉与其它类型同名的 tag（`tag:Termux` 与 `os:Termux` 不重复显示）；
-     * 2) 类型/搜索过滤；
-     * 3) 按出现次数取 Top N（默认 60，避免一屏几百个点看不清）；
-     * 4) 可选「仅强关系」（边权重 ≥2）。
-     */
-    function kgFilter(graph, activeTypes, query, limit = 60, strongOnly = false) {
-      if (graph === null || graph === undefined) return null
-      const rawNodes = graph.nodes ?? []
-      const labelsOfOtherTypes = new Set(
-        rawNodes.filter((node) => node.type !== 'tag').map((node) => String(node.label).toLowerCase()),
-      )
-      const rename = new Map()
-      const kept = []
-      for (const node of rawNodes) {
-        if (node.type === 'tag' && labelsOfOtherTypes.has(String(node.label).toLowerCase())) {
-          // tag 与其它实体同名：丢掉 tag 节点，把边并到同名实体上
-          const twin = rawNodes.find((other) => other.type !== 'tag' && String(other.label).toLowerCase() === String(node.label).toLowerCase())
-          if (twin !== undefined) rename.set(node.id, twin.id)
-          continue
-        }
-        kept.push(node)
-      }
-      const nodes = kept.filter((node) => {
-        if (activeTypes instanceof Set && activeTypes.size > 0 && !activeTypes.has(node.type)) return false
-        if (query !== '') {
-          const needle = String(query).toLowerCase()
-          const hay = `${node.label} ${node.value} ${node.type}`.toLowerCase()
-          if (!hay.includes(needle)) return false
-        }
-        return true
-      }).sort((a, b) => (b.count ?? 0) - (a.count ?? 0) || String(a.id).localeCompare(String(b.id)))
-      const limited = limit > 0 ? nodes.slice(0, limit) : nodes
-      const ids = new Set(limited.map((node) => node.id))
-      const edges = []
-      const edgeSeen = new Set()
-      for (const edge of graph.edges ?? []) {
-        const a = rename.get(edge.a) ?? edge.a
-        const b = rename.get(edge.b) ?? edge.b
-        if (a === b || !ids.has(a) || !ids.has(b)) continue
-        if (strongOnly && (Number(edge.weight) || 0) < 2) continue
-        const key = a < b ? `${a}|${b}` : `${b}|${a}`
-        if (edgeSeen.has(key)) continue
-        edgeSeen.add(key)
-        edges.push({ a, b, weight: edge.weight })
-      }
-      return { nodes: limited, edges, stats: graph.stats, memoryIndex: graph.memoryIndex, total: nodes.length }
     }
 
     function kgLayout(nodes, edges, width = 1100, height = 820) {
@@ -1830,209 +1719,7 @@ window.__ModuleLoader__.load({
       return { width, height, pos, radius }
     }
 
-    function kgLayoutCached(nodes, edges, width, height) {
-      const w = Math.max(240, Math.round(Number(width) || 900))
-      const h = Math.max(240, Math.round(Number(height) || 560))
-      const signature = `${w}x${h}|${nodes.length}|${nodes.map((node) => node.id).join(',')}`
-      const cached = KG_LAYOUT_CACHE.get(signature)
-      if (cached !== undefined) return cached
-      const layout = kgLayout(nodes, edges, w, h)
-      KG_LAYOUT_CACHE.set(signature, layout)
-      while (KG_LAYOUT_CACHE.size > 8) KG_LAYOUT_CACHE.delete(KG_LAYOUT_CACHE.keys().next().value)
-      return layout
-    }
-
-    /**
-     * 图谱画布（纯展示）：
-     *  - 节点：类型配色 + 外圈柔光 + 标签（Top 节点常显），大小按出现次数；
-     *  - 边：二次曲线（避免直线糊成一团），粗细/透明度按共现次数；
-     *  - 选中：只保留邻居高亮，其余淡出；悬停：节点与相连边提亮。
-     */
-    function EntityGraphCanvas({ graph, layout, zoom, selectedEntityId, hoveredEntityId, onSelectEntity, onHoverEntity, shouldIgnoreClick }) {
-      const [spread, setSpread] = React.useState(false)
-      // 只在「图谱内容变化」时重播展开动画：按稳定签名触发，避免 hover/选中/缩放导致
-      // 全图节点被吸回中心再飞散（P0：这是之前"不流畅"的主因）。
-      const graphKey = graph === null || graph === undefined
-        ? ''
-        : `${graph.nodes.length}|${graph.edges.length}|${graph.nodes[0]?.id ?? ''}|${graph.nodes[graph.nodes.length - 1]?.id ?? ''}`
-      React.useEffect(() => {
-        setSpread(false)
-        const timer = setTimeout(() => setSpread(true), 18)
-        return () => clearTimeout(timer)
-      }, [graphKey])
-      const nodes = graph?.nodes ?? []
-      const nodeById = new Map(nodes.map((node) => [node.id, node]))
-      const neighborIds = new Set()
-      if (selectedEntityId) {
-        neighborIds.add(selectedEntityId)
-        for (const edge of graph?.edges ?? []) {
-          if (edge.a === selectedEntityId) neighborIds.add(edge.b)
-          else if (edge.b === selectedEntityId) neighborIds.add(edge.a)
-        }
-      }
-      const focusActive = selectedEntityId !== null && selectedEntityId !== undefined
-      const edgeEls = []
-      for (const edge of graph?.edges ?? []) {
-        const a = layout.pos.get(edge.a), b = layout.pos.get(edge.b)
-        if (!a || !b) continue
-        const weight = Math.min(6, Math.max(1, Number(edge.weight) || 1))
-        const incident = focusActive && (edge.a === selectedEntityId || edge.b === selectedEntityId)
-        const dimmed = focusActive && !incident
-        const lit = hoveredEntityId !== null && hoveredEntityId !== undefined && (edge.a === hoveredEntityId || edge.b === hoveredEntityId)
-        // 二次曲线：中点垂直于连线偏移，偏移方向由两端 id 稳定决定，避免每次刷新抖动。
-        const mx = (a.x + b.x) / 2
-        const my = (a.y + b.y) / 2
-        const dx = b.x - a.x, dy = b.y - a.y
-        const len = Math.max(1, Math.hypot(dx, dy))
-        const sign = edge.a < edge.b ? 1 : -1
-        const bend = Math.min(26, 8 + len * 0.06) * sign
-        const cxp = mx + (-dy / len) * bend
-        const cyp = my + (dx / len) * bend
-        edgeEls.push(h('path', {
-          key: `e:${edge.a}:${edge.b}`,
-          className: 'kg-edge' + (lit ? ' lit' : '') + (dimmed ? ' dim' : ''),
-          d: `M ${a.x} ${a.y} Q ${cxp} ${cyp} ${b.x} ${b.y}`,
-          fill: 'none',
-          strokeWidth: dimmed ? 0.6 : Math.min(3.4, 0.7 + weight * 0.4),
-          strokeOpacity: dimmed ? 0.05 : Math.min(0.8, 0.16 + weight * 0.1),
-        }))
-      }
-      const showAllLabels = nodes.length <= 90
-      // 0.42.2：标签防重叠 —— 按 count 降序尝试放置，与已放置标签相交则隐藏该标签。
-      const labelBoxes = []
-      const labelledIds = new Set()
-      const labelBoxOf = (node, r, above) => {
-        const p = layout.pos.get(node.id)
-        const text = String(node.label).length > 14 ? `${String(node.label).slice(0, 13)}…` : String(node.label)
-        const width = Math.min(96, Math.max(14, text.length * 5.2))
-        const centerY = above ? p.y - (r + 8) : p.y + r + 9
-        return { x: p.x - width / 2, y: centerY - 6, w: width, h: 12 }
-      }
-      for (const node of nodes) {
-        const r = layout.radius.get(node.id) ?? 10
-        const selected = node.id === selectedEntityId
-        const hovered = node.id === hoveredEntityId
-        if (!(showAllLabels || r >= 18 || selected || hovered)) continue
-        const box = labelBoxOf(node, r, false)
-        const collides = labelBoxes.some((other) => box.x < other.x + other.w && box.x + box.w > other.x && box.y < other.y + other.h && box.y + box.h > other.y)
-        if (!collides || selected || hovered) {
-          labelBoxes.push(box)
-          labelledIds.add(node.id)
-        }
-      }
-      const nodeEls = []
-      nodes.forEach((node, nodeIndex) => {
-        const p = layout.pos.get(node.id)
-        if (!p) return
-        const meta = KG_TYPE_META[node.type] ?? { label: node.type, color: '#6b7280' }
-        const r = layout.radius.get(node.id) ?? 10
-        const selected = node.id === selectedEntityId
-        const hovered = node.id === hoveredEntityId
-        const dimmed = focusActive && !neighborIds.has(node.id)
-        const labelVisible = (showAllLabels || r >= 14 || selected || hovered) && (labelledIds.has(node.id) || selected || hovered)
-        const px = spread ? p.x : layout.width / 2
-        const py = spread ? p.y : layout.height / 2
-        nodeEls.push(h('g', {
-          key: `n:${node.id}`,
-          className: 'kg-node' + (selected ? ' selected' : '') + (hovered ? ' hovered' : '') + (dimmed ? ' dim' : ''),
-          transform: `translate(${px},${py})`,
-          onClick: () => { if (typeof shouldIgnoreClick === 'function' && shouldIgnoreClick()) return; onSelectEntity(node.id === selectedEntityId ? null : node.id) },
-          onMouseEnter: () => { if (typeof onHoverEntity === 'function') onHoverEntity(node.id) },
-          onMouseLeave: () => { if (typeof onHoverEntity === 'function') onHoverEntity(null) },
-          onKeyDown: (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelectEntity(node.id === selectedEntityId ? null : node.id) } },
-          role: 'button',
-          tabIndex: 0,
-          'aria-label': `${meta.label} ${node.label}`,
-          style: { '--c': meta.color },
-        },
-          h('circle', { className: 'kg-halo', cx: 0, cy: 0, r: r * 1.35, fill: meta.color, fillOpacity: selected || hovered ? 0.20 : 0.07 }),
-          h('circle', { className: 'kg-core', cx: 0, cy: 0, r: selected ? r + 3 : r, fill: meta.color, fillOpacity: selected ? 0.98 : 0.86 }),
-          selected ? h('circle', { cx: 0, cy: 0, r: r + 6, fill: 'none', stroke: meta.color, strokeWidth: 1.6, strokeDasharray: '3 3', strokeOpacity: 0.9 }) : null,
-          labelVisible
-            ? h('text', { x: 0, y: r + 11, className: 'kg-label', textAnchor: 'middle' }, String(node.label).length > 14 ? `${String(node.label).slice(0, 13)}…` : node.label)
-            : null,
-          h('title', null, `${meta.label} · ${node.value}\n出现在 ${node.count} 条记忆里`),
-        ))
-      })
-      // 0.56.0：按 zoom 放大 SVG 的 width/height，viewBox 保持基准坐标 ——
-      // 浏览器用矢量重新光栅化，放大后文字/线条依旧清晰（不再整层 CSS scale 变糊）。
-      const renderZoom = Number.isFinite(zoom) && zoom > 0 ? zoom : 1
-      return h('svg', {
-        className: 'kg-svg',
-        width: Math.ceil(layout.width * renderZoom),
-        height: Math.ceil(layout.height * renderZoom),
-        viewBox: `0 0 ${layout.width} ${layout.height}`,
-        'aria-label': '知识图谱',
-      }, edgeEls, nodeEls)
-    }
-
-    /** 选中实体详情：类型/次数/相关实体/关联记忆（点击记忆打开详情）。 */
-    function EntityGraphDetail({ graph, entityId, recordById, onSelectEntity, onOpenMemory, onClose }) {
-      if (!graph || !entityId) return null
-      const node = (graph.nodes ?? []).find((item) => item.id === entityId)
-      if (!node) return null
-      const meta = KG_TYPE_META[node.type] ?? { label: node.type, color: '#6b7280' }
-      const related = (graph.edges ?? [])
-        .filter((edge) => edge.a === entityId || edge.b === entityId)
-        .map((edge) => ({ id: edge.a === entityId ? edge.b : edge.a, weight: edge.weight }))
-        .map((item) => ({ ...item, node: (graph.nodes ?? []).find((n2) => n2.id === item.id) }))
-        .filter((item) => item.node !== undefined)
-        .sort((a, b) => b.weight - a.weight)
-        .slice(0, 12)
-      const memoryIds = graph.memoryIndex?.[entityId] ?? []
-      const memories = memoryIds.map((id) => recordById.get(id)).filter(Boolean).slice(0, 12)
-      return h('aside', { className: 'kg-detail', 'aria-label': '实体详情' },
-        h('div', { className: 'kg-detail-head' },
-          h('span', { className: 'kg-dot', style: { background: meta.color } }),
-          h('b', null, node.label),
-          h('span', { className: 'muted' }, `${meta.label} · ${node.count} 条记忆`),
-          h('span', { className: 'spacer' }),
-          h('button', { className: 'linkbtn', onClick: onClose }, '关闭'),
-        ),
-        h('div', { className: 'kg-detail-value mono' }, node.value),
-        related.length > 0 ? h('div', { className: 'kg-related' },
-          h('div', { className: 'muted' }, '相关实体'),
-          ...related.map((item) => h('button', {
-            key: item.id,
-            className: 'kg-rel-chip',
-            title: `共现 ${item.weight} 次`,
-            onClick: () => onSelectEntity(item.id),
-          }, item.node.label, h('span', { className: 'muted' }, ` ${item.weight}`))),
-        ) : null,
-        h('div', { className: 'kg-memories' },
-          h('div', { className: 'muted' }, `关联记忆（${memories.length}）`),
-          ...memories.map((rec) => h('div', {
-            key: rec.id,
-            className: 'kg-memory',
-            role: 'button',
-            tabIndex: 0,
-            onClick: () => onOpenMemory(rec.id),
-            onKeyDown: (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpenMemory(rec.id) } },
-          },
-            h('span', { className: 'kg-memory-kind' }, kindMeta(rec.kind).label),
-            h('span', { className: 'kg-memory-text' }, rec.content),
-          )),
-        ),
-      )
-    }
-
-    function loadKgDisplay() {
-      try {
-        const saved = window.localStorage.getItem('dsh-memory:kg-display')
-        if (saved === 'files' || saved === 'canvas') return saved
-      } catch { /* 隐私模式 */ }
-      return 'files'
-    }
-
-    function loadTreeMode() {
-      try {
-        const saved = window.localStorage.getItem('dsh-memory:tree-mode')
-        if (saved === 'tree' || saved === 'graph') return saved
-      } catch { /* 隐私模式 */ }
-      return 'tree'
-    }
-
-    function MemoryTreeTab({ records, scopes, loading, error, onRefresh, api }) {
+    function MemoryTreeTab({ records, scopes, loading, error, onRefresh }) {
       const [query, setQuery] = React.useState('')
       const [scopeFilter, setScopeFilter] = React.useState('')
       const [kindFilter, setKindFilter] = React.useState(null)
@@ -2042,31 +1729,9 @@ window.__ModuleLoader__.load({
       const [showCorrections, setShowCorrections] = React.useState(true)
       // 0.35.0：只看问题记忆（删除/失效/休眠/冲突）
       const [onlyIssues, setOnlyIssues] = React.useState(false)
-      // 0.42.0：记忆树 / 知识图谱 双视图（图谱数据由 /graph 提供）
-      const [viewMode, setViewMode] = React.useState(loadTreeMode())
-      const [graph, setGraph] = React.useState(null)
-      const [graphLoading, setGraphLoading] = React.useState(false)
-      const [graphError, setGraphError] = React.useState('')
-      const [graphRefresh, setGraphRefresh] = React.useState(0)
-      const [graphTypes, setGraphTypes] = React.useState(new Set())
-      const [selectedEntityId, setSelectedEntityId] = React.useState(null)
-      const [hoveredEntityId, setHoveredEntityId] = React.useState(null)
-      const [kgLimit, setKgLimit] = React.useState(60)
-      // 0.53.0：图谱默认以「文件」形式展示（一个实体一行，可展开记忆），可切回图谱。
-      const [kgDisplay, setKgDisplay] = React.useState(loadKgDisplay())
-      const [kgOpenGroups, setKgOpenGroups] = React.useState(new Set())
-      const [kgOpenEntities, setKgOpenEntities] = React.useState(new Set())
-      const [kgSize, setKgSize] = React.useState(null)
-      const [kgStrongOnly, setKgStrongOnly] = React.useState(false)
       const [zoom, setZoom] = React.useState(loadTreeZoom())
       const zoomRef = React.useRef(zoom)
       zoomRef.current = zoom
-      React.useEffect(() => {
-        try { window.localStorage.setItem('dsh-memory:tree-mode', viewMode) } catch { /* 隐私模式 */ }
-      }, [viewMode])
-      React.useEffect(() => {
-        try { window.localStorage.setItem('dsh-memory:kg-display', kgDisplay) } catch { /* 隐私模式 */ }
-      }, [kgDisplay])
       const [autoFitDone, setAutoFitDone] = React.useState(false)
       const wrapRef = React.useRef(null)
 
@@ -2092,133 +1757,9 @@ window.__ModuleLoader__.load({
         ? allKinds
         : new Set(presentKinds.filter((kind) => kindFilter.has(kind)))
 
-      // 0.42.0：知识图谱数据（服务端 /graph；只在图谱视图请求）
-      React.useEffect(() => {
-        if (viewMode !== 'graph') return undefined
-        if (typeof api !== 'function') { setGraphError('面板 API 不可用'); return undefined }
-        let alive = true
-        setGraphLoading(true)
-        setGraphError('')
-        const scopeParam = scopeFilter !== '' ? `&scope=${encodeURIComponent(scopeFilter)}` : ''
-        Promise.resolve()
-          .then(() => api(`graph?minCount=1${scopeParam}`))
-          .then((value) => { if (alive) setGraph(value) })
-          .catch((e) => { if (alive) { setGraph(null); setGraphError(String(e.message || e)) } })
-          .finally(() => { if (alive) setGraphLoading(false) })
-        return () => { alive = false }
-      }, [viewMode, scopeFilter, graphRefresh, records.length])
-
       // 0.35.0：状态过滤只影响画布布局，统计仍显示全量。
       const treeRecords = onlyIssues ? records.filter(isIssueRecord) : records
       const issueTotal = records.filter(isIssueRecord).length
-      // 0.50.0：按「当前设备容器」尺寸布局，图谱/树都不再固定 1100×820 而被裁掉底部。
-      React.useEffect(() => {
-        if (viewMode !== 'graph') return undefined
-        const wrap = wrapRef.current
-        if (wrap === null || wrap === undefined) {
-          // 测试/异常环境没有真实容器：给一个确定尺寸，保证仍可渲染。
-          setKgSize({ width: 900, height: 560 })
-          return undefined
-        }
-        const measure = () => {
-          const width = Math.max(260, Number(wrap.clientWidth) || 900)
-          const height = Math.max(260, Number(wrap.clientHeight) || 560)
-          setKgSize((prev) => (prev !== null && Math.abs(prev.width - width) < 4 && Math.abs(prev.height - height) < 4 ? prev : { width, height }))
-        }
-        measure()
-        // 下一帧再量一次：首帧可能还在字体/布局 settle 阶段。
-        const raf = typeof requestAnimationFrame === 'function' ? requestAnimationFrame(measure) : 0
-        if (typeof ResizeObserver === 'function') {
-          const observer = new ResizeObserver(measure)
-          observer.observe(wrap)
-          return () => { observer.disconnect(); if (raf && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(raf) }
-        }
-        window.addEventListener('resize', measure)
-        return () => { window.removeEventListener('resize', measure); if (raf && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(raf) }
-      }, [viewMode])
-      const skipZoomPersistRef = React.useRef(false)
-      React.useEffect(() => {
-        if (viewMode === 'graph') { skipZoomPersistRef.current = true; setZoom(1) }
-      }, [viewMode])
-
-      const panMovedRef = React.useRef(0)
-      // 0.50.1：图谱拖动平移（鼠标/触控板）；触屏交给原生滚动，避免与 pinch 双写。
-      React.useEffect(() => {
-        if (viewMode !== 'graph') return undefined
-        const wrap = wrapRef.current
-        const scroll = wrap && typeof wrap.querySelector === 'function' ? wrap.querySelector('.tree-scroll') : null
-        if (!scroll || typeof scroll.addEventListener !== 'function') return
-        let pan = null
-        const resetSoon = () => { setTimeout(() => { panMovedRef.current = 0 }, 80) }
-        const start = (x, y) => { pan = { x, y }; panMovedRef.current = 0 }
-        const move = (x, y) => {
-          if (pan === null) return
-          const dx = x - pan.x, dy = y - pan.y
-          const moved = Math.abs(dx) + Math.abs(dy)
-          if (moved > 0) panMovedRef.current += moved
-          if (moved > 2) {
-            scroll.scrollLeft -= dx
-            scroll.scrollTop -= dy
-            pan = { x, y }
-          }
-        }
-        const end = () => { pan = null; resetSoon() }
-        const onMouseDown = (event) => { if (event.button === 0) start(event.clientX, event.clientY) }
-        const onMouseMove = (event) => move(event.clientX, event.clientY)
-        scroll.addEventListener('mousedown', onMouseDown)
-        scroll.addEventListener('mousemove', onMouseMove)
-        scroll.addEventListener('mouseup', end)
-        scroll.addEventListener('mouseleave', end)
-        return () => {
-          scroll.removeEventListener('mousedown', onMouseDown)
-          scroll.removeEventListener('mousemove', onMouseMove)
-          scroll.removeEventListener('mouseup', end)
-          scroll.removeEventListener('mouseleave', end)
-        }
-      }, [viewMode, kgSize?.width, kgSize?.height])
-
-      // 0.42.0：图谱过滤 + 确定性布局（按签名缓存，输入/拖动不重算）
-      const graphFiltered = viewMode === 'graph' ? kgFilter(graph, graphTypes, query.trim(), kgLimit, kgStrongOnly) : null
-      const kg = graphFiltered !== null && graphFiltered.nodes.length > 0 && kgSize !== null
-        ? kgLayoutCached(graphFiltered.nodes, graphFiltered.edges, kgSize.width, kgSize.height)
-        : null
-      const graphTypeCounts = new Map()
-      for (const node of graph?.nodes ?? []) graphTypeCounts.set(node.type, (graphTypeCounts.get(node.type) ?? 0) + 1)
-      // 0.53.0：文件视图数据 —— 按实体类型分组，每个实体一行（可展开关联记忆）。
-      const kgFileGroups = (() => {
-        if (viewMode !== 'graph' || graph === null) return []
-        const needle = query.trim().toLowerCase()
-        const groups = new Map()
-        for (const node of graph.nodes ?? []) {
-          if (graphTypes.size > 0 && !graphTypes.has(node.type)) continue
-          const nodeText = `${node.label} ${node.value ?? ''} ${node.type}`.toLowerCase()
-          const nodeMatch = needle === '' || nodeText.includes(needle)
-          const memories = ((graph.memoryIndex ?? {})[node.id] ?? []).map((id) => recordById.get(id)).filter(Boolean)
-          let matchedMemories = memories
-          if (needle !== '') {
-            matchedMemories = memories.filter((rec) => rec.content.toLowerCase().includes(needle))
-            if (!nodeMatch && matchedMemories.length === 0) continue
-          }
-          if (!groups.has(node.type)) groups.set(node.type, [])
-          const typeLabel = (KG_TYPE_META[node.type] ?? { label: node.type }).label
-          const context = (matchedMemories[0] ?? memories[0])?.content ?? ''
-          groups.get(node.type).push({
-            node,
-            memories: matchedMemories,
-            nodeMatch,
-            typeLabel,
-            displayName: `${typeLabel} · ${node.label}`,
-            context: context.length > 72 ? `${context.slice(0, 72)}…` : context,
-          })
-        }
-        return [...groups.entries()]
-          .map(([type, entries]) => ({
-            type,
-            entries: entries.sort((a, b) => (b.node.count ?? 0) - (a.node.count ?? 0) || String(a.node.label).localeCompare(String(b.node.label))),
-          }))
-          .sort((a, b) => b.entries.length - a.entries.length)
-      })()
-      const kgFileMatches = kgFileGroups.reduce((total, group) => total + group.entries.length, 0)
 
       const layout = buildMemoryTree(treeRecords, {
         labels, collapsed, activeKinds, scopeFilter, query,
@@ -2331,7 +1872,6 @@ window.__ModuleLoader__.load({
       }
       const fitViewRef = React.useRef(null)
       const fitView = () => {
-        if (viewMode === 'graph') { setZoom(1); return }
         try {
           const wrap = wrapRef.current
           const scroll = wrap && typeof wrap.querySelector === 'function' ? wrap.querySelector('.tree-scroll') : null
@@ -2350,7 +1890,6 @@ window.__ModuleLoader__.load({
 
       // 0.34.1：缩放持久化 —— 下次打开记忆树保持上次的比例。
       React.useEffect(() => {
-        if (skipZoomPersistRef.current) { skipZoomPersistRef.current = false; return }
         try { window.localStorage.setItem(TREE_ZOOM_KEY, String(zoom)) } catch { /* 隐私模式忽略 */ }
       }, [zoom])
 
@@ -2449,7 +1988,7 @@ window.__ModuleLoader__.load({
             scroll.removeEventListener('dblclick', onDoubleClick)
           } catch { /* 忽略 */ }
         }
-      }, [showEmpty, layout.width, layout.height, viewMode, kg?.width, kg?.height])
+      }, [showEmpty, layout.width, layout.height])
 
 
       const stats = h('div', { className: 'tree-stats' },
@@ -2462,99 +2001,37 @@ window.__ModuleLoader__.load({
       const toolbar = h('div', { className: 'tree-toolbar' },
         h('input', {
           type: 'text',
-          placeholder: viewMode === 'graph' ? '搜索实体或记忆正文' : '搜索内容、类型、标签或作用域',
+          placeholder: '搜索内容、类型、标签或作用域',
           value: query,
           onChange: (event) => setQuery(event.target.value),
         }),
-        h('div', { className: 'tree-mode-toggle', title: '在记忆树与知识图谱之间切换' },
-          h('button', { className: viewMode === 'tree' ? 'on' : '', onClick: () => setViewMode('tree') }, '记忆树'),
-          h('button', { className: viewMode === 'graph' ? 'on' : '', onClick: () => setViewMode('graph') }, '知识图谱'),
-        ),
         h(Dropdown, {
           items: scopeItems,
           value: scopeFilter,
           disabled: loading,
           onChange: setScopeFilter,
         }),
-        viewMode === 'tree'
-          ? h('button', {
-              className: 'kchip' + (showCorrections ? ' on' : ' off'),
-              title: '显示 / 隐藏修正关系连线',
-              onClick: () => setShowCorrections((value) => !value),
-            }, h('span', { className: 'corr-swatch' }), '修正连线')
-          : null,
-        viewMode === 'tree'
-          ? h('button', {
-              className: 'kchip' + (onlyIssues ? ' on' : ' off'),
-              title: '只看需要处理的记忆：已删除 / 已失效 / 休眠 / 冲突',
-              onClick: () => setOnlyIssues((value) => !value),
-            }, '只看问题', h('b', null, String(issueTotal)))
-          : null,
-        viewMode === 'tree' && query.trim() !== ''
+        h('button', {
+          className: 'kchip' + (showCorrections ? ' on' : ' off'),
+          title: '显示 / 隐藏修正关系连线',
+          onClick: () => setShowCorrections((value) => !value),
+        }, h('span', { className: 'corr-swatch' }), '修正连线'),
+        h('button', {
+          className: 'kchip' + (onlyIssues ? ' on' : ' off'),
+          title: '只看需要处理的记忆：已删除 / 已失效 / 休眠 / 冲突',
+          onClick: () => setOnlyIssues((value) => !value),
+        }, '只看问题', h('b', null, String(issueTotal))),
+        query.trim() !== ''
           ? h('span', { className: 'tree-matchinfo' }, `匹配 ${layout.matches.size} 条`)
           : null,
-        viewMode === 'graph' && graph !== null
-          ? h('span', { className: 'tree-matchinfo' }, `${graph.stats.entities} 实体 · ${graph.stats.edges} 关系 · ${graph.stats.memories} 条记忆`)
-          : null,
         h('span', { className: 'spacer' }),
-        viewMode === 'tree' ? h('button', { onClick: () => setCollapsed(new Set()) }, '全部展开') : null,
-        viewMode === 'tree' ? h('button', { onClick: () => setCollapsed(new Set(presentScopes.map((scope) => `scope:${scope}`))) }, '只看作用域') : null,
+        h('button', { onClick: () => setCollapsed(new Set()) }, '全部展开'),
+        h('button', { onClick: () => setCollapsed(new Set(presentScopes.map((scope) => `scope:${scope}`))) }, '只看作用域'),
         h('button', {
-          disabled: loading || (viewMode === 'graph' && graphLoading),
-          onClick: () => {
-            setGraphRefresh((value) => value + 1)
-            if (typeof onRefresh === 'function') onRefresh()
-          },
-        }, (loading || (viewMode === 'graph' && graphLoading)) ? '刷新中…' : '刷新'),
+          disabled: loading,
+          onClick: () => { if (typeof onRefresh === 'function') onRefresh() },
+        }, loading ? '刷新中…' : '刷新'),
       )
-
-      // 0.42.0：图谱类型图例 = 类型筛选（空集合 = 全部）
-      const graphLegend = viewMode === 'graph'
-        ? h('div', { className: 'kg-legend' },
-            h('div', { className: 'tree-mode-toggle' },
-              h('button', { className: kgDisplay === 'files' ? 'on' : '', onClick: () => setKgDisplay('files') }, '文件'),
-              h('button', { className: kgDisplay === 'canvas' ? 'on' : '', onClick: () => setKgDisplay('canvas') }, '图谱'),
-            ),
-            graphLoading ? h('span', { className: 'muted' }, '正在构建知识图谱…')
-              : graphError !== '' ? h('span', { className: 'muted' }, `图谱不可用：${graphError}`)
-                : h('span', { className: 'muted' }, '类型'),
-            ...[...graphTypeCounts.entries()]
-              .sort((a, b) => b[1] - a[1])
-              .map(([type, count]) => {
-                const meta = KG_TYPE_META[type] ?? { label: type, color: '#6b7280' }
-                const active = graphTypes.size === 0 || graphTypes.has(type)
-                return h('button', {
-                  key: `kgtype:${type}`,
-                  className: 'kchip' + (active ? '' : ' off'),
-                  style: { '--k': meta.color },
-                  title: `只看 ${meta.label}（再点一次切换）`,
-                  onClick: () => setGraphTypes((prev) => {
-                    if (prev.size === 0) return new Set([type])
-                    const next = new Set(prev)
-                    if (next.has(type)) next.delete(type)
-                    else next.add(type)
-                    return next.size === graphTypeCounts.size ? new Set() : next
-                  }),
-                }, h('span', { className: 'tdot' }), meta.label, h('b', null, String(count)))
-              }),
-            h('span', { className: 'kg-legend-sep' }),
-            h('span', { className: 'muted' }, '显示'),
-            ...[30, 60, 120, 0].map((limit) => h('button', {
-              key: `kglimit:${limit}`,
-              className: 'kchip' + (kgLimit === limit ? ' on' : ' off'),
-              title: limit === 0 ? '显示全部实体（可能很密）' : `只显示出现次数最多的 ${limit} 个实体`,
-              onClick: () => setKgLimit(limit),
-            }, limit === 0 ? '全部' : String(limit))),
-            h('button', {
-              className: 'kchip' + (kgStrongOnly ? ' on' : ' off'),
-              title: '只显示共现 ≥2 次的边',
-              onClick: () => setKgStrongOnly((value) => !value),
-            }, '仅强关系'),
-            graphFiltered !== null
-              ? h('span', { className: 'muted' }, `显示 ${graphFiltered.nodes.length}/${graphFiltered.total}`)
-              : null,
-          )
-        : null
 
       const kindbar = h('div', { className: 'kindbar' },
         h('span', { className: 'kindbar-label' }, '类型'),
@@ -2699,178 +2176,13 @@ window.__ModuleLoader__.load({
           : null,
       )
 
-      // 0.42.0：知识图谱画布（复用同一套缩放/手势与详情面板）
-      const kgFilesBody = h('div', { className: 'kg-files' },
-        kgFileGroups.length === 0
-          ? h('div', { className: 'ana-empty' }, query.trim() !== '' ? '没有匹配的文件。' : '还没有可展示的实体，先运行分析。')
-          : h('div', { className: 'kg-files-meta' },
-              h('span', { className: 'muted' }, `${kgFileMatches} 个实体 · ${kgFileGroups.length} 个类型`),
-              h('span', { className: 'spacer' }),
-              h('button', {
-                className: 'linkbtn',
-                onClick: () => {
-                  setKgOpenGroups(new Set(kgFileGroups.map((group) => group.type)))
-                  setKgOpenEntities(new Set(kgFileGroups.flatMap((group) => group.entries.map((entry) => entry.node.id))))
-                },
-              }, '全部展开'),
-              h('button', {
-                className: 'linkbtn',
-                onClick: () => { setKgOpenGroups(new Set()); setKgOpenEntities(new Set()) },
-              }, '全部收起'),
-            ),
-        kgFileGroups.map((group) => {
-          const meta = KG_TYPE_META[group.type] ?? { label: group.type, color: '#6b7280' }
-          const open = query.trim() !== '' || kgOpenGroups.has(group.type)
-          return h('section', { key: group.type, className: 'kg-folder' },
-            h('div', {
-              className: 'kg-folder-head',
-              role: 'button',
-              tabIndex: 0,
-              onClick: () => setKgOpenGroups((prev) => { const next = new Set(prev); if (next.has(group.type)) next.delete(group.type); else next.add(group.type); return next }),
-              onKeyDown: (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setKgOpenGroups((prev) => { const next = new Set(prev); if (next.has(group.type)) next.delete(group.type); else next.add(group.type); return next }) } },
-            },
-              h('span', { className: 'kg-folder-caret' }, open ? '▾' : '▸'),
-              h('span', { className: 'kg-dot', style: { background: meta.color } }),
-              h('b', null, meta.label),
-              h('span', { className: 'muted' }, `${group.entries.length} 个文件`),
-            ),
-            open
-              ? h('div', { className: 'kg-folder-body' }, group.entries.map((entry) => {
-                  const entityOpen = query.trim() !== '' ? entry.memories.length > 0 : kgOpenEntities.has(entry.node.id)
-                  return h('div', { key: entry.node.id, className: 'kg-file-block' },
-                    h('div', {
-                      className: 'kg-file',
-                      role: 'button',
-                      tabIndex: 0,
-                      title: `${entry.typeLabel} · ${entry.node.value || entry.node.label}${entry.context ? `\n${entry.context}` : ''}`,
-                      onClick: () => setKgOpenEntities((prev) => { const next = new Set(prev); if (next.has(entry.node.id)) next.delete(entry.node.id); else next.add(entry.node.id); return next }),
-                      onKeyDown: (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setKgOpenEntities((prev) => { const next = new Set(prev); if (next.has(entry.node.id)) next.delete(entry.node.id); else next.add(entry.node.id); return next }) } },
-                    },
-                      h('div', { className: 'kg-file-row' },
-                        h('span', { className: 'kg-file-caret' }, entityOpen ? '▾' : '▸'),
-                        h('span', { className: 'kg-file-icon', style: { color: meta.color } }, '▤'),
-                        h('span', { className: 'kg-file-name' }, entry.displayName),
-                        entry.node.value !== entry.node.label && entry.node.value !== undefined
-                          ? h('span', { className: 'kg-file-value muted' }, String(entry.node.value))
-                          : null,
-                        h('span', { className: 'spacer' }),
-                        h('span', { className: 'ana-chip' }, `${entry.node.count ?? 0} 条记忆`),
-                      ),
-                      entry.context !== ''
-                        ? h('div', { className: 'kg-file-sub' }, entry.context)
-                        : null,
-                    ),
-                    entityOpen
-                      ? h('div', { className: 'kg-file-memories' }, entry.memories.length === 0
-                          ? h('div', { className: 'muted' }, '该实体暂无关联记忆。')
-                          : entry.memories.slice(0, 20).map((rec) => h('div', { key: rec.id, className: 'kg-file-memory' },
-                              h('span', { className: 'kg-file-memory-kind' }, kindMeta(rec.kind).label),
-                              h('span', { className: 'kg-file-memory-text' }, rec.content),
-                              h('span', { className: 'muted' }, shortTime(rec.updatedAt)),
-                            )))
-                      : null,
-                  )
-                }))
-              : null,
-          )
-        }),
-      )
-
-      const graphBody = viewMode === 'graph'
-        ? h('div', {
-            className: 'tree-wrap',
-            ref: wrapRef,
-            tabIndex: 0,
-            title: '滚轮 / 双指缩放 · 双击适应 · 键盘 + − 0 F',
-            onKeyDown: (event) => handleZoomKey(event, zoom),
-          },
-            (() => {
-              const selectedNode = (graphFiltered?.nodes ?? []).find((node) => node.id === selectedEntityId)
-              if (selectedNode === undefined) return null
-              const meta = KG_TYPE_META[selectedNode.type] ?? { label: selectedNode.type, color: '#6b7280' }
-              return h('div', { className: 'kg-selbar' },
-                h('span', { className: 'kg-dot', style: { background: meta.color } }),
-                h('b', null, selectedNode.label),
-                h('span', { className: 'muted' }, `${meta.label} · ${selectedNode.count} 条记忆`),
-                h('button', { className: 'linkbtn', onClick: () => setSelectedEntityId(null) }, '清除'),
-              )
-            })(),
-            selectedEntityId === null || selectedEntityId === undefined
-              ? h('div', { className: 'kg-hoverbar' },
-                  hoveredEntityId !== null
-                    ? (() => {
-                        const hovered = (graphFiltered?.nodes ?? []).find((node) => node.id === hoveredEntityId)
-                        if (hovered === undefined) return h('span', { className: 'muted' }, '点击实体查看详情')
-                        const meta = KG_TYPE_META[hovered.type] ?? { label: hovered.type, color: '#6b7280' }
-                        return h('span', null,
-                          h('span', { className: 'kg-dot', style: { background: meta.color } }),
-                          h('b', null, hovered.label),
-                          h('span', { className: 'muted' }, ` ${meta.label} · ${hovered.count} 条记忆`),
-                        )
-                      })()
-                    : h('span', { className: 'muted' }, '滚轮/双指缩放 · 双击适应 · 点击节点看详情 · 名字不清楚时切「文件」'),
-                )
-              : null,
-            h('div', { className: 'tree-scroll' },
-              kg !== null && graphFiltered !== null
-                ? h('div', {
-                    className: 'tree-zoomspace',
-                    style: { width: Math.ceil(kg.width * zoom), height: Math.ceil(kg.height * zoom) },
-                  },
-                    h('div', {
-                      style: { width: Math.ceil(kg.width * zoom), height: Math.ceil(kg.height * zoom) },
-                    },
-                      h(EntityGraphCanvas, {
-                        graph: graphFiltered,
-                        layout: kg,
-                        zoom,
-                        selectedEntityId,
-                        hoveredEntityId,
-                        onSelectEntity: setSelectedEntityId,
-                        onHoverEntity: setHoveredEntityId,
-                        shouldIgnoreClick: () => panMovedRef.current > 4,
-                      }),
-                    ),
-                  )
-                : graphLoading || (graphFiltered !== null && graphFiltered.nodes.length > 0 && kgSize === null)
-                  ? h('div', { className: 'tree-empty' },
-                      h('div', { className: 'kg-loading' },
-                        h('span', { className: 'kg-spinner' }),
-                        h('span', null, '正在构建知识图谱…'),
-                      ),
-                    )
-                  : h('div', { className: 'tree-empty' },
-                      h('span', { className: 'big' }, graphError !== '' ? '⚠️' : '🕸️'),
-                      h('span', null, graphError !== '' ? `图谱不可用：${graphError}` : '还没有可提取的实体（端口/路径/版本/工具/标签等会出现在这里）。'),
-                    ),
-            ),
-                h(EntityGraphDetail, {
-              graph: graphFiltered,
-              entityId: selectedEntityId,
-              recordById,
-              onSelectEntity: setSelectedEntityId,
-              onOpenMemory: (id) => setSelectedId(id),
-              onClose: () => setSelectedEntityId(null),
-            }),
-            selected
-              ? h('div', { style: { position: 'sticky', bottom: 0, zIndex: 6 } }, h(TreeDetail, {
-                  rec: selected,
-                  labels,
-                  byId: recordById,
-                  onClose: () => setSelectedId(null),
-                  onJump: jumpTo,
-                }))
-              : null,
-          )
-        : null
-
       return h('div', { className: 'tree-tab' },
         stats,
         toolbar,
-        viewMode === 'tree' ? kindbar : null,
-        viewMode === 'tree' ? statusLegend : graphLegend,
+        kindbar,
+        statusLegend,
         error && records.length > 0 ? h('div', { className: 'err' }, error) : null,
-        viewMode === 'graph' ? (kgDisplay === 'files' ? kgFilesBody : graphBody) : treeWrap,
+        treeWrap,
       )
     }
 
@@ -5803,7 +5115,6 @@ window.__ModuleLoader__.load({
         scopes,
         loading,
         error,
-        api,
         onRefresh: () => { setPendingTick(0); load('', '') },
       })
 
@@ -7785,10 +7096,7 @@ window.__ModuleLoader__.load({
       requestRecordFocus: requestRecordFocus,
       takeRecordFocus: takeRecordFocus,
       buildMemoryTree: buildMemoryTree,
-      kgFilter: kgFilter,
       kgLayout: kgLayout,
-      kgLayoutCached: kgLayoutCached,
-      EntityGraphCanvas: EntityGraphCanvas,
       clampTreeZoom: clampTreeZoom,
       TREE_ZOOM_MIN: TREE_ZOOM_MIN,
       TREE_ZOOM_MAX: TREE_ZOOM_MAX,

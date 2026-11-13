@@ -32,6 +32,12 @@ import { dirname } from 'node:path'
               
                   
                     
+     
+                                               
+                                              
+                            
+     
+                               
                                 
                            
                          
@@ -47,6 +53,8 @@ import { dirname } from 'node:path'
               
                     
                       
+                                                           
+                                  
                                         
                                     
                                      
@@ -86,6 +94,8 @@ export const defaultHardwareDeps               = {
   // 空数组会让「按核数推荐线程」算出 0 / NaN —— detectPlatform 会兜底成 4。
   cpuCount: () => detectPlatform().cpuCount,
   totalRamMb: () => Math.round(totalmem() / 1048576),
+  // LMK 会让 App 的实际可用内存远小于物理内存：预算按这个值算才真实。
+  availableRamMb: () => detectPlatform().availableMemMb,
   freeDiskMb: (dir) => {
     // statfs 需要真实存在的路径:从目标目录往上找到第一个存在的祖先。
     let probe = dir
@@ -213,6 +223,9 @@ export async function probeHardware(
     arch: deps.arch,
     cpuCount: Math.max(1, deps.cpuCount()),
     totalRamMb: Math.max(0, deps.totalRamMb()),
+    availableRamMb: (() => {
+      try { return deps.availableRamMb?.() ?? null } catch { return null }
+    })(),
     freeDiskMb,
     diskPath: freeDiskMb === null ? null : dir,
     gpu,

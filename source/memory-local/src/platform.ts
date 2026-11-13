@@ -228,6 +228,76 @@ export function describePlatform(info: PlatformInfo = detectPlatform()): string 
   return parts.join(' · ')
 }
 
+/** 系统 llama-server 的显式覆盖环境变量（优先级最高，方便测试/自定义路径）。 */
+export const ENV_SYSTEM_LLAMA_SERVER = 'DSH_MEMORY_LLAMA_SERVER'
+
+/**
+ * 「Linux 语义」平台：Android/Termux 的 `process.platform` 是 `'android'`，但它
+ * 同样是 Linux 内核 —— 有 /proc、有 bionic 动态链接器、Termux glibc 兼容层也照常
+ * 工作。所有「Linux 上才做」的判断（/proc 校验、glibc loader 包装、ubuntu 资产
+ * 选择）都应走这个函数，而不是直接比 `=== 'linux'`。
+ *
+ * 这一处写错就是 Termux 上一整条链路静默失效：资产匹配报「暂不支持该平台」、
+ * glibc 包装被跳过导致下载来的 ubuntu 二进制 ENOENT。
+ */
+export function isLinuxLike(platform: string): boolean {
+  return platform === 'linux' || platform === 'android'
+}
+
+/** 资产选择用的平台键：Android/Termux 复用 ubuntu 构建（靠 glibc loader 启动）。 */
+export function assetPlatform(platform: NodeJS.Platform): NodeJS.Platform {
+  return platform === 'android' ? 'linux' : platform
+}
+
+export interface SystemLlamaDeps {
+  env?: NodeJS.ProcessEnv
+  exists?: (path: string) => boolean
+  /** Termux 前缀；默认取 env.PREFIX。 */
+  prefix?: string | null
+  /** 测试注入：PATH 字符串。 */
+  pathEnv?: string
+  platform?: NodeJS.Platform
+}
+
+/**
+ * 找「系统包管理器装的」llama-server —— 例如 Termux 的 `pkg install llama-cpp`。
+ *
+ * 为什么需要它：一键安装下载的是 **ubuntu glibc** 的构建，在 Android 上要靠
+ * Termux glibc loader 包一层才能跑；而 Termux 官方仓库直接提供 bionic 原生的
+ * llama-cpp 包（`$PREFIX/bin/llama-server`），不下载运行时也能跑，还省掉
+ * glibc 兼容层这一整条故障面。
+ *
+ * 查找顺序（命中即返回，绝不抛）：
+ *   1. `DSH_MEMORY_LLAMA_SERVER`（显式覆盖）
+ *   2. `LLAMA_SERVER`
+ *   3. `$PREFIX/bin/llama-server[.exe]`
+ *   4. PATH 里的每个目录
+ */
+export function findSystemLlamaServer(deps: SystemLlamaDeps = {}): string | null {
+  const env = deps.env ?? process.env
+  const exists = deps.exists ?? existsSync
+  const platform = deps.platform ?? osPlatform()
+  const exeName = platform === 'win32' ? 'llama-server.exe' : 'llama-server'
+  for (const raw of [env[ENV_SYSTEM_LLAMA_SERVER], env.LLAMA_SERVER]) {
+    const value = (raw ?? '').trim()
+    if (value !== '' && exists(value)) return value
+  }
+  const prefix = deps.prefix !== undefined ? deps.prefix : ((env.PREFIX ?? '').trim() || null)
+  if (prefix !== null && prefix !== '') {
+    const candidate = join(prefix, 'bin', exeName)
+    if (exists(candidate)) return candidate
+  }
+  const pathEnv = deps.pathEnv !== undefined ? deps.pathEnv : (env.PATH ?? '')
+  const sep = platform === 'win32' ? ';' : ':'
+  for (const rawDir of pathEnv.split(sep)) {
+    const dir = rawDir.trim()
+    if (dir === '') continue
+    const candidate = join(dir, exeName)
+    if (exists(candidate)) return candidate
+  }
+  return null
+}
+
 /** 供 spawn 侧判断的「ELF 解释器是否需要被 Termux glibc loader 包装」。 */
 export function glibcLoaderFor(info: PlatformInfo, interp: string): string | null {
   if (info.glibcLibDir === null || info.glibcLoader === null) return null

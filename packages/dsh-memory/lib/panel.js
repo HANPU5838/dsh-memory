@@ -1248,24 +1248,6 @@ async function handle(ctx, routePath, req, res) {
       writeJson(res, { ok: true, value: { ...out, ...(await memory.embedServerStatus()) } })
       return
     }
-    if (method === 'GET' && path === '/graph') {
-      if (typeof memory.entityGraph !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供知识图谱接口（请升级 @restregular/dsh-memory）')
-      const rawScope = url.searchParams.get('scope')
-      const kindsRaw = url.searchParams.get('kinds')
-      const num = (name) => {
-        const value = Number(url.searchParams.get(name))
-        return Number.isFinite(value) && value > 0 ? value : undefined
-      }
-      const graph = memory.entityGraph({
-        ...(rawScope ? { scopes: [rawScope] } : {}),
-        ...(kindsRaw ? { kinds: kindsRaw.split(',').filter((x) => x !== '') } : {}),
-        minCount: num('minCount'),
-        maxNodes: num('maxNodes'),
-        maxEdges: num('maxEdges'),
-      })
-      writeJson(res, { ok: true, value: graph })
-      return
-    }
     if (method === 'GET' && path === '/health') {
       if (typeof memory.healthReport !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供健康度接口（请升级 @restregular/dsh-memory）')
       writeJson(res, { ok: true, value: memory.healthReport() })

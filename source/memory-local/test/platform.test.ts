@@ -3,13 +3,17 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  ENV_SYSTEM_LLAMA_SERVER,
+  assetPlatform,
   detectPlatform,
   describePlatform,
+  findSystemLlamaServer,
   freeDiskBytes,
+  isLinuxLike,
   readElfInterpFromFile,
 } from '../src/platform.ts'
 
@@ -98,4 +102,52 @@ test('freeDiskBytes：真实目录能读到，深路径会向上找祖先，不�
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test('findSystemLlamaServer：显式环境变量 → $PREFIX/bin → PATH，找不到返回 null', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-platform-llama-'))
+  try {
+    const explicit = join(dir, 'custom-llama-server')
+    writeFileSync(explicit, 'x')
+    const prefix = join(dir, 'prefix')
+    const prefixExe = join(prefix, 'bin', 'llama-server')
+    mkdirSync(join(prefix, 'bin'), { recursive: true })
+    writeFileSync(prefixExe, 'x')
+    const pathDir = join(dir, 'pathbin')
+    mkdirSync(pathDir)
+    const pathExe = join(pathDir, 'llama-server')
+    writeFileSync(pathExe, 'x')
+
+    assert.equal(
+      findSystemLlamaServer({ env: fakeEnv({ [ENV_SYSTEM_LLAMA_SERVER]: explicit }), exists: existsSync, prefix: null, pathEnv: '' }),
+      explicit,
+      '显式环境变量优先级最高',
+    )
+    assert.equal(
+      findSystemLlamaServer({ env: fakeEnv({ LLAMA_SERVER: join(dir, 'missing') }), exists: existsSync, prefix, pathEnv: '' }),
+      prefixExe,
+      'LLAMA_SERVER 指向不存在的文件时回退到 $PREFIX/bin',
+    )
+    assert.equal(
+      findSystemLlamaServer({ env: fakeEnv({}), exists: existsSync, prefix: null, pathEnv: pathDir }),
+      pathExe,
+      '最后回退到 PATH',
+    )
+    assert.equal(
+      findSystemLlamaServer({ env: fakeEnv({}), exists: existsSync, prefix: null, pathEnv: join(dir, 'nope') }),
+      null,
+      '都没有时返回 null（调用方走托管运行时）',
+    )
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('isLinuxLike / assetPlatform：Android 与 Linux 同语义（Termux 走 ubuntu 资产）', () => {
+  assert.equal(isLinuxLike('linux'), true)
+  assert.equal(isLinuxLike('android'), true, 'Android 也是 Linux 语义（/proc、glibc loader）')
+  assert.equal(isLinuxLike('darwin'), false)
+  assert.equal(assetPlatform('android'), 'linux', 'Android 复用 ubuntu 构建，靠 glibc loader 启动')
+  assert.equal(assetPlatform('linux'), 'linux')
+  assert.equal(assetPlatform('win32'), 'win32')
 })
