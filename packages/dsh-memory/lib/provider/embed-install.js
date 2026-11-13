@@ -49,7 +49,7 @@
  *   <root>/models/bge-m3-Q4_K_M.gguf     ← 模型
  *   <root>/llama-server.log              ← 托管启动时追加的日志
  */
-import { spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { chmodSync, copyFileSync, createReadStream, createWriteStream, existsSync, linkSync, mkdirSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, statSync, statfsSync, symlinkSync, writeFileSync } from 'node:fs'
                                                   
@@ -209,7 +209,7 @@ const EXTRA_DISK_RESERVE_BYTES = 200 * 1024 * 1024
      
                                                            
      
-                                                                
+                                                               
                                                        
                                
      
@@ -569,6 +569,11 @@ function readZipEntries(buf        )             {
   return entries
 }
 
+/** zip 单条解压上限（llama.cpp 运行时里最大的文件 ~200MB，留足余量）。 */
+const MAX_ZIP_ENTRY_BYTES = 1_500 * 1024 * 1024
+/** 单个归档解压总量上限：多条小条目累计解压同样能打爆低内存 Android。 */
+const MAX_ZIP_TOTAL_BYTES = 2_500 * 1024 * 1024
+
 /** 取一条条目的原始（未压缩）内容。stored/deflate 之外一律明确报错。 */
 function readZipEntryData(buf        , entry          )         {
   const p = entry.offset
@@ -584,8 +589,11 @@ function readZipEntryData(buf        , entry          )         {
   const raw = buf.subarray(start, end)
   if (entry.method === 0) return Buffer.from(raw)
   if (entry.method === 8) {
+    // 解压炸弹防护：中央目录声明的解压尺寸就是上限（+1 字节让「实际更大」
+    // 变成一个明确的解压失败，而不是悄悄吃掉几百 MB 内存）。
+    const limit = Math.min(entry.uncompressedSize, MAX_ZIP_ENTRY_BYTES) + 1
     try {
-      return inflateRawSync(raw)
+      return inflateRawSync(raw, { maxOutputLength: Math.max(1, limit) })
     } catch (error) {
       throw new Error(`解压条目失败：${entry.name}（${describeError(error)}）`)
     }
@@ -600,6 +608,7 @@ function extractZip(buf        , destDir        )         {
   for (const entry of entries) assertSafeName(entry.name)
   const prefix = commonPrefix(entries.map((entry) => entry.name))
   let written = 0
+  let totalBytes = 0
   for (const entry of entries) {
     const rel = stripPrefix(entry.name, prefix)
     if (rel === '') continue
@@ -607,6 +616,10 @@ function extractZip(buf        , destDir        )         {
     const target = safeTarget(destDir, rel)
     if (rel.endsWith('/')) continue
     const data = readZipEntryData(buf, entry)
+    totalBytes += data.length
+    if (totalBytes > MAX_ZIP_TOTAL_BYTES) {
+      throw new Error(`解压总量超过上限 ${MAX_ZIP_TOTAL_BYTES} 字节，拒绝继续（疑似解压炸弹或损坏的归档）`)
+    }
     if (data.length !== entry.uncompressedSize) {
       throw new Error(`解压校验失败：${entry.name} 声明 ${entry.uncompressedSize} 字节，实际 ${data.length} 字节`)
     }
@@ -1300,7 +1313,7 @@ export const DEFAULT_PROBE_TIMEOUT_MS = 4000
  
 
 /** 可注入的冒烟探测。返回 null = 跳过探测（CI / 交叉安装环境用）。 */
-                                                                     
+                                                                                                          
 
 /** 一种探测启动方式。 */
                                
@@ -1337,42 +1350,61 @@ function versionProbeCommands(exe        )                        {
   }
 }
 
-/** 跑一次探测命令。任何异常都翻译成 ok:false + 可读原因，绝不抛。 */
-function runVersionProbe(command                     , timeoutMs        )                     {
-  let status                = null
-  let stdout = ''
-  let stderr = ''
-  let spawnError          = null
-  try {
-    const result = spawnSync(command.file, command.args, {
-      timeout: timeoutMs,
-      encoding: 'utf8',
-      windowsHide: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      // cwd 与托管启动一致：llama.cpp 的 shim 从这里解析同目录的 dll/so。
-      cwd: dirname(command.file),
-    })
-    status = typeof result.status === 'number' ? result.status : null
-    if (typeof result.stdout === 'string') stdout = result.stdout
-    if (typeof result.stderr === 'string') stderr = result.stderr
-    if (result.error !== undefined && result.error !== null) spawnError = result.error
-  } catch (error) {
-    spawnError = error
-  }
-  if (spawnError !== null) {
-    const code = (spawnError                      ).code
-    const hint = code === 'ETIMEDOUT' ? `（超过 ${timeoutMs}ms 未返回，已强制结束）` : ''
-    return {
-      ok: false,
-      status,
-      stderr: `无法执行 ${command.file}：${describeError(spawnError)}${hint}`,
-      via: command.via,
+/**
+ * 跑一次探测命令。任何异常都翻译成 ok:false + 可读原因，绝不抛。
+ *
+ * 用异步 spawn 而不是 spawnSync：冒烟探测最长 4s，在 Termux 上还要先试
+ * glibc loader、再直连重试（两轮），spawnSync 会把**整个 DSH 事件循环**
+ * 卡住近 8 秒（面板、会话、心跳全停）。异步版本用定时器强杀，宿主全程可响应。
+ */
+function runVersionProbe(command                     , timeoutMs        )                              {
+  return new Promise((resolve) => {
+    let settled = false
+    let stdout = ''
+    let stderr = ''
+    let timer                                       = null
+    const finish = (result                    )       => {
+      if (settled) return
+      settled = true
+      if (timer !== null) clearTimeout(timer)
+      resolve(result)
     }
-  }
-  if (status === 0) {
-    return { ok: true, status: 0, version: versionLine(stdout, stderr), via: command.via }
-  }
-  return { ok: false, status, stderr: `${stdout}\n${stderr}`.trim(), via: command.via }
+    let child                          
+    try {
+      child = spawn(command.file, command.args, {
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        // cwd 与托管启动一致：llama.cpp 的 shim 从这里解析同目录的 dll/so。
+        cwd: dirname(command.file),
+      })
+    } catch (error) {
+      finish({ ok: false, status: null, stderr: `无法执行 ${command.file}：${describeError(error)}`, via: command.via })
+      return
+    }
+    child.stdout?.on('data', (chunk                 ) => { stdout += String(chunk) })
+    child.stderr?.on('data', (chunk                 ) => { stderr += String(chunk) })
+    timer = setTimeout(() => {
+      try { child.kill('SIGKILL') } catch { /* already gone */ }
+      finish({
+        ok: false,
+        status: null,
+        stderr: `无法执行 ${command.file}：超过 ${timeoutMs}ms 未返回，已强制结束`,
+        via: command.via,
+      })
+    }, timeoutMs)
+    timer.unref?.()
+    child.on('error', (error       ) => {
+      finish({ ok: false, status: null, stderr: `无法执行 ${command.file}：${describeError(error)}`, via: command.via })
+    })
+    child.on('close', (code               ) => {
+      const status = typeof code === 'number' ? code : null
+      if (status === 0) {
+        finish({ ok: true, status: 0, version: versionLine(stdout, stderr), via: command.via })
+        return
+      }
+      finish({ ok: false, status, stderr: `${stdout}\n${stderr}`.trim(), via: command.via })
+    })
+  })
 }
 
 /** 从输出里摘一行版本（优先带 version 字样的那行)。 */
@@ -1401,11 +1433,11 @@ function stderrTail(text                    , maxLines = 8, maxChars = 800)     
  * 默认冒烟探测：`exe --version`，4s 超时。Termux 上先用 glibc loader 包装试，
  * 不行再直连兜底；两者都失败时返回后者的结果（错误信息更贴近「程序本身坏」）。
  */
-export function probeVersionDefault(exe        , timeoutMs         = DEFAULT_PROBE_TIMEOUT_MS)                     {
+export async function probeVersionDefault(exe        , timeoutMs         = DEFAULT_PROBE_TIMEOUT_MS)                              {
   const commands = versionProbeCommands(exe)
   let last                     = { ok: false, status: null, stderr: `没有可用的探测方式：${exe}` }
   for (const command of commands) {
-    const result = runVersionProbe(command, timeoutMs)
+    const result = await runVersionProbe(command, timeoutMs)
     if (result.ok) return result
     last = result
   }
@@ -1661,7 +1693,7 @@ export class VectorInstaller {
       // 最后一道闸：文件齐了不等于跑得起来。跑一次 `llama-server --version`，
       // 把「缺 glibc loader / 指令集不匹配 / 解压被截断」这类问题在安装流程里
       // 就暴露出来，而不是等用户第一次检索时才看到后端起不来。
-      this.smokeTest(gen, paths)
+      await this.smokeTest(gen, paths)
 
       const installed = detectInstalled(root, model.file)
       if (installed === null) throw new Error('安装校验失败：llama-server 或模型文件缺失')
@@ -1990,7 +2022,7 @@ export class VectorInstaller {
       this.report(gen, { message: `模型下载完成（已下载 ${formatBytes(got.bytes)}，来源：${got.source.label}）` })
     }
     const systemPaths               = { ...paths, exe: systemExe, cwd: dirname(systemExe), system: true }
-    this.smokeTest(gen, systemPaths)
+    await this.smokeTest(gen, systemPaths)
     const installed = detectInstalled(paths.root, model.file, { systemExe, preferSystem: true })
     if (installed === null) throw new Error('安装校验失败：模型文件缺失')
     this.report(gen, {
@@ -2006,22 +2038,20 @@ export class VectorInstaller {
   /**
    * 安装后冒烟：文件齐了不等于跑得起来，跑一次 `exe --version` 才算装完。
    *
-   * 探测方式是注入的（默认 spawnSync，4s 超时；Termux 上自动用 glibc loader
+   * 探测方式是注入的（默认异步 spawn，4s 超时；Termux 上自动用 glibc loader
    * 包装，与托管启动保持一致）。失败时：
    *  - message 带 stderr 尾部（缺哪个 .so、哪条 loader，用户一眼能看到）；
    *  - 顺手把 exe 摘掉：detectInstalled 只看文件在不在，留着它下次 start()
    *    会直接报「已就绪，无需下载」，把坏安装当成功——静默失效最难排查。
    *    压缩包还在，重试只需要重新解压+校验，不会白下几十 MB。
    */
-          smokeTest(gen        , paths              )       {
+          async smokeTest(gen        , paths              )                {
     const probe = this.opts.probeVersion ?? probeVersionDefault
     this.setPhase(gen, 'verifying', `冒烟测试：${basename(paths.exe)} --version`)
-    // spawnSync 有 4s 超时兜底，但它是阻塞的：取消只能在探测前后生效。
-    // 这个取舍是有意的——宁可多等几秒，也要拦下「装完即坏」。
     this.ensureActive(gen)
     let result                           
     try {
-      result = probe(paths.exe)
+      result = await probe(paths.exe)
     } catch (error) {
       // 注入的探测实现自己炸了也要变成可读的 error，而不是一句裸异常。
       throw new Error(`安装后冒烟测试失败：探测 ${basename(paths.exe)} 时出错（${describeError(error)}）`)

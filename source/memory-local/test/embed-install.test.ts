@@ -44,6 +44,15 @@ import {
 
 // ───────────────────────────── 小工具 ─────────────────────────────
 
+/**
+ * 测试用的平台/架构：Termux/Android 的 `process.platform` 是 `'android'`，
+ * 但安装器的资产匹配、解压、冒烟路径与 linux 完全一致（Android 复用 ubuntu
+ * 构建，靠 glibc loader 启动）。用「注入值」而不是宿主值，Termux 上才能真的
+ * 跑安装路径用例，而不是整批 skip —— 22 个 skip 等于目标平台零覆盖。
+ */
+const TEST_PLATFORM: NodeJS.Platform = process.platform === 'android' ? 'linux' : process.platform
+const TEST_ARCH = process.arch === 'arm64' ? 'arm64' : 'x64'
+
 function tempDir(prefix: string): string {
   return mkdtempSync(join(tmpdir(), prefix))
 }
@@ -60,7 +69,7 @@ async function waitFor(cond: () => boolean, what: string, timeoutMs = 10_000): P
 /** 宿主平台是否受支持（win32-ia32 之类要整条跳过）。 */
 function hostSupported(): boolean {
   try {
-    runtimeAssetPattern(process.platform, process.arch)
+    runtimeAssetPattern(TEST_PLATFORM, TEST_ARCH)
     return true
   } catch {
     return false
@@ -239,8 +248,8 @@ interface RuntimeFixture {
  * 这样平台匹配、解压、detectInstalled 三条路径都在当前机器上真跑一遍。
  */
 function buildRuntimeFixture(): RuntimeFixture {
-  const arch = process.arch === 'arm64' ? 'arm64' : 'x64'
-  if (process.platform === 'win32') {
+  const arch = TEST_ARCH
+  if (TEST_PLATFORM === 'win32') {
     return {
       name: `llama-b19999-bin-win-cpu-${arch}.zip`,
       bytes: buildZip([
@@ -250,7 +259,7 @@ function buildRuntimeFixture(): RuntimeFixture {
       ]),
     }
   }
-  const dirName = process.platform === 'darwin' ? 'macos' : 'ubuntu'
+  const dirName = TEST_PLATFORM === 'darwin' ? 'macos' : 'ubuntu'
   return {
     name: `llama-b19999-bin-${dirName}-${arch}.tar.gz`,
     bytes: gzipSync(buildTar([
@@ -281,20 +290,20 @@ interface CudaFixture {
  * 找不到 llama-server.exe —— issue #4。macOS 没有 CUDA 构建（风味退回 CPU），返回 null。
  */
 function buildCudaFixture(): CudaFixture | null {
-  if (process.platform !== 'win32' && process.platform !== 'linux') return null
-  const arch = process.arch === 'arm64' ? 'arm64' : 'x64'
-  const cuda = arch === 'arm64' ? '13.4' : process.platform === 'linux' ? '12.8' : '12.4'
-  const suffix = process.platform === 'win32' ? 'win' : 'ubuntu'
-  const ext = process.platform === 'win32' ? 'zip' : 'tar.gz'
-  const exe = process.platform === 'win32' ? 'llama-server.exe' : 'llama-server'
+  if (TEST_PLATFORM !== 'win32' && TEST_PLATFORM !== 'linux') return null
+  const arch = TEST_ARCH
+  const cuda = arch === 'arm64' ? '13.4' : TEST_PLATFORM === 'linux' ? '12.8' : '12.4'
+  const suffix = TEST_PLATFORM === 'win32' ? 'win' : 'ubuntu'
+  const ext = TEST_PLATFORM === 'win32' ? 'zip' : 'tar.gz'
+  const exe = TEST_PLATFORM === 'win32' ? 'llama-server.exe' : 'llama-server'
   const mainName = `llama-b19999-bin-${suffix}-cuda-${cuda}-${arch}.${ext}`
-  const companionName = process.platform === 'win32'
+  const companionName = TEST_PLATFORM === 'win32'
     ? `cudart-llama-bin-win-cuda-${cuda}-${arch}.zip`
     : `cudart-llama-b19999-bin-ubuntu-cuda-${cuda}-${arch}.tar.gz`
   // 干扰项必须与要选的伴生包 cuda 次版本不同，否则它自己就会成为第一个命中。
   const decoyCuda = cuda === '12.4' ? '13.4' : '12.4'
 
-  const mainBytes = process.platform === 'win32'
+  const mainBytes = TEST_PLATFORM === 'win32'
     ? buildZip([
         { name: exe, data: Buffer.from('llama-server-shim') },
         { name: 'llama-server-impl.dll', data: Buffer.alloc(4096, 5), method: 8 },
@@ -815,7 +824,7 @@ test('完整流程：查发行版 → 下运行时 → 解压 → 下模型 → 
       return new Response('unexpected', { status: 404 })
     })
     const reports: InstallProgress[] = []
-    const installer = new VectorInstaller({ root, fetchImpl, onProgress: (p) => reports.push(p), probeVersion: fakeProbe() })
+    const installer = new VectorInstaller({ platform: TEST_PLATFORM, arch: TEST_ARCH, root, fetchImpl, onProgress: (p) => reports.push(p), probeVersion: fakeProbe() })
 
     installer.start()
     installer.start() // 幂等：第二次必须被忽略（否则会下两遍）
@@ -898,7 +907,7 @@ test('回归 issue #4：cudart 资产排在主包前面时，CUDA 安装仍下 l
       if (url.includes(MODEL_FILE_NAME)) return streamResponse([modelBytes], modelBytes.length)
       return new Response('unexpected', { status: 404 })
     })
-    const installer = new VectorInstaller({ root, fetchImpl, flavor: 'cuda', probeVersion: fakeProbe() })
+    const installer = new VectorInstaller({ platform: TEST_PLATFORM, arch: TEST_ARCH, root, fetchImpl, flavor: 'cuda', probeVersion: fakeProbe() })
 
     installer.start()
     await waitFor(() => installer.progress.phase === 'done' || installer.progress.phase === 'error', 'CUDA 安装结束')
@@ -940,7 +949,7 @@ test('运行时通道回退：直链被重置 → 改用 GitHub API 资产端点
       return new Response('unexpected', { status: 404 })
     })
     const reports: InstallProgress[] = []
-    const installer = new VectorInstaller({ root, fetchImpl, onProgress: (p) => reports.push(p), probeVersion: fakeProbe() })
+    const installer = new VectorInstaller({ platform: TEST_PLATFORM, arch: TEST_ARCH, root, fetchImpl, onProgress: (p) => reports.push(p), probeVersion: fakeProbe() })
     installer.start()
     await waitFor(() => installer.progress.phase === 'done' || installer.progress.phase === 'error', '安装结束')
 
@@ -978,7 +987,7 @@ test('运行时两条通道都失败：报出每个通道与原因', async () =>
       if (url === apiAssetUrl) return new Response('nope', { status: 502, statusText: 'Bad Gateway' })
       return new Response('unexpected', { status: 404 })
     })
-    const installer = new VectorInstaller({ root, fetchImpl })
+    const installer = new VectorInstaller({ platform: TEST_PLATFORM, arch: TEST_ARCH, root, fetchImpl })
     installer.start()
     await waitFor(() => installer.progress.phase === 'error', '进入 error')
 
@@ -1009,7 +1018,7 @@ test('完整流程：响应没有 content-length 时 totalBytes 为 null', async
       return streamResponse([modelBytes], null)
     })
     const reports: InstallProgress[] = []
-    const installer = new VectorInstaller({ root, fetchImpl, onProgress: (p) => reports.push(p), probeVersion: fakeProbe() })
+    const installer = new VectorInstaller({ platform: TEST_PLATFORM, arch: TEST_ARCH, root, fetchImpl, onProgress: (p) => reports.push(p), probeVersion: fakeProbe() })
     installer.start()
     await waitFor(() => installer.progress.phase === 'done' || installer.progress.phase === 'error', '安装结束')
 
@@ -1040,7 +1049,7 @@ test('cancel：中止在途下载、删掉 .part、phase 回到 idle', async (t)
       return stallResponse(init?.signal, Buffer.alloc(32 * 1024, 9), 8 * 1024 * 1024)
     })
     const reports: InstallProgress[] = []
-    const installer = new VectorInstaller({ root, fetchImpl, onProgress: (p) => reports.push(p) })
+    const installer = new VectorInstaller({ platform: TEST_PLATFORM, arch: TEST_ARCH, root, fetchImpl, onProgress: (p) => reports.push(p) })
 
     installer.start()
     const part = `${join(paths.dir, runtime.name)}.part`
@@ -1064,7 +1073,7 @@ test('cancel：中止在途下载、删掉 .part、phase 回到 idle', async (t)
 })
 
 test('cancel 在没有任务时是 no-op', () => {
-  const installer = new VectorInstaller({ root: 'D:/nonexistent-root-should-not-be-touched' })
+  const installer = new VectorInstaller({ platform: TEST_PLATFORM, arch: TEST_ARCH, root: 'D:/nonexistent-root-should-not-be-touched' })
   installer.cancel()
   assert.equal(installer.progress.phase, 'idle')
   assert.equal(existsSync('D:/nonexistent-root-should-not-be-touched'), false)
@@ -1076,7 +1085,7 @@ test('GitHub API 限流：phase=error 且 message 可读', async () => {
   const root = tempDir('dsh-install-403-')
   try {
     const fetchImpl = fakeFetch(() => new Response('rate limited', { status: 403 }))
-    const installer = new VectorInstaller({ root, fetchImpl })
+    const installer = new VectorInstaller({ platform: TEST_PLATFORM, arch: TEST_ARCH, root, fetchImpl })
     installer.start()
     await waitFor(() => installer.progress.phase === 'error', '进入 error')
     assert.equal(installer.progress.phase, 'error')
@@ -1093,7 +1102,7 @@ test('资产匹配失败：报出平台与正则', async () => {
   const root = tempDir('dsh-install-nomatch-')
   try {
     const fetchImpl = fakeFetch(() => jsonResponse([{ assets: [{ name: 'llama-b1-bin-ubuntu-x64.tar.gz', browser_download_url: 'https://x' }] }]))
-    const installer = new VectorInstaller({ root, fetchImpl, platform: 'win32', arch: 'x64' })
+    const installer = new VectorInstaller({ platform: TEST_PLATFORM, arch: TEST_ARCH, root, fetchImpl, platform: 'win32', arch: 'x64' })
     installer.start()
     await waitFor(() => installer.progress.phase === 'error', '进入 error')
     assert.match(installer.progress.message, /资产匹配失败：win32-x64/)
@@ -1108,7 +1117,7 @@ test('网络层失败（fetch reject）被翻译成人话，不逃逸出 start()
     const fetchImpl = (async () => {
       throw new TypeError('fetch failed')
     }) as unknown as typeof fetch
-    const installer = new VectorInstaller({ root, fetchImpl })
+    const installer = new VectorInstaller({ platform: TEST_PLATFORM, arch: TEST_ARCH, root, fetchImpl })
     installer.start() // 不能抛
     await waitFor(() => installer.progress.phase === 'error', '进入 error')
     assert.match(installer.progress.message, /网络请求失败/)
@@ -1139,7 +1148,7 @@ test('模型多源回退：前一个源失败就换下一个，直到成功', as
       return streamResponse([modelBytes], modelBytes.length)
     })
     const reports: InstallProgress[] = []
-    const installer = new VectorInstaller({ root, fetchImpl, modelSources: sources, onProgress: (p) => reports.push(p), probeVersion: fakeProbe() })
+    const installer = new VectorInstaller({ platform: TEST_PLATFORM, arch: TEST_ARCH, root, fetchImpl, modelSources: sources, onProgress: (p) => reports.push(p), probeVersion: fakeProbe() })
     installer.start()
     await waitFor(() => installer.progress.phase === 'done' || installer.progress.phase === 'error', '安装结束')
 
@@ -1170,7 +1179,7 @@ test('模型所有源都失败：报出每个源自己的原因', async (t) => {
       if (url === 'https://example.invalid/rt') return streamResponse([runtime.bytes], runtime.bytes.length)
       return new Response('down', { status: 503, statusText: 'Unavailable' })
     })
-    const installer = new VectorInstaller({
+    const installer = new VectorInstaller({ platform: TEST_PLATFORM, arch: TEST_ARCH,
       root,
       fetchImpl,
       modelSources: ['https://a.invalid/m.gguf', 'https://b.invalid/m.gguf'],
@@ -1202,7 +1211,7 @@ test('已安装时 start() 什么都不做：不查 GitHub、不覆盖既有文�
       called++
       return new Response('nope', { status: 500 })
     }) as unknown as typeof fetch
-    const installer = new VectorInstaller({ root, fetchImpl })
+    const installer = new VectorInstaller({ platform: TEST_PLATFORM, arch: TEST_ARCH, root, fetchImpl })
     installer.start()
     await new Promise((resolve) => setTimeout(resolve, 30))
 
@@ -1247,7 +1256,7 @@ test('安装流程：解压后 SONAME 链接解析不了 → phase=error 且写�
       modelRequested = true
       return new Response('should not download model', { status: 500 })
     })
-    const installer = new VectorInstaller({ root, fetchImpl })
+    const installer = new VectorInstaller({ platform: TEST_PLATFORM, arch: TEST_ARCH, root, fetchImpl })
     installer.start()
     await waitFor(() => installer.progress.phase === 'error' || installer.progress.phase === 'done', '安装结束')
 
@@ -1272,7 +1281,7 @@ test('磁盘预检：空间不够 → phase=error 并给出要释放多少 GB，
       return new Response('nope', { status: 500 })
     })
     const reports: InstallProgress[] = []
-    const installer = new VectorInstaller({
+    const installer = new VectorInstaller({ platform: TEST_PLATFORM, arch: TEST_ARCH,
       root,
       fetchImpl,
       freeBytes: () => 100 * 1024 * 1024, // 只剩 100MB
@@ -1299,7 +1308,7 @@ test('磁盘预检：读不到可用空间时跳过预检，不拦死安装', as
       calls++
       return new Response('rate limited', { status: 403 })
     })
-    const installer = new VectorInstaller({ root, fetchImpl, freeBytes: () => null })
+    const installer = new VectorInstaller({ platform: TEST_PLATFORM, arch: TEST_ARCH, root, fetchImpl, freeBytes: () => null })
     installer.start()
     await waitFor(() => installer.progress.phase === 'error', '进入 error')
 
@@ -1381,14 +1390,14 @@ test('normalizeSha256：大小写不敏感、允许 sha256: 前缀', () => {
   assert.equal(normalizeSha256(`  SHA256:${hex.toUpperCase()} `), hex)
 })
 
-test('probeVersionDefault：真跑一次 --version；跑不起来的可执行文件给出原因', () => {
+test('probeVersionDefault：真跑一次 --version；跑不起来的可执行文件给出原因', async () => {
   // 拿 node 自己当「一定能跑起来的 exe」：默认实现必须真的 spawn 成功。
-  const ok = probeVersionDefault(process.execPath)
+  const ok = await probeVersionDefault(process.execPath)
   assert.equal(ok.ok, true, ok.stderr ?? '')
   assert.equal(ok.status, 0)
   assert.match(ok.version ?? '', /v\d+/, `摘出的版本行：${String(ok.version)}`)
 
-  const missing = probeVersionDefault(join(tmpdir(), `dsh-probe-missing-${process.pid}`))
+  const missing = await probeVersionDefault(join(tmpdir(), `dsh-probe-missing-${process.pid}`))
   assert.equal(missing.ok, false)
   assert.match(missing.stderr ?? '', /无法执行|ENOENT/i)
   assert.ok(DEFAULT_PROBE_TIMEOUT_MS >= 3000 && DEFAULT_PROBE_TIMEOUT_MS <= 5000, '超时取 3-5 秒')
@@ -1427,7 +1436,7 @@ test('断点续传：206 + Content-Range 起点匹配 → 追加写，装完无 
       },
     })
     const reports: InstallProgress[] = []
-    const installer = new VectorInstaller({
+    const installer = new VectorInstaller({ platform: TEST_PLATFORM, arch: TEST_ARCH,
       root,
       fetchImpl,
       onProgress: (p) => reports.push(p),
@@ -1474,7 +1483,7 @@ test('断点续传：服务端不支持 Range 回 200 → 从头覆盖，不会�
         if (url === RUNTIME_URL) range = headers.range ?? null
       },
     })
-    const installer = new VectorInstaller({ root, fetchImpl, probeVersion: fakeProbe() })
+    const installer = new VectorInstaller({ platform: TEST_PLATFORM, arch: TEST_ARCH, root, fetchImpl, probeVersion: fakeProbe() })
     installer.start()
     await waitDone(installer, '安装结束')
 
@@ -1509,7 +1518,7 @@ test('换源不续传：.part 来自另一个 URL 时从头下载（不同镜像
         if (url === RUNTIME_URL) range = headers.range ?? null
       },
     })
-    const installer = new VectorInstaller({ root, fetchImpl, probeVersion: fakeProbe() })
+    const installer = new VectorInstaller({ platform: TEST_PLATFORM, arch: TEST_ARCH, root, fetchImpl, probeVersion: fakeProbe() })
     installer.start()
     await waitDone(installer, '安装结束')
 
@@ -1543,7 +1552,7 @@ test('断点续传：Content-Range 起点对不上 → error 且删残片，不�
       }),
       modelBytes: Buffer.alloc(1024, 4),
     })
-    const installer = new VectorInstaller({ root, fetchImpl, probeVersion: fakeProbe() })
+    const installer = new VectorInstaller({ platform: TEST_PLATFORM, arch: TEST_ARCH, root, fetchImpl, probeVersion: fakeProbe() })
     installer.start()
     await waitDone(installer, '进入 error')
 
@@ -1581,7 +1590,7 @@ test('断点续传：HTTP 416（残片比远端还长）→ 丢弃残片从头�
       modelBytes: Buffer.alloc(4 * 1024, 4),
     })
     const reports: InstallProgress[] = []
-    const installer = new VectorInstaller({
+    const installer = new VectorInstaller({ platform: TEST_PLATFORM, arch: TEST_ARCH,
       root,
       fetchImpl,
       onProgress: (p) => reports.push(p),
@@ -1618,7 +1627,7 @@ test('完整性：落地字节与声明总长不符 → error 且删 .part/.meta
       modelBytes,
       modelResponse: () => streamResponse([modelBytes.subarray(0, modelBytes.length - 512)], declared),
     })
-    const installer = new VectorInstaller({ root, fetchImpl, probeVersion: fakeProbe() })
+    const installer = new VectorInstaller({ platform: TEST_PLATFORM, arch: TEST_ARCH, root, fetchImpl, probeVersion: fakeProbe() })
     installer.start()
     await waitDone(installer, '进入 error')
 
@@ -1652,7 +1661,7 @@ test('完整性：响应带 Content-Encoding 时不拿声明长度当校验基�
       // 明文。照 content-length 校验落地字节就会把一次正常下载误报成「不完整」。
       modelResponse: () => streamResponse([modelBytes], modelBytes.length + 500, 200, { 'content-encoding': 'gzip' }),
     })
-    const installer = new VectorInstaller({ root, fetchImpl, probeVersion: fakeProbe() })
+    const installer = new VectorInstaller({ platform: TEST_PLATFORM, arch: TEST_ARCH, root, fetchImpl, probeVersion: fakeProbe() })
     installer.start()
     await waitDone(installer, '安装结束')
 
@@ -1677,7 +1686,7 @@ test('完整性：配置了 sha256 就必须匹配 —— 不匹配 error 并删
     roots.push(badRoot)
     const runtime = buildRuntimeFixture()
     const badPaths = installPaths(badRoot)
-    const bad = new VectorInstaller({
+    const bad = new VectorInstaller({ platform: TEST_PLATFORM, arch: TEST_ARCH,
       root: badRoot,
       fetchImpl: flowFetch({
         runtimeName: runtime.name,
@@ -1700,7 +1709,7 @@ test('完整性：配置了 sha256 就必须匹配 —— 不匹配 error 并删
     const goodRoot = tempDir('dsh-install-sha-ok-')
     roots.push(goodRoot)
     const goodPaths = installPaths(goodRoot)
-    const good = new VectorInstaller({
+    const good = new VectorInstaller({ platform: TEST_PLATFORM, arch: TEST_ARCH,
       root: goodRoot,
       fetchImpl: flowFetch({
         runtimeName: runtime.name,
@@ -1729,7 +1738,7 @@ test('完整性：运行时资产按名字配 sha256 —— 主包匹配 → don
   try {
     const paths = installPaths(root)
     const runtime = buildRuntimeFixture()
-    const installer = new VectorInstaller({
+    const installer = new VectorInstaller({ platform: TEST_PLATFORM, arch: TEST_ARCH,
       root,
       fetchImpl: flowFetch({
         runtimeName: runtime.name,
@@ -1766,7 +1775,7 @@ test('完整性：运行时 sha256 不符 → error，且不会去解压/下模�
         if (url.includes(MODEL_FILE_NAME)) modelRequested = true
       },
     })
-    const installer = new VectorInstaller({
+    const installer = new VectorInstaller({ platform: TEST_PLATFORM, arch: TEST_ARCH,
       root,
       fetchImpl,
       runtimeSha256: '0'.repeat(64),
@@ -1797,7 +1806,7 @@ test('安装后冒烟：成功后 done，并把版本行写进日志', async (t)
     const runtime = buildRuntimeFixture()
     const probed: string[] = []
     const reports: InstallProgress[] = []
-    const installer = new VectorInstaller({
+    const installer = new VectorInstaller({ platform: TEST_PLATFORM, arch: TEST_ARCH,
       root,
       fetchImpl: flowFetch({
         runtimeName: runtime.name,
@@ -1835,7 +1844,7 @@ test('安装后冒烟：失败 → error 带 stderr 尾部，并摘掉 exe 免�
       'llama-server: error while loading shared libraries: libllama-common.so.0: cannot open shared object file: No such file or directory',
       'second line that should be kept in the tail',
     ].join('\n')
-    const installer = new VectorInstaller({
+    const installer = new VectorInstaller({ platform: TEST_PLATFORM, arch: TEST_ARCH,
       root,
       fetchImpl: flowFetch({
         runtimeName: runtime.name,
@@ -1871,7 +1880,7 @@ test('安装后冒烟：probeVersion 返回 null = 跳过探测，仍然 done', 
   try {
     const runtime = buildRuntimeFixture()
     const reports: InstallProgress[] = []
-    const installer = new VectorInstaller({
+    const installer = new VectorInstaller({ platform: TEST_PLATFORM, arch: TEST_ARCH,
       root,
       fetchImpl: flowFetch({
         runtimeName: runtime.name,
@@ -1906,7 +1915,7 @@ test('cancel：在途下载被中止时 .part 与 .part.meta 一起清掉', asyn
       return stallResponse(init?.signal, Buffer.alloc(16 * 1024, 9), 8 * 1024 * 1024)
     })
     const reports: InstallProgress[] = []
-    const installer = new VectorInstaller({
+    const installer = new VectorInstaller({ platform: TEST_PLATFORM, arch: TEST_ARCH,
       root,
       fetchImpl,
       onProgress: (p) => reports.push(p),
@@ -1972,7 +1981,7 @@ test('系统运行时安装：只下模型，完全不碰 GitHub 发行版与托
       }
       return new Response(Buffer.from('GGUFfake'), { status: 200, headers: { 'content-length': '8' } })
     })
-    const installer = new VectorInstaller({
+    const installer = new VectorInstaller({ platform: TEST_PLATFORM, arch: TEST_ARCH,
       root,
       fetchImpl,
       systemExe: sysExe,
@@ -1988,5 +1997,20 @@ test('系统运行时安装：只下模型，完全不碰 GitHub 发行版与托
     assert.equal(installer.progress.paths?.exe, sysExe)
   } finally {
     rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('解压炸弹防护：中央目录声明尺寸远小于实际解压量 → 明确报错而不是吃满内存', () => {
+  const dir = tempDir('dsh-zip-bomb-')
+  try {
+    const big = Buffer.alloc(2 * 1024 * 1024, 7) // 2MB 可压缩数据
+    const zip = buildZip([{ name: 'llama-server', data: big, method: 8 }])
+    // 把中央目录里的 uncompressedSize 改成 1KB（损坏/恶意归档的典型形状）。
+    const cd = zip.lastIndexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]))
+    assert.ok(cd > 0, '中央目录签名应存在')
+    zip.writeUInt32LE(1024, cd + 24)
+    assert.throws(() => extractArchive(zip, dir), /解压条目失败|解压/, '超过声明尺寸必须失败而不是静默解压')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
   }
 })

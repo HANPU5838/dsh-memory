@@ -182,7 +182,7 @@ bge-m3 1024 维，llama-server CPU 6 线程，2026-11-10）：
 | 批量嵌入（batch=8 vs 1） | 3.8 rec/s vs 2.8 rec/s（≈1.4×，CPU 上省的是调度） |
 | 回填 | batch=8 3.2 rec/s；单条失败只留 null，不拖垮整批 |
 | ANN（纯 JS HNSW，合成 128 维） | 2k：P50 1.3ms/召回 100%；10k：1.15ms/98%（10.4×）；20k：1.73ms/94%（14.6×） |
-| 测试 | **1072 例 / 1070 pass / 2 skip / 0 fail**（v0.57.0，移除图谱后） |
+| 测试 | **1074 例 / 1073 pass / 1 skip / 0 fail**（v0.57.0） |
 | 检索评测（合成集 94 条 / 48 查询，真实 bge-m3） | base recall@5 0.7708 → **产品默认 0.9167**；MRR 0.7483 / nDCG 0.7912（方法见 [docs/benchmark.md](docs/benchmark.md)） |
 
 复现：`node tools/bench/run.mjs`（live 模式需本地嵌入服务；无服务时自动合成数据）。

@@ -102,3 +102,23 @@ test('访问统计会落盘：touch 后 reload 仍能看到 accessCount / lastAc
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('.vec 重复追加同一 id 有上界（超过阈值整份重写，不再只增不减）', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-vec-append-'))
+  try {
+    const store = new MemoryStore(dir, { onWarn: () => {} })
+    store.setVecIdentity('m', 4)
+    const id = save(store, 'global', '重复嵌入的同一记录')
+    const scope = store.allScopes().find((item) => item.scope === 'global')
+    assert.ok(scope !== undefined, 'global scope 应存在')
+    const vec = new Float32Array([0.1, 0.2, 0.3, 0.4])
+    for (let i = 0; i < 400; i += 1) scope.appendVector(id, vec)
+    const text = readFileSync(join(dir, 'global.vec'), 'utf8')
+    const lines = text.split('\n').filter((line) => line !== '' && !line.startsWith('#'))
+    assert.ok(lines.length <= 100, `重复追加后 .vec 行数应有上界，实际 ${lines.length}`)
+    // 两次整份重写之间允许累积有限重复行（阈值 64），但绝不能是 400。
+    assert.ok(lines.filter((line) => line.startsWith(`${id}\t`)).length <= 80, '重复行数必须有上界')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

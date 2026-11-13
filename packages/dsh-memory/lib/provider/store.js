@@ -238,8 +238,12 @@ export function cosineSimilarity(a                   , b                   )    
 
 // ---------------------------------------------------------------- 跨进程写锁
 
-/** 等锁的上限:超过就告警并"不带锁照写"(宁可少一次合并,也不要丢掉这次写入)。 */
-const LOCK_TIMEOUT_MS = 5_000
+/**
+ * 等锁的上限。必须**大于** LOCK_STALE_MS：否则一个活着但正卡在慢 flush / GC 的
+ * 持有者会在 5s 后被判死，两个进程同时写同一份 JSONL，后写者用旧快照抹掉对方。
+ * 15s > 10s 之后，超时基本只剩「持有者真的卡死」这一种情况。
+ */
+const LOCK_TIMEOUT_MS = 15_000
 /** 超过这个时长没被碰过的锁视为陈旧(进程被 kill -9 时不会自己清理)。 */
 const LOCK_STALE_MS = 10_000
 
@@ -258,7 +262,14 @@ function processAlive(pid        )          {
   }
 }
 
-/** 锁是不是陈旧的(拥有者已死 / 太久没动)?是则删掉并返回 true。 */
+/**
+ * 锁是不是陈旧的(拥有者已死 / 太久没动)?是则删掉并返回 true。
+ *
+ * 判定顺序很关键：**先看 pid 是否还活着，再看 age**。反过来（旧实现）会把
+ * 「持有者活着但锁文件 10 秒没碰」（长 flush / 长 GC / 慢磁盘）判成陈旧并删锁，
+ * 于是两个进程同时持锁写同一份 JSONL —— 静默丢数据。活着的 pid 一律不抢，
+ * 只有 pid 已死、或 pid 读不到且确实超时才回收。
+ */
 function breakStaleLock(lockPath        )          {
   let age        
   try {
@@ -266,13 +277,15 @@ function breakStaleLock(lockPath        )          {
   } catch {
     return true // 已经不在了,直接重试
   }
-  if (age > LOCK_STALE_MS) {
+  let pid = 0
+  try { pid = Number.parseInt(readFileSync(lockPath, 'utf8').trim(), 10) } catch { pid = 0 }
+  if (pid > 0) {
+    if (processAlive(pid)) return false // 持有者还活着：绝不抢锁
     try { rmSync(lockPath, { force: true }) } catch { /* 下一轮再试 */ }
     return true
   }
-  let pid = 0
-  try { pid = Number.parseInt(readFileSync(lockPath, 'utf8').trim(), 10) } catch { pid = 0 }
-  if (pid > 0 && !processAlive(pid)) {
+  // pid 读不到（陈旧格式 / 只读文件 / 写 pid 失败）：只能退回按时间判。
+  if (age > LOCK_STALE_MS) {
     try { rmSync(lockPath, { force: true }) } catch { /* 下一轮再试 */ }
     return true
   }
@@ -421,6 +434,10 @@ export class ScopeStore {
           events                  
   /** Embedding identity for sidecar validation; set via setVecIdentity(). */
           vecIdentity = ''
+  /** .vec 里已出现过的 id（同一 id 重复追加超过阈值时触发整份重写压缩）。 */
+          vecDiskIds = new Set        ()
+  /** 自上次整份重写以来重复追加的行数：重嵌入/回填会反复写同一个 id。 */
+          vecDuplicateAppends = 0
 
   /** 有增量待写才算脏(只有向量变动时不脏,走 vectorsDirty)。 */
   get dirty()          {
@@ -544,6 +561,18 @@ export class ScopeStore {
           this.vectorsDirty = false
           return
         }
+        if (this.vecDiskIds.has(id)) {
+          // 同一 id 再次嵌入：磁盘上会多一行（读取时后者覆盖前者）。重复行积累到
+          // 一定比例就整份重写，否则频繁回填/换模型会让 .vec 无界增长（只增不减）。
+          this.vecDuplicateAppends += 1
+          if (this.vecDuplicateAppends > Math.max(64, this.vectors.size)) {
+            this.writeSidecarLocked()
+            this.vectorsDirty = false
+            return
+          }
+        } else {
+          this.vecDiskIds.add(id)
+        }
         appendFileSync(this.vecFile, `${id}\t${encodeVec(vec)}\n`, 'utf8')
         this.vectorsDirty = false
       }, this.events.onWarn)
@@ -585,6 +614,9 @@ export class ScopeStore {
     const tmp = tmpPathFor(this.vecFile)
     writeFileSync(tmp, lines.length ? `${lines.join('\n')}\n` : '', 'utf8')
     renameSync(tmp, this.vecFile)
+    // 重写后磁盘上每个 id 只剩一行：重建去重索引并清零重复计数。
+    this.vecDiskIds = new Set(merged.keys())
+    this.vecDuplicateAppends = 0
   }
 
   /**
@@ -681,6 +713,7 @@ export class ScopeStore {
           continue
         }
         this.vectors.set(id, vec)
+        this.vecDiskIds.add(id)
       }
     } catch (err) {
       this.events.onWarn?.(`vec: load failed: ${(err         ).message}`)
