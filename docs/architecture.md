@@ -1,4 +1,4 @@
-# 架构说明（本仓库维护版 0.62.9）
+# 架构说明（本仓库维护版 0.63.0）
 
 > 本文说明这套记忆插件「为什么是插件」：哪些属于宿主、哪些属于插件、平台差异放在哪里。
 > 上游 `@restregular/dsh-memory@0.30.1` 的原始设计见其 README；本仓库在上游之上做了
@@ -76,11 +76,11 @@ retrieval.vector.provider
 - 记录与向量的删除一起发生（边车不会只增不减）；
 - `flush` 写盘失败只 warn、增量保留（绝不把异常抛出定时器）。
 
-## 4. 自举流程（0.58–0.62.9）
+## 4. 自举流程（0.58–0.63.0）
 
-**默认不执行（0.62.9 起）**：`autoBootstrap` 默认 `'off'` —— 启动时既不探测本机端点、
-也不装包/下模型，向量后端由面板「下载并安装」显式发起。下面是显式设为 `'auto'`/`'always'`
-后的流程：
+**默认自动执行（0.63.0 恢复）**：`autoBootstrap` 默认 `'auto'` —— 启动时自动探测本机端点、
+按平台补齐运行时与模型。0.62.4–0.63.0 曾默认 `'off'`（完全手动），因会连带关掉系统运行时
+采纳而回退。下面是自动流程：
 
 ```
 1. 本机端点发现（endpoint-discovery.ts）
@@ -91,7 +91,8 @@ retrieval.vector.provider
    系统已有 llama-server（任意平台）→ 只补模型
    Termux + pkg                 → pkg install -y llama-cpp → 只补模型
    autoBootstrap: 'always'      → 托管下载运行时 + 模型（桌面端 'auto' 不走这条）
-   autoBootstrap: 'off'（默认）  → 全部跳过，bootstrap.log 记 decision=none + 安装提示
+   autoBootstrap: 'off'         → 全部跳过（手动模式）
+   Termux 无系统运行时 + 无 glibc → 走 pkg 装 bionic 运行时（绝不下载 glibc 托管运行时）
 
 3. 启动托管服务
    端口被占 → 自动回退到下一个空闲端口（显式 spawn.port 除外）

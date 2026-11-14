@@ -61,7 +61,8 @@
 | 导入/导出 | 设置页导出 / 导入 | 导出 JSONL 可读，导入结果有新增/跳过计数 |
 | 审计 | 审计页 | 有事件记录，导出可用 |
 | 端口冲突 | 先占用 8078 再重启插件 | 自动换到 8079，日志可见「端口 8078 被占用，自动改用 8079」 |
-| 手动安装（默认） | 全新环境（无运行时/模型）启动 | **不装包、不下模型**；面板出现「下载并安装」，点击后才开始；`bootstrap.log` 记 `decision=none` + 安装提示 |
+| 自动安装（默认，0.63.0 恢复） | 全新环境（无运行时/模型）启动 | 自动 `pkg install`（Termux）+ 只下模型；日志在 `<installRoot>/bootstrap.log` |
+| Termux 无 glibc | Termux 未装 glibc、无系统 llama-server 时点面板安装 | **改走 pkg 装系统运行时**，不下载 glibc 托管运行时（旧行为会 ENOENT 失败） |
 | 自举（需显式开启） | 设 `autoBootstrap: 'auto'` 后删掉 llama-cpp 重启（Termux） | 自动 `pkg install` + 起服务；日志在 `<installRoot>/bootstrap.log` |
 | 本机端点发现 | 本机跑 Ollama 后重启 | 日志 `discovery found Ollama… adopted`，不下载任何东西 |
 

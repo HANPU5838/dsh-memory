@@ -2,6 +2,25 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.63.0 — 恢复自动检测/自动安装，并修复 Termux 装错运行时（2026-11-14）
+
+- **恢复默认**：`retrieval.vector.autoBootstrap` 默认值从 `'off'` 改回 **`'auto'`**。
+  0.62.4 为了让下载可控把默认改成 off，但它的语义把「自动采纳系统 llama-server /
+  自动探测本机端点」也一起关了 —— 面板会显示「未配置」并引导用户手动安装。
+  默认行为恢复为：**自动检测环境 + 自动安装**（Termux 上自动 `pkg install llama-cpp`
+  再只下模型；已有系统运行时则零下载直接采用）。
+- **修复（另一台 Android 实机暴露）**：Termux 上没有系统 llama-server 时，面板的
+  「下载并安装」会下载**托管运行时**；那是 ubuntu glibc ELF，PT_INTERP 指向
+  `/lib/ld-linux-aarch64.so.1`，而 Termux 没装 glibc 时直接 exec 只会 `ENOENT`
+  → 下完 500MB、冒烟失败、再被自动移除，用户白折腾一轮。
+  现在：Termux + 无系统运行时 + 无 glibc loader + 有 pkg 时，安装入口**改走自举流程**
+  （`pkg install llama-cpp` 拿 bionic 原生运行时 → 只下模型），不再下载跑不起来的运行时。
+  新增纯函数 `shouldUseTermuxSystemRuntime()` 与回归用例。
+- **文档**：README / architecture / verification 的「默认手动安装」表述改回「默认自动」，
+  并写明 0.62.4–0.62.9 的行为变更与恢复原因。
+
+**测试**：1120 例 / 1119 pass / 1 skip / 0 fail。
+
 ## 0.62.9 — 修复无语义门禁误伤非中文语种（2026-11-14）
 
 - **回归（0.62.8 引入）**：0.62.8 用「查询是否有内容词」来短路语义通道，但 `tokenize`

@@ -13,6 +13,9 @@
   实体抽取迁到 `analysis/entities.ts`，**「关系分析」完整保留**。桌面端与移动端 API 都少了一个功能面。
 - **0.57 Termux 原生运行时**：新增 `retrieval.vector.runtime`（auto/managed/system）；
   系统 `llama-server` 优先，只下模型、不走 glibc 兼容层；修复 Android 平台判定（`isLinuxLike`/`assetPlatform`）。
+- **0.63.0 恢复自动检测/自动安装**：`autoBootstrap` 默认回到 `'auto'`；并修复 Termux 上
+  「无系统运行时、无 glibc」时手动安装会下载 glibc 托管运行时导致 ENOENT 的 bug
+  （改走 pkg 安装 bionic 运行时）；
 - **0.62.9 修复非中文语种误伤**：0.62.8 的短路门禁把分词为空的语种（韩/泰/阿/俄）也
   判成无实义，改为 isGenericOnlyQuery（仅纯中文功能词才短路）；
 - **0.62.8 无实义查询短路**：查询无内容词时向量通道也不参与（BGE-M3 短泛化中文查询

@@ -178,16 +178,16 @@ export interface MemoryLocalConfig {
        */
       runtime?: 'auto' | 'managed' | 'system'
       /**
-       * 向量后端获取方式。**默认 'off' = 完全手动**：不自动装包、不自动下模型、
-       * 也不自动探测本机端点，一切等用户去面板点「下载并安装」。
+       * 向量后端获取方式。**默认 'auto' = 自动检测 + 自动安装**（0.63.0 恢复）：
+       * 启动时自动探测本机现成端点与系统 llama-server；没有就按平台自动补齐
+       * （Termux 走 `pkg install llama-cpp`，再只下模型）。
        *
-       * 为什么默认手动（0.62.4 起的改动）：模型动辄 400MB+，在手机上还会先
-       * `pkg install` 一个运行时；「只要启用向量就自动装」意味着用户从没同意过
-       * 的一次几百 MB 下载 + 后台起服务。下载/安装属于**一次性、可感知**的成本，
-       * 应该由用户显式点击发起，而不是由「启用」隐式触发。
+       * 0.62.4 曾把默认改成 'off'（完全不自动），代价是连"自动采纳系统运行时"
+       * 一起关了，面板会显示未配置并引导手动安装；而手动安装默认下载的托管运行时
+       * 是 glibc ELF，在没装 glibc 的 Termux 上必然 ENOENT。0.63.0 因此恢复
+       * 'auto'，并修掉 Termux 上手动安装选错运行时的问题。
        *
-       * 'auto' = 旧行为（Termux/Android 检测到没有后端时自动装包/下模型）；
-       * 'always' = 强制托管下载运行时 + 模型。
+       * 'off' = 完全手动；'always' = 强制托管下载运行时 + 模型。
        * 只在 provider 为 local、且用户没显式写 endpoint / spawn 时生效。
        */
       autoBootstrap?: 'auto' | 'off' | 'always'
@@ -689,6 +689,29 @@ export interface VectorBootstrapInput {
  *  5. `autoBootstrap: 'always'` 且本平台有托管资产 → 下载托管运行时 + 模型；
  *  6. 其余一律不动（桌面端默认不被悄悄下 400MB）。
  */
+/**
+ * 0.63.0：Termux 上是否应改走系统运行时（`pkg install llama-cpp`），而不是下载托管运行时。
+ *
+ * 背景（另一台 Android 实机）：托管运行时的 llama-server 是 ubuntu glibc ELF，
+ * PT_INTERP 指向 /lib/ld-linux-aarch64.so.1；Termux 没装 glibc 时直接 exec 只会
+ * ENOENT —— 安装器下完 500MB、冒烟失败、再自动移除，用户看到的是一次白折腾。
+ * 正确做法：Termux 没有系统运行时且没有 glibc loader 时，走自举流程
+ * （pkg 装 bionic 原生 llama-cpp → 只下模型），绝不下载托管 glibc 运行时。
+ */
+export function shouldUseTermuxSystemRuntime(input: {
+  termux: boolean
+  autoBootstrap: 'auto' | 'off' | 'always'
+  hasSystemServer: boolean
+  hasGlibcLoader: boolean
+  hasPkg: boolean
+}): boolean {
+  if (!input.termux) return false
+  if (input.autoBootstrap === 'off') return false
+  if (input.hasSystemServer) return false
+  if (input.hasGlibcLoader) return false
+  return input.hasPkg
+}
+
 export function planVectorBootstrap(input: VectorBootstrapInput): VectorBootstrapAction {
   if (input.autoBootstrap === 'off') return 'none'
   if (input.provider !== 'local') return 'none'
@@ -772,7 +795,7 @@ export function resolveConfig(config: MemoryLocalConfig = {}): ResolvedConfig {
       runtimeMode,
       systemExe,
       runtimeSource: installed === null ? 'none' : (installed.system === true ? 'system' : 'managed'),
-      autoBootstrap: v.autoBootstrap ?? 'off',
+      autoBootstrap: v.autoBootstrap ?? 'auto',
       spawnExplicit,
       ...(v.autoInstall?.modelSources ? { installModelSources: v.autoInstall.modelSources } : {}),
       installModel: {
@@ -2217,6 +2240,22 @@ export class LocalMemoryService implements MemoryServiceApi {
     const model = this.cfg.vector.installModel
     if (detectInstalled(this.cfg.vector.installRoot, model.file, this.systemRuntimeOptions())) {
       this.adoptInstalledBackend()
+      return
+    }
+    // 0.63.0：Termux 上没有系统 llama-server、也没有 glibc loader 时，托管运行时
+    // 是 glibc ELF，下载完必然跑不起来（实测 ENOENT 后冒烟失败）。这种环境正确
+    // 的做法是 `pkg install llama-cpp`（bionic 原生）→ 只下模型，走自举流程。
+    const platformInfo = detectPlatform()
+    const runtimeEnv = detectRuntimeEnvironment()
+    if (shouldUseTermuxSystemRuntime({
+      termux: platformInfo.termux,
+      autoBootstrap: this.cfg.vector.autoBootstrap,
+      hasSystemServer: this.cfg.vector.systemExe !== null,
+      hasGlibcLoader: platformInfo.glibcLoader !== null,
+      hasPkg: runtimeEnv.packageManager?.kind === 'pkg',
+    })) {
+      this.bootstrapLog('install: Termux 缺少系统运行时且无 glibc loader —— 改走自举（pkg install llama-cpp → 只下模型）')
+      this.bootstrapVectorBackend()
       return
     }
     // 换模型时把上一个安装器的进度丢掉:它描述的是另一个文件。
