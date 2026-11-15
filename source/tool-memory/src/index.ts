@@ -67,7 +67,7 @@ export type ApprovalAnswer = ApprovalOutcome | ApprovalDecision
  *   - absolute = 绝对限制下作用域根本不在范围内(0.23 起不再假装"不存在");
  *   - read-disabled = 作用域在范围内但「可读」开关被关掉(0.23)。
  */
-export type WithheldReason = 'out-of-scope' | 'rejected' | 'timeout' | 'unavailable' | 'partial' | 'absolute' | 'read-disabled' | 'scope-disabled'
+export type WithheldReason = 'out-of-scope' | 'rejected' | 'timeout' | 'unavailable' | 'partial' | 'absolute' | 'read-disabled' | 'scope-disabled' | 'blocked'
 
 export interface VisibilityRuleView {
   scope: string
@@ -139,8 +139,41 @@ export interface ScopeCatalogEntryView {
   updatedAt: number
   /** 0.30.0：所属会话在宿主里已归档（读写冻结，恢复会话后自动复原）。 */
   archived?: boolean
+  /** 0.32.0：归档来源 —— 会话归档 / 用户归档的项目作用域。 */
+  archivedKind?: 'session' | 'project'
+  /** 0.32.0：该作用域被 Agent 主动屏蔽（不删数据，解除后立刻复原）。 */
+  blocked?: boolean
+  /** 屏蔽的作用层级（`blocked=true` 时给出）。 */
+  blockedLevel?: 'session' | 'workspace'
   /** 0.24.0 / D5：初始化记录正文；absolute 下不返回。 */
   initialRecords?: Array<{ id: string; kind: string; content: string; truncated?: boolean }>
+}
+
+// ---------------------------------------------------------------- 屏蔽（0.32.0）
+
+/** 屏蔽的作用层级：会话级只影响本会话；工作区级影响该工作区所有会话。 */
+export type BlockLevelView = 'session' | 'workspace'
+
+/** provider 一条屏蔽的视图。 */
+export interface MemoryBlockView {
+  id: string
+  level: BlockLevelView
+  scope?: string
+  recordId?: string
+  prefix?: string
+  recordKind?: string
+  createdAt: number
+  createdBy: string
+  reason?: string
+}
+
+/** `requestBlock` 的结果。 */
+export interface BlockResultView {
+  outcome: 'blocked' | 'rejected' | 'timeout' | 'unavailable'
+  blocks: MemoryBlockView[]
+  records: Array<{ id: string; scope: string; kind: string }>
+  containsRule?: boolean
+  approvalId?: string
 }
 
 /** provider 统一授权判定的结果（0.24.0）。 */
@@ -250,6 +283,28 @@ export interface MemoryToolService {
    * 否则工具层与服务端会各自算一个项目键(0.5.5 及以前就是这么错的)。
    */
   projectKeyFor?(agent: unknown): MemoryScope
+  // ---------------------------------------------------------------- 屏蔽（0.32.0）
+  /**
+   * Agent 请求屏蔽无关记忆。审批矩阵由 provider 实现：
+   * 按记录 id/前缀 → 不审批；按作用域 / 工作区级 / 含规则 → 审批。
+   */
+  requestBlock?(agent: unknown, input: {
+    scope?: string
+    id?: string
+    level?: 'session' | 'workspace'
+    reason?: string
+    description?: string
+    tool?: string
+    signal?: AbortSignal
+  }): Promise<BlockResultView>
+  /** 解除屏蔽（面板 / 工具共用）。 */
+  unblock?(agent: unknown, match: { level?: 'session' | 'workspace'; id?: string; scope?: string; recordId?: string; prefix?: string }): Array<{ level: 'session' | 'workspace'; removed: number }>
+  /** 清空某一层级的全部屏蔽。 */
+  clearBlocks?(agent: unknown, level: 'session' | 'workspace'): number
+  /** 当前 agent 生效的屏蔽清单。 */
+  listBlocks?(agent: unknown): MemoryBlockView[]
+  /** 某个作用域是否被屏蔽（目录 / 校验用）。 */
+  isScopeBlocked?(agent: unknown, scope: string): boolean
 }
 
 export interface MemoryToolsOptions {
@@ -1912,6 +1967,166 @@ export function memoryGetTool(opts: MemoryToolsOptions): ToolSpec<GetArgs, GetRe
   }
 }
 
+export interface BlockArgs {
+  /** `block` = 屏蔽（默认）；`unblock` = 解除；`list` = 看当前屏蔽清单。 */
+  action?: 'block' | 'unblock' | 'list'
+  /**
+   * 要屏蔽 / 解除的作用域键。**按作用域屏蔽需要审批** —— 会把整个域从本会话
+   * （或整个工作区）的检索、注入、目录里藏起来。
+   */
+  scope?: string
+  /** 要屏蔽 / 解除的记录 id 或 8 位前缀。按 id 屏蔽不需要审批。 */
+  id?: string
+  /**
+   * 作用层级：`session`（默认，只影响本会话，不需要审批）/
+   * `workspace`（影响该工作区所有会话，含历史与将来，**必须审批**）。
+   */
+  level?: 'session' | 'workspace'
+  /** 为什么屏蔽（展示在面板与审批卡上）。 */
+  reason?: string
+  /** 本次调用的用途（普通限制下必填）。 */
+  description?: string
+}
+
+export interface BlockResult {
+  action: 'block' | 'unblock' | 'list'
+  outcome: 'blocked' | 'rejected' | 'timeout' | 'unavailable' | 'unblocked' | 'listed'
+  /** 现在生效的屏蔽（`action='list'` 时是完整清单）。 */
+  blocks: MemoryBlockView[]
+  /** 按 id 屏蔽时解析到的记录。 */
+  records?: Array<{ id: string; scope: string; kind: string }>
+  /** 被解除的条数（`action='unblock'`）。 */
+  removed?: number
+  /** 目标里含规则 —— 规则一律走审批，工具会明确告诉模型。 */
+  containsRule?: boolean
+  note?: string
+}
+
+const BLOCK_NOTE_SESSION =
+  '会话级屏蔽只影响本会话（含子 Agent），随时用 memory_block({action:"unblock"}) 解除。'
+const BLOCK_NOTE_WORKSPACE =
+  '工作区级屏蔽影响该工作区所有会话（含历史与将来），需要用户审批；解除同样需要审批。'
+const BLOCK_NOTE_RULE =
+  '目标里含「硬性规则」：规则被屏蔽必须由用户确认，已提交审批。'
+
+/**
+ * 屏蔽工具（0.32.0）。
+ *
+ * 用途：Agent 发现某段记忆与本轮任务无关时，主动让它**不再出现**在检索、注入
+ * 与目录里，而不是每次都被噪声打断。与 `memory_forget` 的区别：屏蔽不删数据，
+ * 解除后原样回来；与「可见域」的区别：屏蔽不改读写权限，只把它藏起来。
+ *
+ * 审批矩阵（产品口径，不能改）：
+ *   - 按记录 id / 前缀屏蔽 → **不弹审批**；
+ *   - 按作用域屏蔽 → **弹审批**；
+ *   - 目标是规则（kind='rule'）→ **一律弹审批**，即使按 id 屏蔽；
+ *   - 会话级 → 不弹审批（只影响自己）；
+ *   - 工作区级 → **一律弹审批**（影响所有会话）。
+ */
+export function memoryBlockTool(opts: MemoryToolsOptions): ToolSpec<BlockArgs, BlockResult> {
+  return {
+    name: 'memory_block',
+    description: 'Hide memories that are irrelevant to the current task so they stop appearing in search, injection and the scope catalog — without deleting anything. Blocking by record id/prefix needs no approval; blocking a whole scope, a rule (kind="rule"), or anything at workspace level raises an approval dialog for the user. action="unblock" removes a block; action="list" shows the active blocks. Blocks are recoverable: the data is never touched.',
+    parameters: {
+      action: {
+        type: 'string',
+        enum: ['block', 'unblock', 'list'],
+        description: 'block = 屏蔽（默认）；unblock = 解除；list = 查看当前屏蔽清单',
+      },
+      scope: {
+        type: 'string',
+        description: '要屏蔽 / 解除的作用域键（如 global / project:<路径> / session:<id> / 自定义名）。按作用域屏蔽需要用户审批。',
+      },
+      id: {
+        type: 'string',
+        description: '要屏蔽 / 解除的记录 id 或 8 位前缀。按 id 屏蔽不需要审批；但目标是规则时仍需审批。',
+      },
+      level: {
+        type: 'string',
+        enum: ['session', 'workspace'],
+        description: 'session（默认）= 只影响本会话，不审批；workspace = 影响该工作区所有会话（含历史与将来），必须审批。',
+      },
+      reason: { type: 'string', description: '为什么屏蔽（一句话，展示在面板与审批卡上）' },
+      description: { type: 'string', description: '本次调用的用途（普通限制下必填，审批弹窗会展示给用户）' },
+    },
+    async execute(args, exec) {
+      const service = svc(opts)
+      const agent = agentOf(exec)
+      requireDescription(service, agent, args.description)
+      const action = args.action ?? 'block'
+      if (action === 'list') {
+        const blocks = typeof service.listBlocks === 'function' ? service.listBlocks(agent) : []
+        return { action, outcome: 'listed', blocks }
+      }
+      if (typeof service.requestBlock !== 'function') {
+        throw toolError(new MemoryToolError('UNSUPPORTED', '当前 provider 不支持屏蔽（请升级 @restregular/dsh-memory 到 0.32.0+）'))
+      }
+      const level: 'session' | 'workspace' = args.level === 'workspace' ? 'workspace' : 'session'
+      const scope = typeof args.scope === 'string' ? args.scope.trim() : ''
+      const id = typeof args.id === 'string' ? args.id.trim() : ''
+      if (action === 'unblock') {
+        if (scope === '' && id === '') {
+          throw toolError(new MemoryToolError('TARGET_REQUIRED', 'unblock 需要 scope 或 id'))
+        }
+        if (typeof service.unblock !== 'function') {
+          throw toolError(new MemoryToolError('UNSUPPORTED', '当前 provider 不支持解除屏蔽（请升级 @restregular/dsh-memory 到 0.32.0+）'))
+        }
+        const results = service.unblock(agent, {
+          ...(args.level !== undefined ? { level } : {}),
+          ...(scope !== '' ? { scope } : {}),
+          ...(id !== '' ? { recordId: id } : {}),
+        })
+        const removed = results.reduce((sum, item) => sum + item.removed, 0)
+        const blocks = typeof service.listBlocks === 'function' ? service.listBlocks(agent) : []
+        return {
+          action,
+          outcome: removed > 0 ? 'unblocked' : 'unavailable',
+          blocks,
+          removed,
+          ...(removed === 0 ? { note: '没有找到匹配的屏蔽记录（可能已经被解除）。' } : {}),
+        }
+      }
+      if (scope === '' && id === '') {
+        throw toolError(new MemoryToolError('TARGET_REQUIRED', 'block 需要 scope 或 id：按 id 屏蔽不需要审批，按作用域屏蔽会弹审批'))
+      }
+      try {
+        const result = await service.requestBlock(agent, {
+          ...(scope !== '' ? { scope } : {}),
+          ...(id !== '' ? { id } : {}),
+          level,
+          ...(args.reason !== undefined ? { reason: args.reason } : {}),
+          ...(args.description !== undefined ? { description: args.description } : {}),
+          tool: 'memory_block',
+          ...((exec as { signal?: AbortSignal } | undefined)?.signal !== undefined
+            ? { signal: (exec as { signal?: AbortSignal }).signal }
+            : {}),
+        })
+        const notes: string[] = []
+        if (result.outcome === 'blocked') {
+          notes.push(level === 'workspace' ? BLOCK_NOTE_WORKSPACE : BLOCK_NOTE_SESSION)
+          if (result.containsRule === true) notes.push(BLOCK_NOTE_RULE)
+        } else if (result.outcome === 'rejected') {
+          notes.push('用户拒绝了这次屏蔽；记忆保持原样。')
+        } else if (result.outcome === 'timeout') {
+          notes.push('审批超时，屏蔽没有生效；记忆保持原样。')
+        } else {
+          notes.push('当前环境无法发起屏蔽（缺少会话或工作区上下文）。')
+        }
+        return {
+          action,
+          outcome: result.outcome,
+          blocks: result.blocks,
+          ...(result.records.length > 0 ? { records: result.records } : {}),
+          ...(result.containsRule === true ? { containsRule: true } : {}),
+          note: notes.join(' '),
+        }
+      } catch (error) {
+        throw toolError(error)
+      }
+    },
+  }
+}
+
 export function memoryTools(opts: MemoryToolsOptions) {
   return {
     memory_save: memorySaveTool(opts),
@@ -1920,5 +2135,6 @@ export function memoryTools(opts: MemoryToolsOptions) {
     memory_list: memoryListTool(opts),
     memory_scopes: memoryScopesTool(opts),
     memory_get: memoryGetTool(opts),
+    memory_block: memoryBlockTool(opts),
   }
 }

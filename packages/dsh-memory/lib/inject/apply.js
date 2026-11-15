@@ -402,7 +402,14 @@ export function apply(ctx         , config                     = {}) {
     try {
       return {
         ok: true,
-        render: renderRules(memory.listSync?.({ scopes: [...scopes], kind: 'rule', limit: 100, ...(agent !== undefined ? { agent } : {}) }) ?? [], cfg),
+        render: renderRules(memory.listSync?.({
+          scopes: [...scopes],
+          kind: 'rule',
+          limit: 100,
+          ...(agent !== undefined ? { agent } : {}),
+          // 0.32.0：规则段也走屏蔽过滤 —— 被屏蔽的规则不再每轮注入。
+          ...(sessionIdOf(agent) !== undefined ? { sessionId: sessionIdOf(agent)  } : {}),
+        }) ?? [], cfg),
       }
     } catch {
       return { ok: false, errorCode: 'source_load_failed' }
@@ -568,7 +575,7 @@ export function apply(ctx         , config                     = {}) {
     }
     for (const tag of configured) add(tag)
     try {
-      const records = memory.listSync({ scopes: [...scopes], limit: 1000 })
+      const records = memory.listSync({ scopes: [...scopes], limit: 1000, sessionId })
       for (const record of records) for (const tag of record.tags ?? []) add(String(tag))
     } catch { /* 读不到记忆标签就只用配置标签 */ }
     const limited = tags.slice(0, 200)
@@ -639,7 +646,7 @@ export function apply(ctx         , config                     = {}) {
   }
 
   const injector = new MemoryInjector(
-    async (query, signal, scopes, kinds) => {
+    async (query, signal, scopes, kinds, sessionId) => {
       const memory = ctx.get('memory')                                
       if (!memory?.search) return []
       return memory.search({
@@ -648,6 +655,9 @@ export function apply(ctx         , config                     = {}) {
         topK: recallCfg().topK,
         ...(scopes !== undefined ? { scopes: [...scopes] } : {}),
         ...(kinds !== undefined ? { kinds } : {}),
+        // 0.32.0：注入侧没有 agent 对象，但有会话 id —— provider 用它合并会话级
+        // 屏蔽（工作区级由 scopes 里的 project: 键确定）。
+        ...(sessionId !== undefined ? { sessionId } : {}),
       })
     },
     recallCfg,
@@ -663,6 +673,7 @@ export function apply(ctx         , config                     = {}) {
       ...(scopes !== undefined ? { scopes: [...scopes] } : {}),
       limit: 200,
       ...(agent !== undefined ? { agent } : {}),
+      ...(sessionIdOf(agent) !== undefined ? { sessionId: sessionIdOf(agent)  } : {}),
     })
   })
   // 持久化状态恢复后，把「摘要已做过」同步给摘要器，避免插件重载后重复注入。
@@ -863,7 +874,13 @@ export function apply(ctx         , config                     = {}) {
           const sessionId = sessionIdOf(context?.agent)
           let records                 = []
           try {
-            records = memory.listSync({ scopes: [...scopes], kind: 'procedure', limit: 200, ...(context?.agent !== undefined ? { agent: context.agent } : {}) })
+            records = memory.listSync({
+              scopes: [...scopes],
+              kind: 'procedure',
+              limit: 200,
+              ...(context?.agent !== undefined ? { agent: context.agent } : {}),
+              ...(sessionId !== undefined ? { sessionId } : {}),
+            })
           } catch {
             return ''
           }

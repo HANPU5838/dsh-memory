@@ -2,6 +2,19 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.32.0 — 作用域归档（会话 / 项目）+ Agent 主动屏蔽（会话级 / 工作区级）
+
+- **两件不同的事，两个不同的机制**：**归档**是生命周期事实（会话被归档、工作区被从侧边栏移除），没有审批通道，恢复时自动复原；**屏蔽**是 Agent 主动降噪（「这条与本轮任务无关，别再出现」），可以随时解除。两者都不删除数据，都不改读写权限，但在检索、注入、目录里效果一样：**看不见**。代码里也刻意分成两套 deny reason（`SCOPE_ARCHIVED` / `SCOPE_BLOCKED`），因为它们该给用户的解释完全不同。
+- **可归档的只有会话作用域与项目作用域**：会话作用域由宿主生命周期驱动（0.30.0 已有 `session/created` 自动建 + 归档冻结）；项目作用域绑定工作区路径，归档记录持久化在 `archive/project.json`（`ScopeArchiveStore`，原子写、坏文件容错）。`global` 与自定义作用域**拒绝归档**（`SCOPE_NOT_ARCHIVABLE`）—— 它们的生命周期不属于任何工作区，归档它们只会变成「悄悄藏起来」。
+- **工作区删除 / 重加自动对账**：`setWorkspaceExistsLookup()` 注入对宿主 `workspaceRegistry` 的存在性查询，`reconcileArchivedScopesNow()`（5 秒节流，`force` 参数给测试与手动刷新用）在每次 `scopeStats()` / `scopeCatalog()` 前跑一次。工作区消失 → 归档条目标 `dormant`（**记忆继续保留、继续不参与检索**）；工作区重新出现 → **自动解除归档**。宿主查询返回 `undefined`（服务未就绪）时保持现状 —— 一个死掉的服务绝不能悄悄删掉用户的归档。
+- **Agent 侧新增 `memory_block` 工具**（第 7 个工具）：`action: block | unblock | list`。屏蔽分两层——**会话级**（只影响本会话及其子 Agent）与**工作区级**（影响该工作区所有会话，含历史与将来）。目标可以是**作用域**（`scope`）或**记录**（`id` / 8 位前缀）。存储 `blocks/session/<id>.json` / `blocks/workspace/<sha1>.json`，每文件上限 500 条、原子写、空文件自动删除。
+- **审批矩阵（用户口径，锁死在测试里）**：按**作用域**屏蔽 → 弹审批；**工作区级** → 弹审批；目标是**硬性规则**（`kind='rule'`）→ **一律弹审批，即使按 id、即使是会话级**（规则不能被静默丢弃）。只有「会话级 + 按记录 id / 前缀 + 不是规则」这一种不弹审批：影响面只有本会话的一条记录，模型自己就能撤销，弹卡只会打断工作流。审批卡的 `mode='block'` 有专属文案：「确认后它将不再出现在检索、注入与作用域目录里；数据不删除，随时可以解除。」
+- **屏蔽真的生效**：`search` / `list` / `listSync` / `getByIds` / 注入 / 规则段 / 过程段 / 目录 `initialRecords` 全部走同一个 `blockFilter`（一次解析、多次判定，支持只给 `sessionId` + `scopes` 的注入链路）。被屏蔽的作用域**不再接受 Agent 写入**（`SCOPE_BLOCKED`）—— 写进去的记忆自己看不见，等于静默丢失；面板（不带 agent）不受此限。
+- **面板**：「记录 → 作用域」默认**折叠**已归档与已屏蔽的行，工具栏给两个计数开关（「显示已归档 N」/「显示已屏蔽 N」），每行带徽标（「已归档」/「已屏蔽 · 工作区级」）与「解除归档」/「解除屏蔽」按钮；「记忆」列表默认同样不列这两类记录，`/records?archived=1&blocked=1` 才带上，且**用户显式选了一个作用域时不折叠**（那一刻他就是要看这一份）。新增 `GET/POST /memory/api/archive`（列出 / 归档 / 解除）与 `GET/POST /memory/api/blocks`（按层级列出 / 屏蔽 / 解除）；`/status` 透传 `archived` / `archivedKind` / `blocked` / `blockedLevel`。
+- **面板解除不需要 agent 反推**：`unblock()` 新增 `key` 参数（会话 id 或 `project:<路径>`），面板直接指名哪一层的那一份；`workspaceBlocks()` 与 `unblock()` 都对 `project:` 键走 `canonicalScope` —— 否则 `project:D:/x` 与落盘的 `project:D:\x` 永远匹配不上，表现为「点了解除没反应」。
+- **修掉的一处不一致**：`getByIds()` 原先把归档判定写死成 `archivedSessionScopes()`（只认会话作用域），项目作用域归档后 `memory_get` 仍能取回正文；改为 `archivedScopeKeys()`，与 `search` / `list` / `listSync` 同源。
+- 测试：新增 `source/memory-local/test/block-archive.test.ts`（15 例：归档往返 / 幂等 / 非项目键拒绝 / 坏文件容错 / dormant 与自动恢复 / 宿主对账 / 屏蔽存储往返与 key 不匹配忽略 / 按 id 不审批 / 按作用域要审批 / 规则要审批 / 工作区级影响兄弟会话但不串工作区 / 会话级不串会话 / `blockFilter` 的 `sessionId`+`scopes` 形态）、`source/tool-memory/test/block-tool.test.ts`（11 例：参数校验 / 三种结局文案 / 规则提示 / 旧 provider 501 / 注册表 / 渲染）、`source/memory-panel/test/archive-blocks-api.test.ts`（6 例：归档往返与检索立即失效 / 非项目键报错 / 400 / 屏蔽后 `/status` 带层级 / 会话级与工作区级互不误伤 / 缺参数 400）。全套 576 tests / 575 pass / 1 skipped。
+
 ## 0.31.0 — 记忆树标签页新增「星图」视图（Obsidian 式，带纵深）
 
 - **问题**：记忆条目上百条之后，记忆树的三层结构（作用域 → 类型 → 记录）依然清楚，但它只回答「这条挂在哪儿」，**看不出记忆堆在什么地方、哪个作用域已经膨胀**。用户要的是「参考 Obsidian 那种有点 3D 的、看起来高级且清晰」的第二视角。

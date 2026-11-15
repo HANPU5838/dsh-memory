@@ -18,6 +18,14 @@ import { dirname, join } from 'node:path'
              
              
 
+/**
+ * 审批卡类型（0.32.0 起三种）：
+ *   - `records` 记忆条目照常放行；
+ *   - `grant`   作用域会话授权；
+ *   - `block`   屏蔽（按作用域 / 工作区级 / 规则）。
+ */
+                                                        
+
                                      
             
                                
@@ -26,7 +34,7 @@ import { dirname, join } from 'node:path'
                    
               
                 
-                           
+                    
                          
                    
                                        

@@ -18,6 +18,14 @@ export type ApprovalAuditEventKind =
   | 'granted'
   | 'revoked'
 
+/**
+ * 审批卡类型（0.32.0 起三种）：
+ *   - `records` 记忆条目照常放行；
+ *   - `grant`   作用域会话授权；
+ *   - `block`   屏蔽（按作用域 / 工作区级 / 规则）。
+ */
+export type ApprovalMode = 'records' | 'grant' | 'block'
+
 export interface ApprovalAuditEvent {
   at: number
   event: ApprovalAuditEventKind
@@ -26,7 +34,7 @@ export interface ApprovalAuditEvent {
   sessionId: string
   tool: string
   action: string
-  mode: 'records' | 'grant'
+  mode: ApprovalMode
   /** 涉及的 scope（不含正文）。 */
   scopes?: string[]
   permissions?: Array<'read' | 'write'>

@@ -20,7 +20,7 @@ import {
   type MemoryToolsOptions,
   type ToolSpec,
 } from './index.ts'
-import { renderGetResult, renderListResult, renderScopesResult, renderSearchResult } from './render.ts'
+import { renderBlockResult, renderGetResult, renderListResult, renderScopesResult, renderSearchResult } from './render.ts'
 import { resolveCurrentScopes, scopeDisplayName, sessionShortId, type ScopeKey } from '../../memory-local/src/scope.ts'
 
 export const name = 'dsh-tool-memory'
@@ -165,5 +165,10 @@ export function apply(ctx: any, config: ToolMemoryConfig = {}) {
   register(tools.memory_get, (value, _args, exec) => {
     const agent = (exec as { agent?: unknown } | undefined)?.agent
     return renderGetResult(value, (scope) => renderScope(scope, agent))
+  })
+
+  register(tools.memory_block, (value, _args, exec) => {
+    const agent = (exec as { agent?: unknown } | undefined)?.agent
+    return renderBlockResult(value, (scope) => renderScope(scope, agent))
   })
 }

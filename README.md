@@ -6,7 +6,7 @@
 
 **本地优先的长期记忆，让每次对话都接得上。**
 
-JSONL 落盘 · 本机向量检索 · 五个模型工具 · 自动召回 · 硬性规则 · 可视化管理面板
+JSONL 落盘 · 本机向量检索 · 七个模型工具 · 自动召回 · 硬性规则 · 作用域归档 · 主动屏蔽 · 可视化管理面板
 
 [![npm version](https://img.shields.io/npm/v/@restregular/dsh-memory.svg)](https://www.npmjs.com/package/@restregular/dsh-memory)
 [![npm downloads](https://img.shields.io/npm/dm/@restregular/dsh-memory.svg)](https://www.npmjs.com/package/@restregular/dsh-memory)
@@ -39,7 +39,7 @@ JSONL 落盘 · 本机向量检索 · 五个模型工具 · 自动召回 · 硬�
 
 | 能力 | 说明 |
 | --- | --- |
-| **六个工具** | `memory_save` / `memory_search` / `memory_list` / `memory_get` / `memory_forget` / `memory_scopes`。`memory_search` 只回印象（8 位 id / 作用域 / 类型 / 标签 / 短摘要），正文和元数据用 `memory_get` 的 `fields` 按需取；同一会话里已出现过的条目只回 id。范围外命中默认只给**作用域清单**（`outOfScope` 字段：名字 / 条数 / 用途，0.28.0 起不再带条目摘要），确认后带 `requestApproval: true` 重发才弹审批。`description` 字段在普通限制下必填，审批卡会展示它。`memory_scopes` 管目录：`action="list"` 给作用域名字 / 用途 / 当前可读可写状态，`action="edit"` 编辑某个作用域的**用途 / 别名**（0.29.0），`action="request"` 申请范围外权限；目录本身不返回任何正文。**作用域参数传裸名**（`handbook`）：0.26.0 起工具输出里的展示名 `custom:handbook` 粘进参数会被自动归一，`project:` / `session:` 本来就直接可用 |
+| **七个工具** | `memory_save` / `memory_search` / `memory_list` / `memory_get` / `memory_forget` / `memory_scopes` / `memory_block`。`memory_search` 只回印象（8 位 id / 作用域 / 类型 / 标签 / 短摘要），正文和元数据用 `memory_get` 的 `fields` 按需取；同一会话里已出现过的条目只回 id。范围外命中默认只给**作用域清单**（`outOfScope` 字段：名字 / 条数 / 用途，0.28.0 起不再带条目摘要），确认后带 `requestApproval: true` 重发才弹审批。`description` 字段在普通限制下必填，审批卡会展示它。`memory_scopes` 管目录：`action="list"` 给作用域名字 / 用途 / 当前可读可写状态，`action="edit"` 编辑某个作用域的**用途 / 别名**（0.29.0），`action="request"` 申请范围外权限；目录本身不返回任何正文。`memory_block`（0.32.0）让 Agent 把无关记忆**藏起来**而不是删掉：`action="block"` / `"unblock"` / `"list"`，目标可以是作用域或记录 id / 前缀，层级 `session`（只影响本会话）/ `workspace`（影响该工作区所有会话）。**作用域参数传裸名**（`handbook`）：0.26.0 起工具输出里的展示名 `custom:handbook` 粘进参数会被自动归一，`project:` / `session:` 本来就直接可用 |
 | **四种作用域** | 会话 / 项目 / `global` / 自定义名。默认写进当前会话，读默认合并会话 + 项目 + global；项目作用域可起别名。自定义作用域**首次由 Agent 创建时必须带 `scopeDescription`**（一句话用途），可选带 `scopeRule` 写一条初始规则；元数据存在 `<storeDir>/scope-meta/`，删光记录也不会丢 |
 | **作用域目录与绝对隔离** | `memory_scopes` 列出范围内 / 范围外的名字与用途（`action="edit"` 可改用途与别名）；normal / none 下还带**初始化记录正文**（每个作用域最多 3 条，方便 Agent 直接读到“这个作用域主要放什么”）。绝对限制下范围外作用域**仍可发现**，但正文（含初始记录）永不可读、不可写、不可申请（没有任何审批放行路径）；普通限制下范围外条目可申请，`memory_scopes request` 走审批后写入**本会话**授权（默认只读，写权限必须单独申请），子 Agent 沿父会话继承 |
 | **会话授权（grants）** | Agent 申请、用户批准的例外单独存在 `<storeDir>/grants/<session>.json`，不并入可见域策略；只读 / 可写独立、可撤销、只在本会话（及子 Agent）生效；`absolute` 下授权不生效，作用域被删除重建后按创建代次自动失效 |
@@ -49,6 +49,8 @@ JSONL 落盘 · 本机向量检索 · 五个模型工具 · 自动召回 · 硬�
 | **硬性规则** | `kind: rule` 进系统提示常驻段；行首带 8 位 id，注入的是摘要，需要全文时用 `memory_get`；旧会话会收到新增 / 编辑提醒；超预算有明确警告，不静默丢弃 |
 | **记忆权限** | 输入框旁的「记忆权限」按钮设置本会话可读的作用域 + 限制等级（绝对 / 普通 / 无限制）；每个作用域一行就是一条设置：**勾选**表示本会话可访问，行内**【绑定】/【可读】/【可写】**控制工作区默认可见与读写权限——**【绑定】点一下立即保存**（0.25.13 起），绑定到当前工作区后新会话默认可见，可读 / 可写独立影响工具读写；Agent 通过 `memory_scopes request` 申请到的范围外授权**也用勾选呈现**（名称右边挂一个「AI」气泡，样式与你自己勾选的行区分开），取消勾选只是草稿，**点「保存」才真正撤销**（0.25.4 起），且按钮数字 / 「已选」都把 AI 授权算进去（0.25.5 起）并**实时轮询**——浮窗关着，Agent 刚拿到的授权也会让按钮数字自己变（0.25.6 起）；**整张作用域卡片都能点选**，点名称 / 计数 / 留白等同点勾选框（0.25.7 起），本会话那一行直接叫「**session:当前会话**」（0.25.8 起，0.25.10 起带类型前缀）；**所有作用域名都以 `global:` / `project:` / `session:` / `custom:` 开头**（0.25.10 起）；浮窗挂在页面根层，不会被输入框上方的浮动按钮盖住（0.25.8 起）；Agent 及其子 Agent 都按它检索、注入与 `memory_get` |
 | **修正版编辑** | 面板里编辑一条记忆 = 新建一条修正版并通过 `supersedes` 指向旧记录，旧记录不原地修改；记录页「是否被修正」筛选默认隐藏旧版本，可切到全部 / 只看已修正 |
+| **归档（0.32.0）** | **会话作用域**随会话归档冻结（0.30.0）；**项目作用域**绑定工作区路径，归档记录持久化在 `archive/project.json`。工作区从侧边栏移除 → 归档条目转 `dormant`（记忆保留、不参与检索）；重新加入 → **自动解除归档**（实时读宿主 `workspaceRegistry`，5 秒节流对账）。`global` / 自定义作用域**拒绝归档**（`SCOPE_NOT_ARCHIVABLE`）。归档不是权限：没有审批通道、`requestable=false`，面板可手动「解除归档」 |
+| **屏蔽（0.32.0）** | Agent 用 `memory_block` 主动降噪：被屏蔽的作用域 / 记录不再出现在检索、注入、规则段、过程段与目录里，**数据一字不改**，`unblock` 立刻复原。存储 `blocks/session/<id>.json` / `blocks/workspace/<sha1>.json`。**审批矩阵**：按作用域屏蔽 → 弹审批；工作区级 → 弹审批；目标是硬性规则（`kind='rule'`）→ **一律弹审批，即使按 id**；只有「会话级 + 按记录 id/前缀 + 不是规则」静默生效。被屏蔽的作用域**拒绝 Agent 写入**（`SCOPE_BLOCKED`），避免写进去自己看不见 |
 | **范围外审批** | 普通限制下，`memory_search` 撞到可见域外的记忆**默认只返回作用域清单**（名字 / 条数 / 用途，不含任何条目内容与摘要，0.28.0 起），不自动弹审批；Agent 确认某个作用域的用途确实相关后，带 `requestApproval=true` 重发查询才会发起审批。另一条路是 `memory_scopes request`（申请整个作用域的本会话权限）。发起后，审批卡在**对应会话的输入框上方**出现（样式与系统权限审批一致）：展示工具、Agent 说明、查询关键词与范围外记忆摘要，支持逐条勾选 / 全选 / 取消全选（「允许选中的 N 条」或整单「允许一次」）或「拒绝」；点记忆 ID 直接跳到面板「记录」页并展开该条。**0.25.14 起**审批等待期间还会像系统审批 / ask 工具一样，在该会话的侧边栏行显示黄色圆点与「待审批」（含后台会话；回答或超时后撤销），其它插件也能从宿主 `uiSession.sessionStatus` 读到这条阻塞 |
 | **上下文去重** | `memory_search` / `memory_list` 返回过的条目记进会话上下文状态；同一版本再次命中只回记忆 ID（`memory_search` 的裸 ID 与带摘要条目之间空一行），并提示用 `memory_get` 取全文（内容更新后重新给摘要） |
 | **状态记忆** | `kind: state` 默认 7 天 TTL；注入带「状态，使用前验证」；过期后默认不进检索 / 摘要 / 召回，但 `memory_get` 与面板仍可取 |
@@ -181,7 +183,7 @@ try/catch——任何一半失败都只记一行日志，绝不让 DSH 启动失
 | 半边 | 作用 |
 | --- | --- |
 | `lib/provider` | 提供 `memory` 服务：JSONL 存储、双通道检索、向量回填、向量后端生命周期与一键安装 |
-| `lib/tools` | 注册五个模型工具 |
+| `lib/tools` | 注册七个模型工具 |
 | `lib/inject` | `agent/pre-step` 召回、摘要、策略、规则与行为触发 |
 | `lib/panel` | `/memory/api` 管理接口（含同源 / 登录围栏） |
 | `lib/client.js` | 设置页「记忆系统」区块与左侧栏入口（注册 id == 包名） |
@@ -248,7 +250,7 @@ memory_forget({ "id": "3f2a9c1d", "description": "删除过期的临时结论" }
 后会重新返回摘要。`memory_search` 里这些裸 ID 单独成块，与带摘要的条目之间**空一行**，不会看起来像
 上一条的续行。状态与召回/摘要共用同一份会话去重记录（`summary_injected` / `content_injected`）。
 
-**`description`（0.22.0）**：六个工具都新增 `description` 参数 —— 一句话说明这次调用要做什么。
+**`description`（0.22.0）**：所有 `memory_*` 工具都新增 `description` 参数 —— 一句话说明这次调用要做什么。
 本会话「记忆权限」为**普通限制**（默认）时**必填**，漏了会被 `DESCRIPTION_REQUIRED` 拒绝；
 绝对限制 / 无限制下可省略。它只用于范围外访问的审批卡（展示给用户判断是否放行），不写进记忆。
 
@@ -639,6 +641,7 @@ npm run verify  # 构建到 .verify/，不落 packages/
 
 ## 更新日志
 
+- **0.32.0** —— 作用域归档（会话 / 项目）+ Agent 主动屏蔽：项目作用域归档持久化在 `archive/project.json`，工作区被移除时转 `dormant`（记忆保留、不参与检索）、重新加入时**自动解除归档**；`global` / 自定义作用域拒绝归档。新增第 7 个工具 `memory_block`（`block` / `unblock` / `list`），可按作用域或记录 id / 前缀屏蔽，层级分会话级与工作区级；**审批矩阵**：按作用域 / 工作区级 / 目标是规则一律弹审批，只有「会话级 + 按记录 id + 非规则」静默生效。屏蔽在检索、注入、规则段、过程段与目录里全部生效，被屏蔽作用域拒绝 Agent 写入（`SCOPE_BLOCKED`）。面板新增 `/memory/api/archive`、`/memory/api/blocks` 与 `archived` / `blocked` 透传，记录页默认折叠这两类并给计数开关、行内「解除归档 / 解除屏蔽」。
 - **0.30.1** —— 修复 CUDA 运行时安装误选伴生包（issue #4）：`runtimeAssetPattern` 的主包正则补上开头锚定 `^llama-`（此前只锚结尾，release 资产顺序一变就会把共享后缀的 `cudart-llama-…` 当成运行时，解压后找不到 `llama-server.exe`）；伴生包仍只认 `^cudart-`，只有 cudart 的发行版会退回 CPU 包而不是装出缺 exe 的目录；已误下 cudart 的用户重试时该文件会直接复用为伴生包。
 - **0.30.0** —— 会话作用域绑定会话生命周期：会话创建时系统自动建立会话作用域（`ensureSessionScope`，只写 `scope-meta`，`createdBy: system`，幂等且不写记忆）；会话归档后该作用域与记忆**冻结**——`search` / `list` / `listSync` / `getByIds` 全部跳过，授权统一返回 `SCOPE_ARCHIVED`（不可申请、无审批路径），目录与面板标「已归档」，归档期间小时级过期清理与容量淘汰也跳过它；取消归档后自动复原（实时读宿主 `workspaceRegistry.archivedSessionIds`，不复制、不缓存，数据文件一个字节不动）。`memory_scopes` 目录项新增 `archived` 与 `accessStatus='archived'`；面板作用域行显示「已归档」徽标；`session/created` 监听失败绝不回滚会话创建，启动时给已存在的会话补建。
 - **0.29.0** —— 作用域用途 / 别名可编辑：`memory_scopes` 新增 `action="edit"`（`scope` + `scopeDescription?` / `scopeName?`，空串分别表示清空用途 / 移除别名，至少给一个，需要该作用域可写，范围外先走 `request` 申请写权限）；面板「记录 → 作用域」每行新增「编辑」，用途编辑框只预填手写的那句，默认描述不预填；`describeScope` 的空描述从报错改为**清空**（保留元数据与 generation，目录回退按类型默认描述），新增 `renameScope`（项目 / 自定义作用域可设别名，global / session 拒绝，重名 `SCOPE_NAME_TAKEN`）；`/memory/api/status` 新增 `descriptionSource`（custom / default）与别名 `name`，新增 `POST /memory/api/scope-meta`。

@@ -327,13 +327,13 @@ export function recallText(text        )         {
  *   - 同一段文本 = 最后一道幂等。
  */
 export class MemoryInjector {
-                   search                                                                                                                                      
+                   search                                                                                                                                                          
                    cfg                            
                    renderOptions                                   
                    state                
 
   constructor(
-    search                                                                                                                                      ,
+    search                                                                                                                                                          ,
     cfg                            ,
     renderOptions                                    = {},
     state                 = new InjectionState(),
@@ -366,7 +366,7 @@ export class MemoryInjector {
 
     let hits             
     try {
-      hits = await this.search(query, input.signal, input.scopes, input.kinds)
+      hits = await this.search(query, input.signal, input.scopes, input.kinds, sessionId)
     } catch {
       // 检索失败不能打断 agent 循环;审计会区分"失败"与"成功但无结果"。
       return {

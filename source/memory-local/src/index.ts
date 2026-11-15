@@ -37,8 +37,15 @@ import {
   type VisibilityRule,
 } from './session-visibility.ts'
 import { WorkspaceBindingsStore } from './workspace-bindings.ts'
+import {
+  MemoryBlocksStore,
+  blockMatchesRecord,
+  type BlockLevel,
+  type MemoryBlock,
+} from './blocks.ts'
+import { ScopeArchiveStore, type ScopeArchiveEntry } from './scope-archive.ts'
 import { SessionGrantsStore, type GrantPermission, type ScopeGrant } from './grants.ts'
-import { ApprovalAuditStore, type ApprovalAuditEvent } from './approval-audit.ts'
+import { ApprovalAuditStore, type ApprovalAuditEvent, type ApprovalMode } from './approval-audit.ts'
 import {
   authorize as authorizeAccess,
   type AccessContext,
@@ -583,6 +590,18 @@ export interface ScopeCatalogEntry {
    */
   archived?: boolean
   /**
+   * 归档来源（0.32.0）：`session` = 宿主会话已归档（恢复会话即复原）；
+   * `project` = 用户归档的项目作用域（面板里解除，或工作区重新加入时自动复原）。
+   */
+  archivedKind?: 'session' | 'project'
+  /**
+   * 0.32.0：这个作用域被 Agent 主动屏蔽（会话级或工作区级）。屏蔽不删数据、
+   * 不改可见域，只是不再进入检索 / 注入 / 统计；解除后立刻复原。
+   */
+  blocked?: boolean
+  /** 屏蔽的作用层级（`blocked=true` 时给出）。 */
+  blockedLevel?: BlockLevel
+  /**
    * 初始化记录正文（0.24.0 / D5）。**只在 normal / none 下返回**；absolute 下
    * 连初始正文也不返回（目录可见、正文不可读的硬边界）。每条最多 3 条、截断。
    */
@@ -619,9 +638,10 @@ export interface VisibilityApprovalView {
   description?: string
   /**
    * 审批类型：缺省 / `records` = 记忆条目照常；`grant` = 作用域权限申请
-   * （每条 item 代表一个 scope + 权限，允许后写入会话 grants）。
+   * （每条 item 代表一个 scope + 权限，允许后写入会话 grants）；`block` = 屏蔽
+   * 请求（0.32.0，按作用域 / 工作区级 / 规则，允许后写入屏蔽文件）。
    */
-  mode?: 'records' | 'grant'
+  mode?: ApprovalMode
   items: VisibilityApprovalItem[]
   createdAt: number
   expiresAt: number
@@ -640,7 +660,7 @@ export interface VisibilityApprovalPresence {
   sessionId: string
   tool: string
   action: VisibilityAction
-  mode?: 'records' | 'grant'
+  mode?: ApprovalMode
   createdAt: number
   expiresAt: number
 }
@@ -683,6 +703,75 @@ export interface VisibilityApprovalAnswer {
   allowedIds?: string[]
 }
 
+/**
+ * 把审批答复归一成对象形态（0.32.0）。
+ *
+ * `requestOutOfScope` 是可以被测试 / 外部实现替换的注入点，历史上允许直接返回
+ * 裸字符串（`'allowed-once'` / `'rejected'` / `'timeout'`）。新代码一律按对象读取，
+ * 但为了让老实现继续工作，这里统一折一次。
+ */
+export function normalizeApprovalAnswer(raw: unknown): VisibilityApprovalAnswer {
+  if (typeof raw === 'string') {
+    const outcome: VisibilityApprovalOutcome = raw === 'allowed-once' || raw === 'rejected' || raw === 'timeout'
+      ? raw
+      : 'rejected'
+    return { outcome }
+  }
+  if (raw !== null && typeof raw === 'object') {
+    const item = raw as { outcome?: unknown; allowedIds?: unknown }
+    const outcome: VisibilityApprovalOutcome = item.outcome === 'allowed-once' || item.outcome === 'rejected' || item.outcome === 'timeout'
+      ? item.outcome
+      : 'rejected'
+    const ids = Array.isArray(item.allowedIds)
+      ? [...new Set(item.allowedIds.map(String).filter((id) => id !== ''))]
+      : undefined
+    return ids !== undefined ? { outcome, allowedIds: ids } : { outcome }
+  }
+  return { outcome: 'rejected' }
+}
+
+/** 屏蔽的目标：一个作用域，或一条记录（完整 id / 前缀）。 */
+export interface MemoryBlockTarget {
+  scope?: string
+  /** 记录 id 或前缀（8 位短 id 也可）。 */
+  id?: string
+}
+
+/** Agent 发起的一次屏蔽请求（0.32.0）。 */
+export interface MemoryBlockRequest extends MemoryBlockTarget {
+  /** `session` = 只影响本会话（含子 Agent）；`workspace` = 影响该工作区所有会话。 */
+  level?: BlockLevel
+  reason?: string
+  description?: string
+  tool?: string
+  signal?: AbortSignal
+}
+
+/** 屏蔽结果。`outcome='blocked'` 表示这些目标现在确实处于屏蔽状态。 */
+export interface MemoryBlockResult {
+  outcome: 'blocked' | 'rejected' | 'timeout' | 'unavailable'
+  blocks: MemoryBlock[]
+  /** 解析到的记录（按 id / 前缀屏蔽时给出，便于工具回报）。 */
+  records: Array<{ id: string; scope: string; kind: string }>
+  /** 需要审批时给出的审批 id。 */
+  approvalId?: string
+  /** 目标里有没有规则（规则一律要审批）。 */
+  containsRule?: boolean
+}
+
+/** 一条屏蔽的对外视图（面板 / 工具）。 */
+export interface MemoryBlockView {
+  id: string
+  level: BlockLevel
+  scope?: string
+  recordId?: string
+  prefix?: string
+  recordKind?: string
+  createdAt: number
+  createdBy: string
+  reason?: string
+}
+
 interface PendingVisibilityApproval extends VisibilityApprovalView {
   resolve(answer: VisibilityApprovalAnswer): void
   timer: ReturnType<typeof setTimeout> | undefined
@@ -690,8 +779,15 @@ interface PendingVisibilityApproval extends VisibilityApprovalView {
 
 /** 普通限制下一次审批最多等多久;超时按拒绝处理(工具不会无限挂住)。 */
 const VISIBILITY_APPROVAL_TTL_MS = 5 * 60_000
+
 /** 审批浮层一次最多展示多少条范围外命中(工具侧仍会返回全部允许的命中)。 */
 const VISIBILITY_APPROVAL_MAX_ITEMS = 20
+
+/**
+ * 归档对账的节流窗口（0.32.0）。宿主工作区清单每次目录/统计查询前对一次账，
+ * 5 秒窗口足够覆盖连续的面板轮询，又不会把 `workspaceRegistry.list()` 读成热路径。
+ */
+const ARCHIVE_RECONCILE_INTERVAL_MS = 5_000
 
 /**
  * 没有显式覆盖时的默认限制等级(0.20.0 起)。
@@ -727,6 +823,10 @@ export class LocalMemoryService implements MemoryServiceApi {
   private readonly bindings: WorkspaceBindingsStore
   /** 会话级授权（Agent 申请、用户批准）；独立于 visibility 策略。 */
   private readonly grants: SessionGrantsStore
+  /** 屏蔽（0.32.0）：Agent 主动藏起无关记忆；会话级 + 工作区级两层。 */
+  private readonly blocks: MemoryBlocksStore
+  /** 项目作用域归档（0.32.0）：绑定工作区，工作区删除/重加自动归档/恢复。 */
+  private readonly archive: ScopeArchiveStore
   /** 权限申请 / 授权生命周期审计（approvals.jsonl，不含正文）。 */
   private readonly approvalAudit: ApprovalAuditStore
   /** 可见域变更通知:下一次 pre-step 注入给 Agent 后删除(按会话)。 */
@@ -746,6 +846,13 @@ export class LocalMemoryService implements MemoryServiceApi {
    * 宿主侧 apply.ts 注入；没有时按「没有归档」处理（纯本地 / 测试环境）。
    */
   private archivedLookup: (() => readonly string[] | undefined) | undefined
+  /**
+   * 宿主工作区存在性查询（0.32.0）：`workspaceRegistry.resolveByPath` / `list()`
+   * 的惰性读取。返回 undefined = 宿主服务不可用，此时**不改动**归档状态。
+   */
+  private workspaceExists: ((scope: string) => boolean | undefined) | undefined
+  /** 上一次归档对账的时间（节流用）。 */
+  private archiveReconciledAt = 0
   /** 注入半边的审计收集器(可选;没有注入半边时保持 null)。 */
   private injectAuditSink: {
     list?(sessionId?: string): unknown
@@ -763,6 +870,8 @@ export class LocalMemoryService implements MemoryServiceApi {
     this.visibility = new SessionVisibilityStore({ root: this.cfg.storeDir })
     this.bindings = new WorkspaceBindingsStore({ root: this.cfg.storeDir })
     this.grants = new SessionGrantsStore({ root: this.cfg.storeDir })
+    this.blocks = new MemoryBlocksStore({ root: this.cfg.storeDir })
+    this.archive = new ScopeArchiveStore({ root: this.cfg.storeDir })
     this.approvalAudit = new ApprovalAuditStore({ root: this.cfg.storeDir })
     this.rerankBudget = new DailyBudget(this.cfg.llm.dailyBudgetTokens)
     this.store = new MemoryStore(this.cfg.storeDir, { onWarn: (m) => console.warn(`[dsh-memory-local] ${m}`) })
@@ -922,17 +1031,24 @@ export class LocalMemoryService implements MemoryServiceApi {
    *
    * 默认排除已被 supersede 的旧记录;需要历史/审计时显式 includeSuperseded。
    */
-  listSync(input: { scopes?: MemoryScope[]; kind?: string; limit?: number; includeSuperseded?: boolean; includeExpired?: boolean; agent?: unknown } = {}): MemoryRecord[] {
+  listSync(input: { scopes?: MemoryScope[]; kind?: string; limit?: number; includeSuperseded?: boolean; includeExpired?: boolean; agent?: unknown; sessionId?: string } = {}): MemoryRecord[] {
     const wanted = (input.scopes ?? []).map((scope) => this.canonicalScope(scope))
     // 注入侧必须按可见域的类型白名单过滤;工具侧不传 agent(它需要范围外命中来发起审批)。
     const visibleFilter = input.agent !== undefined ? this.visibilityFilterFor(input.agent) : undefined
+    // 0.32.0：被屏蔽的作用域 / 记录不参与枚举与注入（规则段、过程索引、标签召回同一条路径）。
+    const blockedFilter = this.blockFilter({
+      ...(input.agent !== undefined ? { agent: input.agent } : {}),
+      ...(input.sessionId !== undefined ? { sessionId: input.sessionId } : {}),
+      scopes: wanted,
+    })
     const seen = new Set<MemoryScope>()
     const stores: ScopeStore[] = []
-    const archivedScopes = this.archivedSessionScopes()
+    const archivedScopes = this.archivedScopeKeys()
     for (const scope of wanted) {
       if (seen.has(scope)) continue
       seen.add(scope)
       // 0.30.0：归档会话作用域在归档期间不参与枚举 / 注入。
+      // 0.32.0：项目作用域归档后同理（工作区被删除时自动标 dormant，仍然不参与）。
       if (archivedScopes.has(scope)) continue
       const s = this.store.peek(scope)
       if (s) stores.push(s)
@@ -947,6 +1063,7 @@ export class LocalMemoryService implements MemoryServiceApi {
         if (!input.includeExpired && rec.expiredAt !== undefined && rec.expiredAt < now) continue
         if (input.kind !== undefined && rec.kind !== input.kind) continue
         if (visibleFilter !== undefined && !visibleFilter(rec.scope, rec.kind)) continue
+        if (blockedFilter !== undefined && blockedFilter({ id: rec.id, scope: rec.scope })) continue
         out.push(rec)
       }
     }
@@ -1360,7 +1477,7 @@ export class LocalMemoryService implements MemoryServiceApi {
    * 恢复会话后记忆原样回来；恢复后下一次 housekeeping 再按原规则清理。
    */
   runHousekeeping(): { purged: string[]; evicted: string[] } {
-    const frozen = (scope: string): boolean => this.isArchivedSessionScope(scope)
+    const frozen = (scope: string): boolean => this.isArchivedScope(scope)
     const purged = this.store.purgeExpired(Date.now(), frozen)
     const evicted = this.store.enforceLimit(this.cfg.maxRecordsPerScope, Date.now(), frozen)
     return { purged, evicted }
@@ -1592,10 +1709,99 @@ export class LocalMemoryService implements MemoryServiceApi {
     return out
   }
 
+  /**
+   * 所有**已归档作用域键**（0.32.0 起含项目作用域）。
+   *
+   * 会话作用域由宿主生命周期驱动（0.30.0），项目作用域由本服务持久化
+   * （`archive/project.json`）。检索 / 枚举 / 统计统一问这一个集合，
+   * 所以"归档后立刻搜不到、恢复后立刻回来"对两者都成立。
+   */
+  private archivedScopeKeys(): Set<string> {
+    const out = this.archivedSessionScopes()
+    // dormant 也算归档：工作区暂时被删掉，记忆仍然保留、仍然不参与检索。
+    for (const entry of this.archive.list()) out.add(this.canonicalScope(entry.scope))
+    return out
+  }
+
   /** 这个作用域是否是已归档会话的作用域（只有 session: 键会命中）。 */
   isArchivedSessionScope(scope: string): boolean {
     if (typeof scope !== 'string' || !scope.startsWith('session:')) return false
     return this.archivedSessionIds().has(scope.slice('session:'.length))
+  }
+
+  /** 这个作用域是否已归档（会话作用域或项目作用域）。 */
+  isArchivedScope(scope: string): boolean {
+    if (typeof scope !== 'string' || scope === '') return false
+    if (this.isArchivedSessionScope(scope)) return true
+    const key = this.canonicalScope(scope)
+    return this.archive.has(key)
+  }
+
+  /**
+   * 归档一个项目作用域（0.32.0）。只有 `project:` 键可归档 —— global 与自定义
+   * 作用域的生命周期不属于某个工作区，归档它们只会变成"悄悄藏起来"。
+   */
+  archiveScope(scope: string, by: string, note?: string): ScopeArchiveEntry {
+    const key = this.canonicalScope(scope)
+    if (!key.startsWith('project:')) {
+      throw memoryError(
+        'SCOPE_NOT_ARCHIVABLE',
+        '只有会话作用域（随会话生命周期）与项目作用域（绑定工作区）可以归档；global 与自定义作用域不支持归档',
+      )
+    }
+    const entry = this.archive.archive(key, by, note)
+    if (entry === undefined) throw memoryError('SCOPE_NOT_ARCHIVABLE', `无法归档作用域 ${key}`)
+    return entry
+  }
+
+  /** 解除项目作用域归档；返回是否真的解除了一条。 */
+  restoreScope(scope: string): boolean {
+    const key = this.canonicalScope(scope)
+    return this.archive.restore(key)
+  }
+
+  /** 已归档的项目作用域清单（面板 / 目录用）。 */
+  archivedProjectScopes(): ScopeArchiveEntry[] {
+    return this.archive.list()
+  }
+
+  /**
+   * 工作区存在性对账（0.32.0）：工作区从侧边栏删除时把归档标记为 dormant，
+   * 重新加入时**自动解除归档**。`exists` 由宿主服务提供（`workspaceRegistry`），
+   * 拿不到时保持现状。
+   */
+  reconcileArchivedScopes(exists: (scope: string) => boolean): string[] {
+    return this.archive.reconcile(exists)
+  }
+
+  /**
+   * 宿主工作区存在性查询（0.32.0）。返回 undefined = 宿主服务不可用
+   * （这时**不能**改动任何归档状态）。
+   */
+  setWorkspaceExistsLookup(lookup: ((scope: string) => boolean | undefined) | undefined): void {
+    this.workspaceExists = lookup
+  }
+
+  /**
+   * 按宿主工作区清单对账归档状态（节流：同一个 5 秒窗口只跑一次）。
+   *
+   * 为什么不监听事件：宿主的 `workspace/delete` / `workspace/create` 是 UI 层
+   * emit，不保证在服务层出现；而 `workspaceRegistry.list()` 是持久状态，读它
+   * 才是唯一可靠的来源。
+   *
+   * @param force 跳过 5 秒节流（测试与用户手动「刷新」用）。
+   * @returns 本次被自动解除归档的作用域（第一次调用时可能为空）。
+   */
+  reconcileArchivedScopesNow(force = false): string[] {
+    const now = Date.now()
+    if (!force && now - this.archiveReconciledAt < ARCHIVE_RECONCILE_INTERVAL_MS) return []
+    this.archiveReconciledAt = now
+    if (this.workspaceExists === undefined) return []
+    return this.archive.reconcile((scope) => {
+      const present = this.workspaceExists?.(scope)
+      // undefined = 宿主不可用：把"未知"当作"还在"，避免误删用户的归档。
+      return present !== false
+    })
   }
 
   /**
@@ -1625,7 +1831,7 @@ export class LocalMemoryService implements MemoryServiceApi {
     const out: VisibilityRule[] = []
     // 已归档会话的作用域不在「可见域」里：用户归档前勾选过也一并剔除，
     // 恢复会话后规则会自动重新生效（规则本身没被改写）。
-    const archived = this.archivedSessionScopes()
+    const archived = this.archivedScopeKeys()
     for (const raw of rules) {
       const scope = this.canonicalScope(raw.scope)
       if (archived.has(scope)) continue
@@ -1691,13 +1897,14 @@ export class LocalMemoryService implements MemoryServiceApi {
    * 沿 parentSession 链收集 grant（当前会话在前、父会话在后）。
    * 子 Agent 与父会话是同一个任务，应该继承父会话获批的权限。
    */
-  private resolveGrantChain(sessionId: string): ScopeGrant[] {
-    const out: ScopeGrant[] = []
+  /** 会话本身 + 沿 parentSession 链的祖先（当前会话在前）。 */
+  private sessionChain(sessionId: string): string[] {
+    const out: string[] = []
     const seen = new Set<string>()
     let id = sessionId
     while (id !== '' && !seen.has(id)) {
       seen.add(id)
-      out.push(...this.grants.list(id))
+      out.push(id)
       let parent: string | undefined
       try {
         const session = this.sessionLookup?.(id) as { header?: { parentSession?: unknown } } | undefined
@@ -1707,6 +1914,12 @@ export class LocalMemoryService implements MemoryServiceApi {
       } catch { parent = undefined }
       id = parent ?? ''
     }
+    return out
+  }
+
+  private resolveGrantChain(sessionId: string): ScopeGrant[] {
+    const out: ScopeGrant[] = []
+    for (const id of this.sessionChain(sessionId)) out.push(...this.grants.list(id))
     return out
   }
 
@@ -1760,7 +1973,7 @@ export class LocalMemoryService implements MemoryServiceApi {
   /** 没有显式覆盖时的默认可见域范围(基础三路 + 工作区绑定的额外作用域)。 */
   private defaultReadScopes(agent: unknown): MemoryScope[] {
     const out = this.baseDefaultScopes(agent)
-    const archived = this.archivedSessionScopes()
+    const archived = this.archivedScopeKeys()
     const push = (scope: MemoryScope): void => {
       if (archived.has(scope)) return
       if (out.includes(scope)) return
@@ -1849,7 +2062,7 @@ export class LocalMemoryService implements MemoryServiceApi {
       },
       originOf: (scope) => scopeKind(scope),
       grants: this.validGrants(agent),
-      archivedScopes: this.archivedSessionScopes(),
+      archivedScopes: this.archivedScopeKeys(),
     }
   }
 
@@ -2057,8 +2270,8 @@ export class LocalMemoryService implements MemoryServiceApi {
       query: string
       /** 模型为这次调用写的用途说明(0.22.0);弹窗展示给用户。 */
       description?: string
-      /** 'grant' = 作用域权限申请；缺省 = 记忆条目审批。 */
-      mode?: 'records' | 'grant'
+      /** 'grant' = 作用域权限申请；'block' = 屏蔽请求；缺省 = 记忆条目审批。 */
+      mode?: ApprovalMode
       items: readonly VisibilityApprovalItem[]
       signal?: AbortSignal
     },
@@ -2208,6 +2421,344 @@ export class LocalMemoryService implements MemoryServiceApi {
     })
     pending.resolve(answer)
     return true
+  }
+
+  // ---------------------------------------------------------------- 屏蔽（0.32.0）
+
+  /** 当前 agent 的会话链（自身 + 祖先），用于合并会话级屏蔽。 */
+  private blockSessionIds(agent: unknown): string[] {
+    const sessionId = this.rawSessionIdOf(agent)
+    if (sessionId === undefined) return []
+    return this.sessionChain(sessionId)
+  }
+
+  /** 当前 agent 的工作区键（= 项目作用域键）；拿不到会话时用兜底项目键。 */
+  private blockWorkspaceKey(agent: unknown): string {
+    return this.workspaceKeyFor(agent)
+  }
+
+  /**
+   * 当前 agent 生效的**全部**屏蔽：会话级（含父链）+ 工作区级。
+   *
+   * 工作区级屏蔽对所有会话生效（含历史与将来），会话级只对当前会话链生效。
+   * 结果按层级排：工作区级在前（它更"重"）。
+   */
+  blocksFor(agent: unknown): MemoryBlock[] {
+    const out: MemoryBlock[] = []
+    const seen = new Set<string>()
+    const push = (block: MemoryBlock): void => {
+      const key = block.scope !== undefined
+        ? `${block.level}\0scope\0${block.scope}`
+        : `${block.level}\0record\0${block.recordId ?? block.prefix ?? ''}`
+      if (seen.has(key)) return
+      seen.add(key)
+      out.push(block)
+    }
+    const workspace = this.blockWorkspaceKey(agent)
+    if (workspace !== '') {
+      for (const block of this.blocks.list('workspace', workspace)) push(block)
+    }
+    for (const sessionId of this.blockSessionIds(agent)) {
+      for (const block of this.blocks.list('session', sessionId)) push(block)
+    }
+    return out
+  }
+
+  /** 这个作用域当前是否被屏蔽（会话级或工作区级）。 */
+  isScopeBlocked(agent: unknown, scope: string): boolean {
+    const key = this.canonicalScope(scope)
+    return this.blocksFor(agent).some((block) => block.scope === key)
+  }
+
+  /** 这条记录当前是否被屏蔽（作用域级屏蔽也算）。 */
+  isRecordBlocked(agent: unknown, record: { id: string; scope: string }): boolean {
+    const scope = this.canonicalScope(record.scope)
+    return this.blocksFor(agent).some((block) => blockMatchesRecord(block, { id: record.id, scope }))
+  }
+
+  /**
+   * 批量过滤用的屏蔽判定（undefined = 没有屏蔽，调用方跳过过滤）。
+   *
+   * 与 `visibilityFilterFor` 一样：一次解析、多次判定。调用方可以给 `agent`
+   * （工具 / 面板），也可以只给 `sessionId` + `scopes`（注入链路拿不到 agent
+   * 对象，但有会话 id 与本次召回的作用域集合，工作区级屏蔽由其中的 project:
+   * 键确定）。
+   */
+  private blockFilter(input: { agent?: unknown; sessionId?: string; scopes?: readonly string[] }): ((record: { id: string; scope: string }) => boolean) | undefined {
+    const blocks: MemoryBlock[] = []
+    if (input.agent !== undefined) {
+      blocks.push(...this.blocksFor(input.agent))
+    } else {
+      const sessionIds = typeof input.sessionId === 'string' && input.sessionId !== ''
+        ? this.sessionChain(input.sessionId)
+        : []
+      for (const sessionId of sessionIds) blocks.push(...this.blocks.list('session', sessionId))
+      for (const scope of input.scopes ?? []) {
+        const key = this.canonicalScope(scope)
+        if (!key.startsWith('project:')) continue
+        blocks.push(...this.blocks.list('workspace', key))
+      }
+    }
+    if (blocks.length === 0) return undefined
+    const scopeBlocked = new Set<string>()
+    const recordIds = new Set<string>()
+    const prefixes: string[] = []
+    for (const block of blocks) {
+      if (block.scope !== undefined) scopeBlocked.add(this.canonicalScope(block.scope))
+      else if (block.recordId !== undefined) recordIds.add(block.recordId)
+      else if (block.prefix !== undefined) prefixes.push(block.prefix)
+    }
+    return (record) => {
+      if (scopeBlocked.has(this.canonicalScope(record.scope))) return true
+      if (recordIds.has(record.id)) return true
+      return prefixes.some((prefix) => record.id.startsWith(prefix))
+    }
+  }
+
+  /** 面板 / 诊断：当前 agent 生效的屏蔽清单。 */
+  listBlocks(agent: unknown): MemoryBlockView[] {
+    return this.blocksFor(agent).map((block) => ({ ...block }))
+  }
+
+  /** 面板：某会话自己的会话级屏蔽（不含父链、不含工作区级）。 */
+  sessionBlocks(sessionId: string): MemoryBlockView[] {
+    if (typeof sessionId !== 'string' || sessionId.trim() === '') return []
+    return this.blocks.list('session', sessionId.trim()).map((block) => ({ ...block }))
+  }
+
+  /** 面板：某工作区的工作区级屏蔽。 */
+  workspaceBlocks(workspace: string): MemoryBlockView[] {
+    if (typeof workspace !== 'string' || workspace.trim() === '') return []
+    // 工作区键就是项目作用域键，必须走同一套规范化：`project:D:/x` 与
+    // `project:D:\x` 是同一个工作区（Windows 上尤其容易踩），否则面板会查到空。
+    const key = this.canonicalScope(workspace.trim())
+    return this.blocks.list('workspace', key).map((block) => ({ ...block }))
+  }
+
+  /**
+   * 解除一条屏蔽（面板 / 工具共用）。
+   *
+   * `level` 省略时先找会话级、再找工作区级 —— 用户点「解除」时不该被迫知道
+   * 这条屏蔽当初是哪一层写下的。
+   *
+   * 面板可以显式给 `key`（会话 id 或 `project:<路径>`），这时不再从 agent 反推：
+   * 面板是按「用户当前正在看的那一行」解除的，那个作用域不一定属于当前会话。
+   */
+  unblock(
+    agent: unknown,
+    match: { level?: BlockLevel; key?: string; id?: string; scope?: string; recordId?: string; prefix?: string },
+  ): { level: BlockLevel; removed: number }[] {
+    const out: Array<{ level: BlockLevel; removed: number }> = []
+    const levels: BlockLevel[] = match.level !== undefined ? [match.level] : ['session', 'workspace']
+    const explicit = typeof match.key === 'string' && match.key.trim() !== '' ? match.key.trim() : undefined
+    for (const level of levels) {
+      const keys = explicit !== undefined
+        // 工作区级的 key 是项目作用域键，与 workspaceBlocks 一样要先规范化。
+        ? [level === 'workspace' ? this.canonicalScope(explicit) : explicit]
+        : level === 'session' ? this.blockSessionIds(agent) : [this.blockWorkspaceKey(agent)]
+      for (const key of keys) {
+        if (key === '') continue
+        const before = this.blocks.list(level, key)
+        if (before.length === 0) continue
+        // match.scope 也要过同一套规范化：面板传的是 `project:D:/x`，落盘的是
+        // `project:D:\x`，不折一次就永远匹配不上（表现为「点了解除没反应」）。
+        const canonicalMatch = match.scope !== undefined
+          ? { ...match, scope: this.canonicalScope(match.scope) }
+          : match
+        const after = this.blocks.remove(level, key, canonicalMatch)
+        const removed = before.length - after.length
+        if (removed > 0) out.push({ level, removed })
+      }
+    }
+    return out
+  }
+
+  /** 清空某一层级的全部屏蔽。 */
+  clearBlocks(agent: unknown, level: BlockLevel): number {
+    const keys = level === 'session' ? this.blockSessionIds(agent) : [this.blockWorkspaceKey(agent)]
+    let removed = 0
+    for (const key of keys) {
+      if (key === '') continue
+      removed += this.blocks.list(level, key).length
+      this.blocks.clear(level, key)
+    }
+    return removed
+  }
+
+  /**
+   * Agent 请求屏蔽（0.32.0）。
+   *
+   * 审批矩阵（用户口径，不能改）：
+   *   - 按**记录 id / 前缀**屏蔽 → 不弹审批（只是让这条记录不再打扰当前任务）；
+   *   - 按**作用域**屏蔽 → 弹审批（会把整个域藏起来，影响面大）；
+   *   - 目标是**规则**（kind='rule'）→ 一律弹审批，**即使按 id 屏蔽**；
+   *   - **会话级** → 只影响本会话，不弹审批；
+   *   - **工作区级** → 影响该工作区所有会话（含历史与将来），一律弹审批。
+   */
+  async requestBlock(agent: unknown, input: MemoryBlockRequest): Promise<MemoryBlockResult> {
+    const level: BlockLevel = input.level === 'workspace' ? 'workspace' : 'session'
+    const sessionId = this.rawSessionIdOf(agent)
+    const workspace = this.blockWorkspaceKey(agent)
+    if (sessionId === undefined && level === 'session') {
+      return { outcome: 'unavailable', blocks: [], records: [] }
+    }
+    if (workspace === '' && level === 'workspace') {
+      return { outcome: 'unavailable', blocks: [], records: [] }
+    }
+
+    // 目标解析：scope 直接规范化；id / 前缀先解析出真实记录（屏蔽规则要知道 kind）。
+    const scopeTarget = typeof input.scope === 'string' && input.scope.trim() !== ''
+      ? this.canonicalScope(input.scope.trim())
+      : undefined
+    const idTarget = typeof input.id === 'string' && input.id.trim() !== '' ? input.id.trim() : undefined
+    if (scopeTarget === undefined && idTarget === undefined) {
+      return { outcome: 'unavailable', blocks: [], records: [] }
+    }
+    const records: Array<{ id: string; scope: string; kind: string }> = []
+    if (idTarget !== undefined) {
+      for (const record of this.getByIds([idTarget])) {
+        records.push({ id: record.id, scope: record.scope, kind: record.kind })
+      }
+      if (records.length === 0) {
+        // 解析不到也允许记一条前缀屏蔽：目标可能是被归档/暂时读不到的记录，
+        // 记下来后等它出现时自动生效，比直接报错更贴近"别再打扰我"的意图。
+        records.push({ id: idTarget, scope: scopeTarget ?? '', kind: '' })
+      }
+    }
+    const containsRule = records.some((record) => record.kind === 'rule')
+      || (scopeTarget !== undefined && this.scopeHasRule(scopeTarget))
+
+    // 审批判定（用户口径，命中任一条就弹审批）：
+    //   - 按**作用域**屏蔽 → 审批（整个域被藏起来，影响面大）；
+    //   - **工作区级** → 审批（影响该工作区所有会话，含历史与将来）；
+    //   - 目标是**规则**（kind='rule'）→ 审批，即使按 id、即使是会话级 ——
+    //     重要规则不能被静默丢弃。
+    // 只有「会话级 + 按记录 id / 前缀 + 不是规则」这一种不审批：影响面只有本会话的
+    // 一条记录，模型自己就能撤销，弹卡只会打断工作流。
+    const needsApproval = scopeTarget !== undefined || level === 'workspace' || containsRule
+    if (needsApproval) {
+      const items: VisibilityApprovalItem[] = scopeTarget !== undefined
+        ? [{
+            id: scopeTarget,
+            scope: scopeTarget,
+            kind: 'scope',
+            content: this.scopeBlockSummary(scopeTarget),
+            tags: [],
+            importance: 1,
+            updatedAt: Date.now(),
+            reason: 'scope',
+          }]
+        : records.map((record) => ({
+            id: record.id,
+            scope: record.scope,
+            kind: record.kind,
+            content: this.blockRecordSummary(record.id),
+            tags: [],
+            importance: 1,
+            updatedAt: Date.now(),
+            reason: 'scope' as const,
+          }))
+      const answer = normalizeApprovalAnswer(await this.requestOutOfScope(agent, {
+        tool: input.tool ?? 'memory_block',
+        action: 'write',
+        query: scopeTarget ?? idTarget ?? '',
+        ...(input.description !== undefined ? { description: input.description } : {}),
+        mode: 'block',
+        items,
+        ...(input.signal !== undefined ? { signal: input.signal } : {}),
+      }))
+      if (answer.outcome !== 'allowed-once') {
+        return { outcome: answer.outcome === 'timeout' ? 'timeout' : 'rejected', blocks: [], records, containsRule }
+      }
+      // 用户可能只勾了其中几条：只写被允许的那些。
+      const allowed = answer.allowedIds !== undefined ? new Set(answer.allowedIds) : undefined
+      if (allowed !== undefined) {
+        if (scopeTarget !== undefined && !allowed.has(scopeTarget)) {
+          return { outcome: 'rejected', blocks: [], records, containsRule }
+        }
+        if (allowed.size === 0) return { outcome: 'rejected', blocks: [], records, containsRule }
+      }
+    }
+
+    const now = Date.now()
+    const createdBy = sessionId ?? 'panel'
+    const written: MemoryBlock[] = []
+    const write = (block: Omit<MemoryBlock, 'id' | 'createdAt' | 'createdBy' | 'level'>): void => {
+      const full: MemoryBlock = {
+        id: `blk-${now.toString(36)}-${written.length + 1}`,
+        level,
+        createdAt: now,
+        createdBy,
+        ...(input.reason !== undefined && input.reason.trim() !== '' ? { reason: input.reason.trim().slice(0, 500) } : {}),
+        ...block,
+      }
+      const key = level === 'session' ? sessionId! : workspace
+      const list = this.blocks.add(level, key, full)
+      const stored = list.find((item) => item.scope === full.scope
+        && item.recordId === full.recordId
+        && item.prefix === full.prefix) ?? full
+      written.push(stored)
+    }
+    if (scopeTarget !== undefined) write({ scope: scopeTarget })
+    for (const record of records) {
+      if (record.kind === '' && record.id === idTarget) {
+        // 没解析到记录：只记前缀，等它出现时自动生效。
+        write({ prefix: record.id })
+        continue
+      }
+      // 记录级屏蔽写精确 id：解析到了就用 recordId，解析不到才退回 prefix
+      //（前缀屏蔽会连带着命中同前缀的其它记录，精确 id 不会）。
+      write({
+        recordId: record.id,
+        ...(record.kind !== '' ? { recordKind: record.kind } : {}),
+      })
+    }
+    return { outcome: 'blocked', blocks: written, records, containsRule }
+  }
+
+  /** 某作用域里有没有规则（按作用域屏蔽时要提前告知用户"这会藏起规则"）。 */
+  private scopeHasRule(scope: string): boolean {
+    try {
+      const store = this.store.peek(this.canonicalScope(scope))
+      if (store === undefined) return false
+      for (const record of store.records.values()) {
+        if (record.kind === 'rule') return true
+      }
+    } catch { /* 读不到就当没有 */ }
+    return false
+  }
+
+  /** 审批卡上「按作用域屏蔽」那一行的正文。 */
+  private scopeBlockSummary(scope: string): string {
+    const meta = this.meta.get(scope)
+    const description = typeof meta?.description === 'string' && meta.description.trim() !== ''
+      ? meta.description.trim()
+      : defaultScopeDescription(scope)
+    let count = 0
+    let rules = 0
+    try {
+      const store = this.store.peek(this.canonicalScope(scope))
+      if (store !== undefined) {
+        for (const record of store.records.values()) {
+          count += 1
+          if (record.kind === 'rule') rules += 1
+        }
+      }
+    } catch { /* 统计失败就不写条数 */ }
+    const parts = [`作用域 ${scope}`]
+    if (description !== '') parts.push(description)
+    if (count > 0) parts.push(`共 ${count} 条记忆${rules > 0 ? `（含 ${rules} 条规则）` : ''}`)
+    parts.push('屏蔽后本会话检索 / 注入 / 目录都不再包含它，随时可以解除。')
+    return parts.join('｜')
+  }
+
+  /** 审批卡上「按记录屏蔽」那一行的正文。 */
+  private blockRecordSummary(id: string): string {
+    for (const record of this.getByIds([id])) {
+      const content = record.content.length > 240 ? `${record.content.slice(0, 240)}…` : record.content
+      return `${record.id.slice(0, 8)}｜${record.kind}｜${record.scope}｜${content}`
+    }
+    return `${id}（暂时读不到正文；屏蔽会在它出现后生效）`
   }
 
   /**
@@ -2456,7 +3007,7 @@ export class LocalMemoryService implements MemoryServiceApi {
     if (decision.allowed) return
     switch (decision.reason) {
       case 'SCOPE_ARCHIVED':
-        throw memoryError('SCOPE_ARCHIVED', `作用域 ${scope} 所属的会话已归档：作用域与记忆被冻结，恢复会话后即可继续读写。`)
+        throw memoryError('SCOPE_ARCHIVED', `作用域 ${scope} 已归档：作用域与记忆被冻结，恢复后即可继续读写。会话作用域恢复会话即复原；项目作用域在面板里解除归档即复原。`)
       case 'WRITE_DISABLED':
         throw memoryError('SCOPE_READ_ONLY', `作用域 ${scope} 在本会话记忆范围里被标记为「不可写」（可读/可写按钮），本次写入/删除没有执行。如需写入，请让用户打开该作用域的「可写」状态。`)
       case 'SCOPE_DISABLED':
@@ -2491,6 +3042,14 @@ export class LocalMemoryService implements MemoryServiceApi {
     }
     // 自定义 scope 的**新建**受 scopes.custom.max 限制;写已存在的 scope 不受限。
     this.assertCustomScopeBudget(scope)
+    // 0.32.0：被屏蔽的作用域不再接受 Agent 写入 —— 写进去的记忆自己看不见，
+    // 等于静默丢失。面板（不带 agent）不受此限：用户本人始终能往里写。
+    if (saveAgent !== undefined && this.isScopeBlocked(saveAgent, scope)) {
+      throw memoryError(
+        'SCOPE_BLOCKED',
+        `作用域 ${scope} 当前被屏蔽（检索与注入里看不到它），本次写入没有执行。如确需写入，请先解除屏蔽（面板「记录 → 作用域」里可以一键解除）。`,
+      )
+    }
     let content = input.content?.trim()
     if (!content) throw memoryError('CONTENT_EMPTY', 'content must be a non-empty string')
     if (content.length > this.cfg.maxRecordChars) {
@@ -2709,7 +3268,7 @@ export class LocalMemoryService implements MemoryServiceApi {
     // 面板的语义检索复用这条流水线,但它是"看一眼"的浏览:不写访问计数,也不在
     // 没有任何向量时白跑一次嵌入请求。这两个开关只给面板的 searchForPanel 用,
     // 工具 / 注入调用不会传。
-    const internal = query as MemoryQuery & { touch?: boolean; vector?: boolean; includeSuperseded?: boolean; includeExpired?: boolean; kinds?: Record<string, readonly string[]> }
+    const internal = query as MemoryQuery & { touch?: boolean; vector?: boolean; includeSuperseded?: boolean; includeExpired?: boolean; kinds?: Record<string, readonly string[]>; agent?: unknown; sessionId?: string }
     const allowVector = internal.vector !== false && this.cfg.vector.enabled && this.cfg.vector.configured
     const includeSuperseded = internal.includeSuperseded === true
     const includeExpired = internal.includeExpired === true
@@ -2722,6 +3281,15 @@ export class LocalMemoryService implements MemoryServiceApi {
           return allowed === undefined || allowed.length === 0 || allowed.includes(kind)
         }
 
+    // 0.32.0：屏蔽。检索侧按调用方给的 agent 解析（工具 / 面板），注入侧退化为
+    // 「会话链 + 本次召回的作用域集合」—— 屏蔽的作用域连候选都不进，恢复屏蔽后
+    // 不需要重建任何索引。
+    const blockedFilter = this.blockFilter({
+      ...(internal.agent !== undefined ? { agent: internal.agent } : {}),
+      ...(internal.sessionId !== undefined ? { sessionId: internal.sessionId } : {}),
+      ...(queryScopes !== undefined ? { scopes: queryScopes } : query.scope !== undefined ? { scopes: [query.scope] } : {}),
+    })
+
     // 候选 scope:显式 pin(单值)优先;否则用调用方给的合并集合(query.scopes,
     // 工具 / 注入传"会话 + 项目 + global");两者都没有才退回旧的 project + global。
     // `peek` 而不是 `scope`:读路径不创建,不存在的 scope 直接跳过。
@@ -2732,7 +3300,7 @@ export class LocalMemoryService implements MemoryServiceApi {
         : [this.defaultProjectScope, 'global']).map((scope) => this.canonicalScope(scope))
     const stores: { store: ScopeStore; scope: MemoryScope; isGlobal: boolean }[] = []
     const seen = new Set<MemoryScope>()
-    const archivedScopes = this.archivedSessionScopes()
+    const archivedScopes = this.archivedScopeKeys()
     for (const scope of wanted) {
       if (seen.has(scope)) continue // 按 scope key 去重(也顺手消掉 defaultScope==='global' 时的重复 push)
       seen.add(scope)
@@ -2769,6 +3337,7 @@ export class LocalMemoryService implements MemoryServiceApi {
         if (!includeExpired && rec.expiredAt && rec.expiredAt < now) continue
         if (!includeSuperseded && retired.has(rec.id)) continue
         if (kindFilter !== undefined && !kindFilter(rec.scope, rec.kind)) continue
+        if (blockedFilter !== undefined && blockedFilter({ id: rec.id, scope: rec.scope })) continue
         const lex = lexicalScore(queryTokens, tokenSets[i]!, stats)
         if (lex <= 0) continue
         // Weak-only overlap (no shared word/bigram) must clear the "real hit"
@@ -2808,6 +3377,7 @@ export class LocalMemoryService implements MemoryServiceApi {
         if (!rec) continue
         if (!includeExpired && rec.expiredAt !== undefined && rec.expiredAt < now) continue
         if (kindFilter !== undefined && !kindFilter(rec.scope, rec.kind)) continue
+        if (blockedFilter !== undefined && blockedFilter({ id: rec.id, scope: rec.scope })) continue
         if (!(rec.scope === 'global' && sim < this.cfg.globalThreshold)) {
           candidates.set(id, { record: rec, recallScore: sim, isGlobal: rec.scope === 'global' })
         }
@@ -2996,9 +3566,15 @@ export class LocalMemoryService implements MemoryServiceApi {
    * 一律走 `peek`,所以列一个不存在的 scope 只会得到空数组,不会造出文件。
    */
   async list(input: MemoryListInput = {}): Promise<MemoryRecord[]> {
-    const internal = input as MemoryListInput & { includeExpired?: boolean; includeSuperseded?: boolean; agent?: unknown }
+    const internal = input as MemoryListInput & { includeExpired?: boolean; includeSuperseded?: boolean; agent?: unknown; sessionId?: string }
     // 注入侧(摘要)传入 agent 时按可见域的类型白名单过滤;工具侧不传,以便处理范围外审批。
     const visibleFilter = internal.agent !== undefined ? this.visibilityFilterFor(internal.agent) : undefined
+    // 0.32.0：屏蔽（工具侧传 agent，注入侧传 sessionId + scopes）。
+    const blockedFilter = this.blockFilter({
+      ...(internal.agent !== undefined ? { agent: internal.agent } : {}),
+      ...(internal.sessionId !== undefined ? { sessionId: internal.sessionId } : {}),
+      ...(input.scope !== undefined ? { scopes: [input.scope] } : input.scopes !== undefined ? { scopes: input.scopes } : {}),
+    })
     // 显式空集合 = 无可见范围(见 search 的同口径说明)。
     if (input.scope === undefined && input.scopes !== undefined && input.scopes.length === 0) return []
     const wanted = (input.scope !== undefined
@@ -3008,7 +3584,7 @@ export class LocalMemoryService implements MemoryServiceApi {
         : [this.defaultProjectScope]).map((scope) => this.canonicalScope(scope))
     const seen = new Set<MemoryScope>()
     const stores: ScopeStore[] = []
-    const archivedScopes = this.archivedSessionScopes()
+    const archivedScopes = this.archivedScopeKeys()
     for (const scope of wanted) {
       if (seen.has(scope)) continue
       seen.add(scope)
@@ -3028,6 +3604,7 @@ export class LocalMemoryService implements MemoryServiceApi {
     }
     if (input.kind) records = records.filter((r) => r.kind === input.kind)
     if (visibleFilter !== undefined) records = records.filter((r) => visibleFilter(r.scope, r.kind))
+    if (blockedFilter !== undefined) records = records.filter((r) => !blockedFilter({ id: r.id, scope: r.scope }))
     records.sort((a, b) => b.updatedAt - a.updatedAt)
     return records.slice(0, input.limit ?? 50)
   }
@@ -3036,10 +3613,14 @@ export class LocalMemoryService implements MemoryServiceApi {
    * 按 id 批量取记录(memory_get)。接受完整 id,也接受摘要里给出的前 8 位前缀
    * (前缀命中多条时全部返回,由调用方/模型自行判断)。取全文不需要再检索。
    */
-  getByIds(ids: string[]): MemoryRecord[] {
+  getByIds(ids: string[], agent?: unknown): MemoryRecord[] {
     this.discoverScopes()
     const scopes = this.store.allScopes()
-    const archivedScopes = this.archivedSessionScopes()
+    // 0.32.0：归档包含项目作用域（工作区被移除），不只是会话作用域。
+    const archivedScopes = this.archivedScopeKeys()
+    // 0.32.0：被屏蔽的记录不再按 id 取回（工具层还会单独给出 WITHHELD 说明，
+    // 让模型知道"这条被我自己屏蔽了"，而不是当成记录不存在）。
+    const blockedFilter = agent !== undefined ? this.blockFilter({ agent }) : undefined
     const out: MemoryRecord[] = []
     const seen = new Set<string>()
     for (const token of ids) {
@@ -3049,6 +3630,7 @@ export class LocalMemoryService implements MemoryServiceApi {
         for (const rec of s.records.values()) {
           if (seen.has(rec.id)) continue
           if (rec.id === token || rec.id.startsWith(token)) {
+            if (blockedFilter !== undefined && blockedFilter({ id: rec.id, scope: rec.scope })) continue
             seen.add(rec.id)
             out.push(rec)
           }
@@ -3372,7 +3954,9 @@ export class LocalMemoryService implements MemoryServiceApi {
    */
   scopeStats(): Array<{ scope: MemoryScope; name?: string; records: number; pendingEmbeds: number; updatedAt: number; archived?: boolean }> {
     this.discoverScopes()
-    const archived = this.archivedSessionScopes()
+    // 0.32.0：面板每次拉清单前对一次账（节流），工作区被删 / 重加立刻反映到归档状态。
+    try { this.reconcileArchivedScopesNow() } catch { /* 对账失败不影响统计 */ }
+    const archived = this.archivedScopeKeys()
     return this.store.allScopes()
       .map((s) => ({
         scope: s.scope,
@@ -3399,12 +3983,13 @@ export class LocalMemoryService implements MemoryServiceApi {
    * 作用域初始化记录（`initial: true`）的目录视图。只给 normal / none 用；
    * absolute 由调用方跳过。正文截断到 800 字，每个作用域最多 3 条。
    */
-  private initialRecordsOf(scope: MemoryScope): Array<{ id: string; kind: string; content: string; truncated?: boolean }> | undefined {
+  private initialRecordsOf(scope: MemoryScope, blocked?: (record: { id: string; scope: string }) => boolean): Array<{ id: string; kind: string; content: string; truncated?: boolean }> | undefined {
     const store = this.store.peek(scope)
     if (store === undefined) return undefined
     const out: Array<{ id: string; kind: string; content: string; truncated?: boolean }> = []
     for (const record of store.records.values()) {
       if ((record as MemoryRecord & { initial?: unknown }).initial !== true) continue
+      if (blocked !== undefined && blocked({ id: record.id, scope: record.scope })) continue
       const content = record.content.trim()
       out.push({
         id: record.id,
@@ -3419,6 +4004,7 @@ export class LocalMemoryService implements MemoryServiceApi {
 
   scopeCatalog(agent: unknown): ScopeCatalogEntry[] {
     const policy = this.visibilityPolicy(agent)
+    try { this.reconcileArchivedScopesNow() } catch { /* 对账失败不影响目录 */ }
     const stats = new Map(this.scopeStats().map((item) => [this.canonicalScope(item.scope), item]))
     const metas = new Map(this.meta.list().map((item) => [this.canonicalScope(item.scope), item]))
     const keys = new Set<MemoryScope>()
@@ -3429,7 +4015,17 @@ export class LocalMemoryService implements MemoryServiceApi {
 
     const out: ScopeCatalogEntry[] = []
     const evaluate = this.accessEvaluator(agent)
-    const archivedScopes = this.archivedSessionScopes()
+    const archivedScopes = this.archivedScopeKeys()
+    // 0.32.0：屏蔽在目录里如实标出（blocked + 层级），而不是把作用域整个藏掉 ——
+    // 模型需要看到"这个域是我自己屏蔽的，可以解除"，用户也需要在面板里找回它。
+    const blocks = this.blocksFor(agent)
+    const blockedScopes = new Map<string, BlockLevel>()
+    for (const block of blocks) {
+      if (block.scope === undefined) continue
+      const key = this.canonicalScope(block.scope)
+      // 工作区级比会话级"更重"：同一作用域两层都屏蔽时显示 workspace。
+      if (blockedScopes.get(key) !== 'workspace') blockedScopes.set(key, block.level)
+    }
     for (const scope of keys) {
       // 目录发现本身也是一条授权判定：作用域类型被关闭时连名字/用途都不出现。
       if (!evaluate({ scope, action: 'discover' }).allowed) continue
@@ -3443,6 +4039,7 @@ export class LocalMemoryService implements MemoryServiceApi {
       // 0.30.0：归档会话的作用域保留在目录里，但读写/申请全部冻结 —— 这不是权限
       // 边界，而是会话生命周期：恢复会话后自动复原，不需要任何额外操作。
       const archived = archivedScopes.has(scope)
+      const blockedLevel = blockedScopes.get(scope)
       const readDecision = evaluate({ scope, action: 'read' })
       const writeDecision = evaluate({ scope, action: 'write' })
       const readable = !archived && readDecision.allowed
@@ -3468,7 +4065,9 @@ export class LocalMemoryService implements MemoryServiceApi {
                 ? 'read-only'
                 : 'restricted'
       const name = meta?.name ?? this.names.nameOf(scope)
-      const initialRecords = policy.level === 'absolute' ? undefined : this.initialRecordsOf(scope)
+      const initialRecords = policy.level === 'absolute'
+        ? undefined
+        : this.initialRecordsOf(scope, this.blockFilter({ agent }))
       // 0.27.0：scope-meta 没写用途时按作用域类型给默认描述，
       // 让目录里每一条都自带「这个域是干什么的」。
       // 0.29.0：被显式清空（描述为空串）与从没写过同样处理，都回退到默认描述。
@@ -3487,7 +4086,8 @@ export class LocalMemoryService implements MemoryServiceApi {
         canRequestWrite,
         accessStatus,
         updatedAt: stat?.updatedAt ?? meta?.updatedAt ?? 0,
-        ...(archived ? { archived: true } : {}),
+        ...(archived ? { archived: true, archivedKind: this.isArchivedSessionScope(scope) ? 'session' : 'project' } : {}),
+        ...(blockedLevel !== undefined ? { blocked: true, blockedLevel } : {}),
         ...(initialRecords !== undefined ? { initialRecords } : {}),
       })
     }
@@ -3644,8 +4244,8 @@ export class LocalMemoryService implements MemoryServiceApi {
       process.removeListener('exit', this.exitHook)
       this.exitHook = null
     }
-    // 归档会话作用域在归档期间冻结：dispose 时也不做过期清理 / 容量淘汰。
-    const frozen = (scope: string): boolean => this.isArchivedSessionScope(scope)
+    // 归档作用域在归档期间冻结：dispose 时也不做过期清理 / 容量淘汰。
+    const frozen = (scope: string): boolean => this.isArchivedScope(scope)
     this.store.purgeExpired(undefined, frozen)
     this.store.enforceLimit(this.cfg.maxRecordsPerScope, undefined, frozen)
     this.store.close()

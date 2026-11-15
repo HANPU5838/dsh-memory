@@ -13,7 +13,7 @@
  * 0.28.0：范围外清单只给作用域（名字 / 条数 / 用途），**不再给条目摘要**；清单与
  * withheld 说明不再重复讲同一件事（「索引已列在下方」那句直接去掉）。
  */
-import type { GetResult, GetField, ListResult, ScopesResult, ScopesToolResult, SearchResult, WithheldReason } from './index.ts'
+import type { BlockResult, GetResult, GetField, ListResult, MemoryBlockView, ScopesResult, ScopesToolResult, SearchResult, WithheldReason } from './index.ts'
 import { scopeDisplayName } from '../../memory-local/src/scope.ts'
 
 /** 把 scope 键渲染成展示文案（宿主能查到会话标题时用它，否则用短 id）。 */
@@ -60,6 +60,8 @@ export function renderWithheldNote(withheld: WithheldInfo | undefined): string {
       return `另有 ${count} 条记忆所在的作用域在本会话记忆范围里被标记为「不可读」（可读/可写按钮），未返回。如确实需要，请让用户打开该作用域的「可读」状态后重试。`
     case 'scope-disabled':
       return `另有 ${count} 条记忆所在的作用域已被配置关闭（global / project / session / custom 开关），未返回。如确实需要，请让用户打开对应类型的作用域。`
+    case 'blocked':
+      return `另有 ${count} 条记忆被你主动屏蔽了（会话级或工作区级），未返回。要恢复请用 memory_block({action:"unblock", ...}) 解除，或用 memory_block({action:"list"}) 看当前清单。`
     default:
       return ''
   }
@@ -208,7 +210,12 @@ export function renderScopesResult(value: ScopesToolResult, label: ScopeLabel): 
     if (item.records !== undefined) meta.push(`${item.records} 条`)
     if (item.archived === true) {
       // 0.30.0：归档不是权限拒绝，而是会话生命周期 —— 数据仍在，恢复会话即复原。
-      meta.push('已归档 · 恢复会话后自动恢复读写')
+      meta.push(item.archivedKind === 'project'
+        ? '已归档 · 面板里解除归档即恢复'
+        : '已归档 · 恢复会话后自动恢复读写')
+    } else if (item.blocked === true) {
+      // 0.32.0：屏蔽不是权限拒绝，是 Agent 主动降噪 —— 数据仍在，解除后立刻复原。
+      meta.push(`已屏蔽（${item.blockedLevel === 'workspace' ? '工作区级' : '会话级'}）· 解除后立刻复原`)
     } else if (item.inScope) {
       meta.push(item.accessStatus === 'default'
         ? '范围内'
@@ -287,4 +294,45 @@ export function renderGetResult(value: GetResult, label: ScopeLabel): string {
   const tail = [missing, note].filter((part) => part !== '').join('\n\n')
   if (body === '') return tail === '' ? '没有找到记忆。' : tail
   return tail === '' ? body : `${body}\n\n${tail}`
+}
+
+/**
+ * memory_block 的渲染（0.32.0）。让模型一眼看清：屏蔽生效在哪个层级、影响什么、
+ * 怎么解除 —— 屏蔽是 Agent 自己做的降噪动作，它必须知道这是可逆的。
+ */
+export function renderBlockResult(value: BlockResult, label: ScopeLabel): string {
+  const levelText = (level: string): string => level === 'workspace' ? '工作区级（影响该工作区所有会话）' : '会话级（只影响本会话）'
+  const describe = (block: MemoryBlockView): string => {
+    const target = block.scope !== undefined
+      ? label(block.scope)
+      : block.recordId !== undefined
+        ? `记录 ${shortId(block.recordId)}${block.recordKind !== undefined ? `（${block.recordKind}）` : ''}`
+        : `前缀 ${block.prefix ?? '?'}`
+    return `- ${target} · ${levelText(block.level)}${block.reason !== undefined ? ` · ${block.reason}` : ''}`
+  }
+  if (value.action === 'list') {
+    if (value.blocks.length === 0) return '当前没有屏蔽任何记忆。'
+    return `当前屏蔽（${value.blocks.length} 条）：\n${value.blocks.map(describe).join('\n')}`
+  }
+  if (value.action === 'unblock') {
+    if (value.outcome !== 'unblocked') return value.note ?? '没有找到匹配的屏蔽记录。'
+    const rest = value.blocks.length === 0 ? '现在没有生效的屏蔽。' : `剩余 ${value.blocks.length} 条屏蔽：\n${value.blocks.map(describe).join('\n')}`
+    return `已解除 ${value.removed ?? 0} 条屏蔽。${rest}`
+  }
+  if (value.outcome !== 'blocked') {
+    return value.note ?? (value.outcome === 'rejected'
+      ? '用户拒绝了这次屏蔽；记忆保持原样。'
+      : value.outcome === 'timeout'
+        ? '审批超时，屏蔽没有生效。'
+        : '当前环境无法发起屏蔽。')
+  }
+  const head = value.blocks.length === 1
+    ? `已屏蔽 ${describe(value.blocks[0]!).slice(2)}。`
+    : `已屏蔽 ${value.blocks.length} 条：\n${value.blocks.map(describe).join('\n')}`
+  const records = value.records !== undefined && value.records.length > 0
+    ? `\n涉及记录：${value.records.map((record) => `[${shortId(record.id)}] ${label(record.scope)}/${record.kind}`).join('、')}`
+    : ''
+  const note = value.note !== undefined ? `\n${value.note}` : ''
+  // 屏蔽是「藏起来」而不是删除：这句话必须出现，否则模型容易把屏蔽当成不可逆操作而不敢用。
+  return `${head}${records}${note}\n（屏蔽不删除任何记忆，数据原样保留；解除后立刻复原。）`
 }

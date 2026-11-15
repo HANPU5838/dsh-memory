@@ -4105,6 +4105,10 @@ window.__ModuleLoader__.load({
       // 两个视图共用 /status 的那次拉取，切换不重新请求。
       const [dataView, setDataView] = React.useState('memories')
       const [scopeQuery, setScopeQuery] = React.useState('')
+      // 0.32.0：归档 / 屏蔽的作用域默认**折叠**（它们不该混在日常作用域清单里），
+      // 但用户要能一眼看到"有几个被藏起来了"，所以工具栏给两个计数开关。
+      const [showArchived, setShowArchived] = React.useState(false)
+      const [showBlocked, setShowBlocked] = React.useState(false)
       // 作用域编辑（0.29.0）：同一时间只编辑一行 —— 描述 / 别名都是全局共享的元数据，
       // 同时开多个编辑框只会让人不确定保存的是哪一条。
       const [editingScope, setEditingScope] = React.useState('')
@@ -4131,17 +4135,24 @@ window.__ModuleLoader__.load({
         }
       }, [audience])
 
-      const load = async (query, scopeF, semanticF) => {
+      const load = async (query, scopeF, semanticF, extraF) => {
         setLoading(true); setError('')
         try {
           const params = new URLSearchParams()
           const qq = query !== undefined ? query : q
           const ss = scopeF !== undefined ? scopeF : scopeFilter
           const sem = semanticF !== undefined ? semanticF : semantic
+          // 0.32.0：归档 / 屏蔽开关可以在同一次点击里翻转，此时 state 还没更新，
+          // 所以允许调用方把新值显式传进来（extraF）。
+          const withArchived = extraF?.archived !== undefined ? extraF.archived : showArchived
+          const withBlocked = extraF?.blocked !== undefined ? extraF.blocked : showBlocked
           // 空查询在语义模式下没有意义(embedding 空串),直接列全部记录。
           const semanticSearch = sem && qq.trim() !== ''
           if (ss) params.set('scope', ss)
           if (qq.trim()) params.set('q', qq.trim())
+          // 0.32.0：归档 / 屏蔽默认不出现在列表里，两个开关显式请求时才带上。
+          if (withArchived) params.set('archived', '1')
+          if (withBlocked) params.set('blocked', '1')
           const suffix = params.toString() ? `?${params}` : ''
           const [listVal, status] = await Promise.all([
             api(`${semanticSearch ? 'search' : 'records'}${suffix}`),
@@ -4222,6 +4233,47 @@ window.__ModuleLoader__.load({
           setEditingScope('')
           setScopeSaved(row.scope)
           // 重新拉 /status：用途、别名与展示名都由服务端算（别名影响 label 与下拉）。
+          await load()
+        } catch (e) {
+          setScopeError(String(e.message || e))
+        } finally {
+          setScopeBusy(false)
+        }
+      }
+      /**
+       * 解除归档 / 解除屏蔽（0.32.0）。
+       *
+       * 两者都不是删除：解除后这个作用域的记忆**立刻**回到检索与注入里，正文一字不改。
+       * 归档是生命周期事实（工作区被移除 / 会话被归档），屏蔽是 Agent 主动降噪 ——
+       * 面板只负责把「谁藏了它」如实展示，并给一个一键复原的入口。
+       */
+      const restoreArchivedScope = async (scope) => {
+        setScopeBusy(true); setScopeError(''); setScopeSaved('')
+        try {
+          await api('archive', { scope, restore: true })
+          setScopeSaved(scope)
+          await load()
+        } catch (e) {
+          setScopeError(String(e.message || e))
+        } finally {
+          setScopeBusy(false)
+        }
+      }
+      const unblockScope = async (row) => {
+        setScopeBusy(true); setScopeError(''); setScopeSaved('')
+        try {
+          // 层级取自 provider 算出来的真实层级；key 明确告诉 provider 是哪一层的那一份
+          //（会话级 = 会话 id，工作区级 = project:<路径>），面板不靠 agent 反推。
+          const sessionId = currentSessionId() ?? ''
+          const workspace = row.scope.startsWith('project:') ? row.scope : ''
+          await api('blocks', {
+            level: row.blockedLevel === 'workspace' ? 'workspace' : 'session',
+            session: sessionId,
+            workspace,
+            scope: row.scope,
+            restore: true,
+          })
+          setScopeSaved(row.scope)
           await load()
         } catch (e) {
           setScopeError(String(e.message || e))
@@ -4558,6 +4610,18 @@ window.__ModuleLoader__.load({
           onChange: setSupersededFilter,
         }),
         h('button', { onClick: () => setCreating((v) => !v), disabled: loading }, creating ? '收起' : '新建'),
+        // 0.32.0：归档 / 屏蔽默认不列。两个开关是"看得见"而不是"能读写"—— 它们
+        // 本来就不参与检索与注入，这里只是让用户能在面板里找回并恢复。
+        h('button', {
+          className: 'linkbtn' + (showArchived ? ' on' : ''),
+          title: '已归档作用域（会话归档 / 工作区已移除）里的记录默认不列出来；勾上才显示',
+          onClick: () => { const next = !showArchived; setShowArchived(next); load(q, scopeFilter, semantic, { archived: next }) },
+        }, showArchived ? '隐藏已归档' : '显示已归档'),
+        h('button', {
+          className: 'linkbtn' + (showBlocked ? ' on' : ''),
+          title: '被 Agent 屏蔽的记录 / 作用域默认不列出来；勾上才显示',
+          onClick: () => { const next = !showBlocked; setShowBlocked(next); load(q, scopeFilter, semantic, { blocked: next }) },
+        }, showBlocked ? '隐藏已屏蔽' : '显示已屏蔽'),
         h('button', { onClick: () => load(q, scopeFilter), disabled: loading }, loading ? '刷新中…' : '刷新'),
         filtering ? h('button', { className: 'linkbtn', onClick: () => { setQ(''); setScopeFilter(''); setSupersededFilter('hide'); setSearchInfo(null); load('', '', semantic) } }, '清空筛选') : null,
       )
@@ -4644,8 +4708,15 @@ window.__ModuleLoader__.load({
             pendingEmbeds: Number(s.pendingEmbeds) || 0,
             updatedAt: Number(s.updatedAt) || 0,
             // 0.30.0：会话归档后作用域保留但读写冻结；恢复会话自动复原。
+            // 0.32.0：项目作用域同理（绑定工作区，工作区删掉时自动归档、重加时自动恢复）。
             archived: s.archived === true,
+            archivedKind: s.archivedKind === 'project' ? 'project' : (s.archivedKind === 'session' ? 'session' : undefined),
+            // 0.32.0：Agent 主动屏蔽（会话级 / 工作区级），解除即刻复原。
+            blocked: s.blocked === true,
+            blockedLevel: s.blockedLevel === 'workspace' ? 'workspace' : (s.blockedLevel === 'session' ? 'session' : undefined),
           }))
+          // 归档 / 屏蔽默认折叠：它们不该混在日常清单里，但计数开关让人知道有东西被藏着。
+          .filter((row) => (showArchived || !row.archived) && (showBlocked || !row.blocked))
           .filter((row) => needle === ''
             || row.label.toLowerCase().includes(needle)
             || row.scope.toLowerCase().includes(needle)
@@ -4653,6 +4724,8 @@ window.__ModuleLoader__.load({
             || (row.name !== undefined && row.name.toLowerCase().includes(needle)))
           .sort((a, b) => b.records - a.records || b.updatedAt - a.updatedAt || a.label.localeCompare(b.label))
       })()
+      const archivedCount = scopes.filter((s) => s.archived === true).length
+      const blockedCount = scopes.filter((s) => s.blocked === true).length
       const viewSwitch = h('div', { className: 'row' },
         h('div', { className: 'subtabs' },
           h('button', {
@@ -4673,6 +4746,20 @@ window.__ModuleLoader__.load({
           onChange: (e) => setScopeQuery(e.target.value),
         }),
         h('button', { onClick: () => load(), disabled: loading }, loading ? '刷新中…' : '刷新'),
+        archivedCount > 0
+          ? h('button', {
+              className: 'linkbtn' + (showArchived ? ' on' : ''),
+              title: '归档的作用域不参与检索与注入；勾上才能在清单里看到并解除归档',
+              onClick: () => setShowArchived((v) => !v),
+            }, `${showArchived ? '隐藏' : '显示'}已归档 ${archivedCount}`)
+          : null,
+        blockedCount > 0
+          ? h('button', {
+              className: 'linkbtn' + (showBlocked ? ' on' : ''),
+              title: '被 Agent 屏蔽的作用域不参与检索与注入；勾上才能在清单里看到并解除屏蔽',
+              onClick: () => setShowBlocked((v) => !v),
+            }, `${showBlocked ? '隐藏' : '显示'}已屏蔽 ${blockedCount}`)
+          : null,
         scopeQuery.trim() !== '' ? h('button', { className: 'linkbtn', onClick: () => setScopeQuery('') }, '清空筛选') : null,
       )
       const scopeListBody = !loading && !error && scopeRows.length === 0
@@ -4687,8 +4774,18 @@ window.__ModuleLoader__.load({
                   row.archived
                     ? h('span', {
                         className: 'badge',
-                        title: '所属会话已归档：作用域与记忆被冻结，取消归档后自动恢复读写',
+                        title: row.archivedKind === 'project'
+                          ? '所属工作区已从侧边栏移除（或手动归档）：作用域与记忆被冻结；工作区重新加入时自动恢复，也可在这里解除归档'
+                          : '所属会话已归档：作用域与记忆被冻结，取消归档后自动恢复读写',
                       }, '已归档')
+                    : null,
+                  row.blocked
+                    ? h('span', {
+                        className: 'badge',
+                        title: row.blockedLevel === 'workspace'
+                          ? 'Agent 申请、用户批准的工作区级屏蔽：该工作区所有会话都看不到这个域；解除后立刻复原'
+                          : 'Agent 申请的会话级屏蔽：只有当前会话看不到这个域；解除后立刻复原',
+                      }, row.blockedLevel === 'workspace' ? '已屏蔽 · 工作区级' : '已屏蔽 · 会话级')
                     : null,
                   row.pendingEmbeds > 0
                     ? h('span', { className: 'pending', title: '待嵌入向量：向量服务就绪后会自动补上' }, `待嵌入 ${row.pendingEmbeds}`)
@@ -4746,6 +4843,20 @@ window.__ModuleLoader__.load({
                         title: '编辑这个作用域的用途与别名（别名可选）',
                         onClick: () => beginScopeEdit(row),
                       }, '编辑'),
+                      row.archived && row.archivedKind === 'project'
+                        ? h('button', {
+                            className: 'linkbtn',
+                            title: '解除归档：这个作用域的记忆立刻重新参与检索与注入',
+                            onClick: () => restoreArchivedScope(row.scope),
+                          }, '解除归档')
+                        : null,
+                      row.blocked
+                        ? h('button', {
+                            className: 'linkbtn',
+                            title: '解除屏蔽：这个作用域的记忆立刻重新参与检索与注入',
+                            onClick: () => unblockScope(row),
+                          }, '解除屏蔽')
+                        : null,
                     ),
               )
             }),
@@ -6238,14 +6349,19 @@ window.__ModuleLoader__.load({
       const action = pending.action === 'write' || pending.action === 'delete' ? pending.action : 'read'
       // 0.24.0：grant 模式 = 作用域权限申请，不是记忆条目审批。
       const grantMode = pending.mode === 'grant'
-      const actionLabel = grantMode ? '访问' : action === 'write' ? '写入' : action === 'delete' ? '删除' : '读取'
-      const actionHint = grantMode
-        ? 'Agent 申请访问可见域外的作用域。勾选要授予的权限（默认只读）；授权仅在本会话有效，子 Agent 会继承。'
-        : action === 'write'
-          ? 'Agent 想把一条记忆写入可见域外的作用域。允许只对本次调用生效；拒绝则不写入。'
-          : action === 'delete'
-            ? 'Agent 想删除可见域外的记忆。允许只对本次调用生效；拒绝则不删除。'
-            : '以下记忆不在本会话的可见域内。勾选要允许的条目（默认全选）；允许只对本次调用生效，其余条目不会返回。'
+      // 0.32.0：block 模式 = Agent 请求「屏蔽」某条记忆 / 某个作用域。它不改权限，
+      // 只是让这些东西不再出现在检索、注入与目录里；可随时解除，所以文案要说清可逆。
+      const blockMode = pending.mode === 'block'
+      const actionLabel = blockMode ? '屏蔽' : grantMode ? '访问' : action === 'write' ? '写入' : action === 'delete' ? '删除' : '读取'
+      const actionHint = blockMode
+        ? 'Agent 想把下列记忆从检索、注入与作用域目录里藏起来（不删除、可随时解除）。按作用域屏蔽、工作区级屏蔽，或目标是硬性规则时都需要你确认。'
+        : grantMode
+          ? 'Agent 申请访问可见域外的作用域。勾选要授予的权限（默认只读）；授权仅在本会话有效，子 Agent 会继承。'
+          : action === 'write'
+            ? 'Agent 想把一条记忆写入可见域外的作用域。允许只对本次调用生效；拒绝则不写入。'
+            : action === 'delete'
+              ? 'Agent 想删除可见域外的记忆。允许只对本次调用生效；拒绝则不删除。'
+              : '以下记忆不在本会话的可见域内。勾选要允许的条目（默认全选）；允许只对本次调用生效，其余条目不会返回。'
       const items = Array.isArray(pending.items) ? pending.items : []
       // 模型写的用途说明(0.22.0;普通限制下工具层强制提供)。
       const description = typeof pending.description === 'string' ? pending.description.trim() : ''
@@ -6255,7 +6371,8 @@ window.__ModuleLoader__.load({
         ? items.filter((item) => item.grantPermission !== 'write').map((item) => item.id)
         : allIds
       // 多条目才有逐条勾选的意义；grant 模式下 even 1 条也走勾选以明确权限。
-      const selectable = grantMode ? allIds.length > 0 : action === 'read' && allIds.length > 1
+      // block 模式同样逐条：用户可能只想藏其中一条，其余留着。
+      const selectable = grantMode ? allIds.length > 0 : blockMode ? allIds.length > 1 : action === 'read' && allIds.length > 1
       const stored = Array.isArray(picked[pending.id]) ? picked[pending.id].filter((id) => allIds.includes(id)) : null
       const selectedIds = stored === null ? defaultIds : stored
       const selectedSet = new Set(selectedIds)
@@ -6326,20 +6443,24 @@ window.__ModuleLoader__.load({
 
       const allowLabel = busy === pending.id
         ? '处理中…'
-        : grantMode && selectable && selectedCount !== allIds.length
-          ? `允许选中的 ${selectedCount} 项（本会话）`
-          : grantMode
-            ? '允许授权（本会话）'
-            : selectable && selectedCount !== allIds.length
-              ? `允许选中的 ${selectedCount} 条`
-              : '允许一次'
+        : blockMode
+          ? selectable && selectedCount !== allIds.length
+            ? `屏蔽选中的 ${selectedCount} 项`
+            : '确认屏蔽'
+          : grantMode && selectable && selectedCount !== allIds.length
+            ? `允许选中的 ${selectedCount} 项（本会话）`
+            : grantMode
+              ? '允许授权（本会话）'
+              : selectable && selectedCount !== allIds.length
+                ? `允许选中的 ${selectedCount} 条`
+                : '允许一次'
 
       return h('div', {
         className: 'mem-approval',
         'data-approval-id': pending.id,
         onKeyDown: keydown,
       },
-        h('div', { className: 'mem-approval-card', role: 'dialog', 'aria-label': grantMode ? '记忆访问授权审批' : `记忆${actionLabel}审批`, 'aria-busy': busy === pending.id },
+        h('div', { className: 'mem-approval-card', role: 'dialog', 'aria-label': blockMode ? '记忆屏蔽审批' : grantMode ? '记忆访问授权审批' : `记忆${actionLabel}审批`, 'aria-busy': busy === pending.id },
           h('div', { className: 'mem-approval-strip' },
             h('span', { className: 'mem-approval-dot' }),
             h('span', null, busy === pending.id ? '处理中…' : '等待审批'),
@@ -6359,13 +6480,17 @@ window.__ModuleLoader__.load({
           isCollapsed
             ? null
             : h('div', { className: 'mem-approval-body' },
-                h('div', { className: 'mem-approval-headline' }, grantMode
-                  ? `工具 ${pending.tool || 'memory'} 申请访问可见域外的作用域`
-                  : `工具 ${pending.tool || 'memory'} 请求${actionLabel}可见域外的记忆`),
+                h('div', { className: 'mem-approval-headline' }, blockMode
+                  ? `工具 ${pending.tool || 'memory'} 请求屏蔽这些记忆 / 作用域`
+                  : grantMode
+                    ? `工具 ${pending.tool || 'memory'} 申请访问可见域外的作用域`
+                    : `工具 ${pending.tool || 'memory'} 请求${actionLabel}可见域外的记忆`),
                 h('div', { className: 'mem-approval-hint' }, actionHint),
-                h('div', { className: 'mem-approval-command' }, grantMode
-                  ? `申请理由：${pending.query || '（未提供）'}`
-                  : `Agent 查询：${pending.query || '（未提供）'}`),
+                h('div', { className: 'mem-approval-command' }, blockMode
+                  ? `屏蔽目标：${pending.query || '（未提供）'}`
+                  : grantMode
+                    ? `申请理由：${pending.query || '（未提供）'}`
+                    : `Agent 查询：${pending.query || '（未提供）'}`),
                 description !== ''
                   ? h('div', { className: 'mem-approval-desc', title: description }, `Agent 说明：${description}`)
                   : null,
@@ -6407,7 +6532,7 @@ window.__ModuleLoader__.load({
                           className: 'mem-approval-check' + (checked ? ' on' : ''),
                           role: 'checkbox',
                           'aria-checked': checked,
-                          'aria-label': grantMode ? `允许这项权限 ${item.id}` : `允许这条记忆 ${item.id}`,
+                          'aria-label': blockMode ? `屏蔽这项 ${item.id}` : grantMode ? `允许这项权限 ${item.id}` : `允许这条记忆 ${item.id}`,
                           onClick: (event) => {
                             if (event && typeof event.stopPropagation === 'function') event.stopPropagation()
                             toggle(item.id)
@@ -6428,23 +6553,29 @@ window.__ModuleLoader__.load({
                                 openMemoryRecordPanel(item.id, item.scope, item)
                               },
                             }, String(item.id).length > 12 ? `${item.id.slice(0, 8)}…${item.id.slice(-4)}` : String(item.id))
-                            : h('span', { className: 'mem-approval-id', title: item.id }, grantMode
-                              ? (item.grantPermission === 'write' ? '可写' : '只读')
-                              : (String(item.id).length > 12 ? `${item.id.slice(0, 8)}…${item.id.slice(-4)}` : String(item.id))),
+                            : h('span', { className: 'mem-approval-id', title: item.id }, blockMode && item.kind === 'scope'
+                              ? '整个作用域'
+                              : grantMode
+                                ? (item.grantPermission === 'write' ? '可写' : '只读')
+                                : (String(item.id).length > 12 ? `${item.id.slice(0, 8)}…${item.id.slice(-4)}` : String(item.id))),
                           // 作用域显示名带类型前缀;title 里给出「显示名 → 真实键」。
                           h('span', { className: 'audit-pill mute', title: scopeTitle(item.scope, scopeLabel(item.scope)) }, scopeLabel(item.scope)),
                           grantMode
                             ? h('span', { className: 'audit-pill mute' }, item.grantPermission === 'write' ? '写入 / 删除' : '只读访问')
                             : h('span', { className: 'audit-pill mute' }, item.kind ? kindMeta(item.kind).label : '未知'),
-                          grantMode
-                            ? h('span', { className: 'audit-pill warn' }, '本会话授权')
-                            : item.reason === 'kind'
-                              ? h('span', { className: 'audit-pill warn' }, '类型受限')
-                              : h('span', { className: 'audit-pill warn' }, '范围外'),
+                          blockMode
+                            ? h('span', { className: 'audit-pill warn' }, '屏蔽')
+                            : grantMode
+                              ? h('span', { className: 'audit-pill warn' }, '本会话授权')
+                              : item.reason === 'kind'
+                                ? h('span', { className: 'audit-pill warn' }, '类型受限')
+                                : h('span', { className: 'audit-pill warn' }, '范围外'),
                         ),
-                        h('div', { className: 'mem-approval-summary' }, grantMode
-                          ? (item.grantPermission === 'write' ? '允许新增、修改与删除该作用域的记录' : '允许查询与读取该作用域的正文')
-                          : String(item.content || '').replace(/\s+/g, ' ').slice(0, 180)),
+                        h('div', { className: 'mem-approval-summary' }, blockMode
+                          ? '确认后它将不再出现在检索、注入与作用域目录里；数据不删除，随时可以解除。'
+                          : grantMode
+                            ? (item.grantPermission === 'write' ? '允许新增、修改与删除该作用域的记录' : '允许查询与读取该作用域的正文')
+                            : String(item.content || '').replace(/\s+/g, ' ').slice(0, 180)),
                       ),
                     )
                   }),

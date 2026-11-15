@@ -49,6 +49,38 @@ export class CordisMemoryService extends Service {
       }
     })
     this.attachSessionLifecycle(ctx)
+    // 0.32.0：项目作用域归档绑定工作区 —— 工作区从侧边栏删除时归档转 dormant
+    // （记忆仍保留、仍不参与检索），重新加入时自动解除归档。宿主没有可靠的
+    // workspace 删除事件（`workspace/delete` 是 UI 层 emit），所以按需对账：
+    // 装配期一次 + 每次目录/统计查询前一次（带节流，见 LocalMemoryService）。
+    this.impl.setWorkspaceExistsLookup((scope) => {
+      try {
+        const registry = ctx.get('workspaceRegistry')     
+                                                        
+                                                   
+                     
+        if (registry === undefined) return undefined
+        const path = scope.startsWith('project:') ? scope.slice('project:'.length) : ''
+        if (path === '') return undefined
+        if (typeof registry.resolveByPath === 'function') {
+          return registry.resolveByPath(path) !== undefined
+        }
+        const list = registry.list?.()
+        if (!Array.isArray(list)) return undefined
+        const wanted = path.replace(/[\\/]+/g, '/').replace(/\/+$/, '').toLowerCase()
+        return list.some((item) => {
+          const itemPath = typeof item?.path === 'string' ? item.path : ''
+          return itemPath.replace(/[\\/]+/g, '/').replace(/\/+$/, '').toLowerCase() === wanted
+        })
+      } catch {
+        return undefined
+      }
+    })
+    try {
+      this.impl.reconcileArchivedScopesNow()
+    } catch {
+      // 对账失败不影响加载：归档状态保持原样，下次查询再试。
+    }
     // 0.11.1:同一个目录因为 `D:/x` 与 `D:\x` 写法不同而分叉成两个 scope 的历史数据,
     // 在装配期合并一次(每进程一次;失败只影响合并,不影响读写)。
     try {

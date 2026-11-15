@@ -327,13 +327,13 @@ export interface RecallResult {
  *   - 同一段文本 = 最后一道幂等。
  */
 export class MemoryInjector {
-  private readonly search: (query: string, signal?: AbortSignal, scopes?: readonly string[], kinds?: Record<string, readonly string[]>) => Promise<MemoryHit[]>
+  private readonly search: (query: string, signal?: AbortSignal, scopes?: readonly string[], kinds?: Record<string, readonly string[]>, sessionId?: string) => Promise<MemoryHit[]>
   private readonly cfg: ConfigSource<InjectConfig>
   private readonly renderOptions: ConfigSource<RecallRenderOptions>
   private readonly state: InjectionState
 
   constructor(
-    search: (query: string, signal?: AbortSignal, scopes?: readonly string[], kinds?: Record<string, readonly string[]>) => Promise<MemoryHit[]>,
+    search: (query: string, signal?: AbortSignal, scopes?: readonly string[], kinds?: Record<string, readonly string[]>, sessionId?: string) => Promise<MemoryHit[]>,
     cfg: ConfigSource<InjectConfig>,
     renderOptions: ConfigSource<RecallRenderOptions> = {},
     state: InjectionState = new InjectionState(),
@@ -366,7 +366,7 @@ export class MemoryInjector {
 
     let hits: MemoryHit[]
     try {
-      hits = await this.search(query, input.signal, input.scopes, input.kinds)
+      hits = await this.search(query, input.signal, input.scopes, input.kinds, sessionId)
     } catch {
       // 检索失败不能打断 agent 循环;审计会区分"失败"与"成功但无结果"。
       return {
