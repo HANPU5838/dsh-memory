@@ -926,11 +926,13 @@ async function handle(ctx, routePath, req, res) {
               ? { description: entry.description.trim(), descriptionSource: 'default' }
               : {}),
           ...(entry !== undefined && typeof entry.origin === 'string' ? { origin: entry.origin } : {}),
-          // 0.32.0：归档 / 屏蔽状态照实传（面板默认把它们折叠起来，但仍可展开）。
+          // 0.33.0：归档照实传（面板默认折叠，但仍可展开并解除）。
+          //
+          // 屏蔽**不传**：主面板没有 agent，`scopeCatalog(undefined)` 只反映兜底项目键
+          // 那一层，会话级屏蔽在这里根本看不见，传上去只会是一份"半真"的状态。
+          // 屏蔽的展示与解除都在会话面板的「记录」页（/session-records 带真实会话 id）。
           ...(entry !== undefined && entry.archived === true ? { archived: true } : {}),
           ...(entry !== undefined && typeof entry.archivedKind === 'string' ? { archivedKind: entry.archivedKind } : {}),
-          ...(entry !== undefined && entry.blocked === true ? { blocked: true } : {}),
-          ...(entry !== undefined && typeof entry.blockedLevel === 'string' ? { blockedLevel: entry.blockedLevel } : {}),
         }
       })
       // 删光记录不等于作用域消失：目录里有用途、却没有记录的作用域也列出来。
@@ -956,8 +958,6 @@ async function handle(ctx, routePath, req, res) {
           ...(typeof entry.origin === 'string' ? { origin: entry.origin } : {}),
           ...(entry.archived === true ? { archived: true } : {}),
           ...(typeof entry.archivedKind === 'string' ? { archivedKind: entry.archivedKind } : {}),
-          ...(entry.blocked === true ? { blocked: true } : {}),
-          ...(typeof entry.blockedLevel === 'string' ? { blockedLevel: entry.blockedLevel } : {}),
         })
       }
       let embedServer = null
@@ -1079,6 +1079,126 @@ async function handle(ctx, routePath, req, res) {
         memory.requestOutOfScope = original
       }
       writeJson(res, { ok: true, value: result })
+      return
+    }
+    // 会话面板的「记录」页（0.33.0）：只列**这个会话权限范围内**的记忆。
+    //
+    // 与主面板的 /records 的关键区别是这里带着真实会话 id：能按 agent 口径解析
+    // 默认读取范围（会话 + 项目 + global + 工作区绑定），也拿得到该会话**生效**的
+    // 屏蔽（会话链含父会话 + 工作区级）。主面板没有 agent，按层级折叠屏蔽是做不
+    // 准的（会话级屏蔽根本不会出现在它的视角里），所以屏蔽感知只放在这里。
+    if (method === 'GET' && path === '/session-records') {
+      const sessionId = (url.searchParams.get('session') ?? '').trim()
+      if (sessionId === '') throw new ApiError(400, 'SESSION_REQUIRED', 'session 参数不能为空')
+      const includeBlocked = url.searchParams.get('blocked') === '1'
+      const query = url.searchParams.get('q') ?? ''
+      // 宿主里能查到会话对象就用它（cwd / parentSession 都在上面），查不到退化成
+      // 只有 id 的最小形状 —— resolveReadScopes 会按 id 解析出 session: 作用域。
+      let session
+      try { session = ctx.get('sessions')?.get?.(sessionId) } catch { session = undefined }
+      const agentLike = { session: session !== undefined ? session : { id: sessionId } }
+      // 这个会话实际能读的作用域集合 = 它的权限范围。显式「记忆范围」优先，否则是
+      // 默认三路 + 工作区绑定。
+      let scopes = []
+      try {
+        const resolved = typeof memory.resolveReadScopes === 'function' ? memory.resolveReadScopes(agentLike) : []
+        if (Array.isArray(resolved)) scopes = resolved.filter((scope) => typeof scope === 'string' && scope !== '')
+      } catch { scopes = [] }
+      const catalog = new Map()
+      try {
+        if (typeof memory.scopeCatalog === 'function') {
+          for (const entry of memory.scopeCatalog(agentLike) ?? []) {
+            if (entry && typeof entry.scope === 'string') catalog.set(entry.scope, entry)
+          }
+        }
+      } catch { /* 目录是增强：拿不到就只有名称与条数 */ }
+      // 归档的作用域不再参与检索与注入，这里也不列：会话作用域随会话归档、项目
+      // 作用域随工作区移除，都属于「生命周期已经结束」。
+      const archived = new Set()
+      for (const [key, entry] of catalog) if (entry.archived === true) archived.add(key)
+      const liveScopes = scopes.filter((scope) => !archived.has(scope))
+      // 该会话生效的屏蔽：工作区级更「重」，同一目标以工作区级为准；记录级按 id / 前缀。
+      // 每条都留着屏蔽自己的 id —— 解除时按 id 精确删那一条，不会顺手带走别的。
+      const blockedScopes = new Map()
+      const blockedRecords = new Map()
+      const blockedPrefixes = []
+      try {
+        const blocks = typeof memory.listBlocks === 'function' ? memory.listBlocks(agentLike) : []
+        for (const block of Array.isArray(blocks) ? blocks : []) {
+          if (!block) continue
+          const level = block.level === 'workspace' ? 'workspace' : 'session'
+          const hit = { id: typeof block.id === 'string' ? block.id : undefined, level }
+          if (typeof block.scope === 'string' && block.scope !== '') {
+            if (level === 'workspace' || !blockedScopes.has(block.scope)) blockedScopes.set(block.scope, hit)
+          } else if (typeof block.recordId === 'string' && block.recordId !== '') {
+            blockedRecords.set(block.recordId, hit)
+          } else if (typeof block.prefix === 'string' && block.prefix !== '') {
+            blockedPrefixes.push({ prefix: block.prefix, ...hit })
+          }
+        }
+      } catch { /* 屏蔽是增强：拿不到就当作没有屏蔽 */ }
+      const blockOf = (record) => {
+        const scopeHit = blockedScopes.get(record.scope)
+        if (scopeHit !== undefined) return scopeHit
+        const recordHit = blockedRecords.get(record.id)
+        if (recordHit !== undefined) return recordHit
+        for (const { prefix, ...hit } of blockedPrefixes) {
+          if (record.id.startsWith(prefix)) return hit
+        }
+        return undefined
+      }
+      const rows = []
+      let records = []
+      let blockedCount = 0
+      for (const scope of liveScopes) {
+        const scopeStore = store.peek(scope) // 只读：不创建作用域文件
+        const scopeHit = blockedScopes.get(scope)
+        rows.push({
+          scope,
+          label: scopeLabel(ctx, scope),
+          records: scopeStore !== undefined ? scopeStore.records.size : 0,
+          ...(scopeHit !== undefined ? { blocked: true, blockedLevel: scopeHit.level } : {}),
+        })
+        if (scopeStore === undefined) continue
+        for (const rec of collectScope(scopeStore)) {
+          const hit = blockOf(rec)
+          if (hit !== undefined) {
+            blockedCount += 1
+            if (!includeBlocked) continue
+            records.push({
+              ...rec,
+              blocked: true,
+              blockedLevel: hit.level,
+              ...(hit.id !== undefined ? { blockedId: hit.id } : {}),
+            })
+            continue
+          }
+          records.push(rec)
+        }
+      }
+      if (query !== '') {
+        const needle = query.trim().toLowerCase()
+        records = records.filter((r) =>
+          r.content.toLowerCase().includes(needle)
+          || r.kind.toLowerCase().includes(needle)
+          || r.tags.some((tag) => tag.toLowerCase().includes(needle)))
+      }
+      records.sort((a, b) => b.updatedAt - a.updatedAt)
+      let workspace = null
+      try {
+        if (typeof memory.projectKeyFor === 'function') workspace = memory.projectKeyFor(agentLike)
+      } catch { workspace = null }
+      writeJson(res, {
+        ok: true,
+        value: {
+          session: sessionId,
+          workspace,
+          scopes: rows,
+          records,
+          // 折叠开关要显示「有几个被藏起来了」，所以计数必须包含被折叠的那些。
+          blockedCount,
+        },
+      })
       return
     }
     if (method === 'POST' && path === '/scope-meta') {
@@ -1254,14 +1374,18 @@ async function handle(ctx, routePath, req, res) {
       const rawScope = url.searchParams.get('scope')
       const query = (url.searchParams.get('q') ?? '').trim().toLowerCase()
       const idQuery = (url.searchParams.get('id') ?? '').trim()
-      // 归档 / 屏蔽默认**不出现在列表里**（0.32.0）。这不是权限：用户点开开关就能看到，
-      // 只是日常浏览不该被"已经归档的旧会话"和"Agent 自己屏蔽掉的噪声"填满。
+      // 归档默认**不出现在列表里**（0.32.0）。这不是权限：用户点开开关就能看到，
+      // 只是日常浏览不该被"已经归档的旧会话"填满。
+      //
+      // 屏蔽**不再折叠**（0.33.0）：屏蔽按会话 / 工作区生效，而主面板没有 agent
+      // （`scopeCatalog(undefined)` 只能拿到兜底项目键那一层），在这里按屏蔽折叠
+      // 既漏会话级屏蔽、又会把用户本想看的记录藏起来。屏蔽感知挪到了会话面板的
+      // 「记录」页（/session-records，带着真实会话 id）。
       const includeArchived = url.searchParams.get('archived') === '1'
-      const includeBlocked = url.searchParams.get('blocked') === '1'
       // scope 先过同一套规范化:非法 → 400(而不是当成一个陌生 scope 去建文件);
       // 合法但不存在的 scope → 空列表。`peek`/`peekScope`,**绝不通过 store.scope() 创建**。
       const stores = selectedStores(store, resolveScopeSelection(memory, rawScope))
-      // 目录一次拿全：归档 / 屏蔽状态与展示名同源，避免两次查询之间状态漂移。
+      // 目录一次拿全：归档状态与展示名同源，避免两次查询之间状态漂移。
       const catalog = new Map()
       try {
         if (typeof memory.scopeCatalog === 'function') {
@@ -1276,7 +1400,6 @@ async function handle(ctx, routePath, req, res) {
       if (catalog.size > 0 && !explicitScope) {
         for (const [key, entry] of catalog) {
           if (!includeArchived && entry.archived === true) hiddenScopes.add(key)
-          if (!includeBlocked && entry.blocked === true) hiddenScopes.add(key)
         }
       }
       let records = []

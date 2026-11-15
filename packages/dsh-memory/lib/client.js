@@ -547,6 +547,15 @@ window.__ModuleLoader__.load({
       '.mem-view .audit{height:100%;max-height:none;min-height:0;flex:1;overflow:hidden}',
       '.mem-view .audit-split{min-height:0}',
       '.mem-view .audit-detail{max-height:100%}',
+      // 会话视图的「记录」页（0.33.0）：作用域一览 + 记录列表，滚动只发生在列表里。
+      '.mem-recs{display:flex;flex-direction:column;gap:8px;min-height:0;height:100%;overflow:hidden}',
+      '.mem-recs-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:none}',
+      '.mem-recs-toolbar .muted{font-size:11.5px;color:var(--dsw-alias-label-secondary)}',
+      '.mem-recs-toolbar .spacer{flex:1}',
+      '.mem-recs-scopes{display:flex;gap:5px;flex-wrap:wrap;flex:none;max-height:60px;overflow-y:auto}',
+      '.mem-recs-scopes .badge.blocked{opacity:.72;text-decoration:line-through}',
+      '.mem-recs-scroll{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:2px 8px 2px 2px;margin-right:-2px}',
+      '.mem-recs-scroll.is-empty{overflow:visible}',
       // 轨迹详情面板的「记忆审计」页签。Trajectory 没有行级/页签级 slot，所以
       // 按钮和面板都放在 shell.overlay 里用 fixed 定位贴着详情面板；不在 React
       // 管理的 tabs 行里插 DOM，避免被轨迹的重渲染清掉。
@@ -1335,7 +1344,14 @@ window.__ModuleLoader__.load({
       })
     }
 
-    function RecordCard({ rec, vectorOn, labels, onSaved, onDeleted, focus = false, score = null }) {
+    /**
+     * 一条记忆卡。
+     *
+     * `onUnblock` 只在会话面板的「记录」页传：屏蔽按会话 / 工作区生效，只有那里
+     * 拿得到真实会话 id，也只有那里该给「解除屏蔽」的入口（主面板一律列全部，
+     * 不判断、不展示屏蔽状态）。
+     */
+    function RecordCard({ rec, vectorOn, labels, onSaved, onDeleted, focus = false, score = null, onUnblock = null }) {
       // collapsed by default: the list stays scannable, full text on demand
       const [expanded, setExpanded] = React.useState(false)
       const [editing, setEditing] = React.useState(false)
@@ -1451,6 +1467,16 @@ window.__ModuleLoader__.load({
             : null,
           // 只在"待嵌入"时提示:已嵌入是常态,向量没启用时这条也没有行动价值。
           !rec.embedded && vectorOn ? h('span', { className: 'pending', title: '待嵌入:向量服务就绪后会自动补上' }, '待嵌入') : null,
+          // 被 Agent 屏蔽的记录：只有会话面板的「记录」页会标出来（它带着会话 id，
+          // 算得准会话级 / 工作区级）。屏蔽不是删除，解除后立刻回到检索与注入里。
+          rec.blocked
+            ? h('span', {
+                className: 'badge',
+                title: rec.blockedLevel === 'workspace'
+                  ? '工作区级屏蔽：这个工作区的所有会话都不会检索 / 注入它；解除后立刻复原'
+                  : '会话级屏蔽：只有本会话不会检索 / 注入它；解除后立刻复原',
+              }, rec.blockedLevel === 'workspace' ? '已屏蔽 · 工作区级' : '已屏蔽 · 会话级')
+            : null,
           h('span', { className: 'time', title: `更新于 ${fmtTime(rec.updatedAt)}` }, fmtTime(rec.updatedAt)),
         ),
         !open ? h('div', { className: 'preview' }, rec.content) : null,
@@ -1513,6 +1539,18 @@ window.__ModuleLoader__.load({
         open && !editing
           ? h('div', { className: 'acts' },
               h('button', { onClick: () => setEditing(true) }, '编辑'),
+              // 解除屏蔽只在会话面板的「记录」页出现（见组件注释）。
+              typeof onUnblock === 'function' && rec.blocked
+                ? h('button', {
+                    className: 'linkbtn',
+                    disabled: busy,
+                    title: '解除屏蔽：这条记忆立刻重新参与检索与注入（正文一字不改）',
+                    onClick: async () => {
+                      setBusy(true); setError('')
+                      try { await onUnblock(rec) } catch (e) { setError(String(e.message || e)) } finally { setBusy(false) }
+                    },
+                  }, '解除屏蔽')
+                : null,
               h('button', { disabled: busy, onClick: del }, busy ? '…' : '删除'),
             )
           : null,
@@ -4105,10 +4143,14 @@ window.__ModuleLoader__.load({
       // 两个视图共用 /status 的那次拉取，切换不重新请求。
       const [dataView, setDataView] = React.useState('memories')
       const [scopeQuery, setScopeQuery] = React.useState('')
-      // 0.32.0：归档 / 屏蔽的作用域默认**折叠**（它们不该混在日常作用域清单里），
-      // 但用户要能一眼看到"有几个被藏起来了"，所以工具栏给两个计数开关。
+      // 0.32.0：归档的作用域默认**折叠**（它们不该混在日常作用域清单里），
+      // 但用户要能一眼看到"有几个被藏起来了"，所以工具栏给一个计数开关。
+      //
+      // 0.33.0：屏蔽**不折叠、也不显示**。屏蔽按会话 / 工作区生效，而这个总面板
+      // 没有 agent（服务端 `scopeCatalog(undefined)` 只反映兜底项目键那一层），
+      // 在这里判断"是否被屏蔽"既漏会话级屏蔽、又会把用户本想看的记录藏起来。
+      // 总面板就老实列全部；屏蔽的展示与解除都在会话面板的「记录」页。
       const [showArchived, setShowArchived] = React.useState(false)
-      const [showBlocked, setShowBlocked] = React.useState(false)
       // 作用域编辑（0.29.0）：同一时间只编辑一行 —— 描述 / 别名都是全局共享的元数据，
       // 同时开多个编辑框只会让人不确定保存的是哪一条。
       const [editingScope, setEditingScope] = React.useState('')
@@ -4142,17 +4184,16 @@ window.__ModuleLoader__.load({
           const qq = query !== undefined ? query : q
           const ss = scopeF !== undefined ? scopeF : scopeFilter
           const sem = semanticF !== undefined ? semanticF : semantic
-          // 0.32.0：归档 / 屏蔽开关可以在同一次点击里翻转，此时 state 还没更新，
+          // 0.32.0：归档开关可以在同一次点击里翻转，此时 state 还没更新，
           // 所以允许调用方把新值显式传进来（extraF）。
           const withArchived = extraF?.archived !== undefined ? extraF.archived : showArchived
-          const withBlocked = extraF?.blocked !== undefined ? extraF.blocked : showBlocked
           // 空查询在语义模式下没有意义(embedding 空串),直接列全部记录。
           const semanticSearch = sem && qq.trim() !== ''
           if (ss) params.set('scope', ss)
           if (qq.trim()) params.set('q', qq.trim())
-          // 0.32.0：归档 / 屏蔽默认不出现在列表里，两个开关显式请求时才带上。
+          // 0.32.0：归档默认不出现在列表里，开关显式请求时才带上。
+          // 屏蔽没有开关：总面板一律列全部（屏蔽感知在会话面板的「记录」页）。
           if (withArchived) params.set('archived', '1')
-          if (withBlocked) params.set('blocked', '1')
           const suffix = params.toString() ? `?${params}` : ''
           const [listVal, status] = await Promise.all([
             api(`${semanticSearch ? 'search' : 'records'}${suffix}`),
@@ -4241,39 +4282,20 @@ window.__ModuleLoader__.load({
         }
       }
       /**
-       * 解除归档 / 解除屏蔽（0.32.0）。
+       * 解除归档（0.32.0）。
        *
-       * 两者都不是删除：解除后这个作用域的记忆**立刻**回到检索与注入里，正文一字不改。
-       * 归档是生命周期事实（工作区被移除 / 会话被归档），屏蔽是 Agent 主动降噪 ——
-       * 面板只负责把「谁藏了它」如实展示，并给一个一键复原的入口。
+       * 不是删除：解除后这个作用域的记忆**立刻**回到检索与注入里，正文一字不改。
+       * 归档是生命周期事实（工作区被移除 / 会话被归档）—— 面板只负责把「谁藏了它」
+       * 如实展示，并给一个一键复原的入口。
+       *
+       * 屏蔽（0.33.0）不在这个面板里：屏蔽按会话 / 工作区生效，总面板没有 agent，
+       * 展示与解除都挪到了会话面板的「记录」页（那里带着真实会话 id）。
        */
       const restoreArchivedScope = async (scope) => {
         setScopeBusy(true); setScopeError(''); setScopeSaved('')
         try {
           await api('archive', { scope, restore: true })
           setScopeSaved(scope)
-          await load()
-        } catch (e) {
-          setScopeError(String(e.message || e))
-        } finally {
-          setScopeBusy(false)
-        }
-      }
-      const unblockScope = async (row) => {
-        setScopeBusy(true); setScopeError(''); setScopeSaved('')
-        try {
-          // 层级取自 provider 算出来的真实层级；key 明确告诉 provider 是哪一层的那一份
-          //（会话级 = 会话 id，工作区级 = project:<路径>），面板不靠 agent 反推。
-          const sessionId = currentSessionId() ?? ''
-          const workspace = row.scope.startsWith('project:') ? row.scope : ''
-          await api('blocks', {
-            level: row.blockedLevel === 'workspace' ? 'workspace' : 'session',
-            session: sessionId,
-            workspace,
-            scope: row.scope,
-            restore: true,
-          })
-          setScopeSaved(row.scope)
           await load()
         } catch (e) {
           setScopeError(String(e.message || e))
@@ -4610,18 +4632,16 @@ window.__ModuleLoader__.load({
           onChange: setSupersededFilter,
         }),
         h('button', { onClick: () => setCreating((v) => !v), disabled: loading }, creating ? '收起' : '新建'),
-        // 0.32.0：归档 / 屏蔽默认不列。两个开关是"看得见"而不是"能读写"—— 它们
-        // 本来就不参与检索与注入，这里只是让用户能在面板里找回并恢复。
+        // 0.32.0：归档默认不列。这个开关是"看得见"而不是"能读写"—— 归档本来就不
+        // 参与检索与注入，这里只是让用户能在面板里找回并恢复。
+        //
+        // 0.33.0：屏蔽没有开关。屏蔽按会话 / 工作区生效，总面板没有 agent 判不准；
+        // 这里一律列全部，屏蔽的展示与解除在会话面板的「记录」页。
         h('button', {
           className: 'linkbtn' + (showArchived ? ' on' : ''),
           title: '已归档作用域（会话归档 / 工作区已移除）里的记录默认不列出来；勾上才显示',
           onClick: () => { const next = !showArchived; setShowArchived(next); load(q, scopeFilter, semantic, { archived: next }) },
         }, showArchived ? '隐藏已归档' : '显示已归档'),
-        h('button', {
-          className: 'linkbtn' + (showBlocked ? ' on' : ''),
-          title: '被 Agent 屏蔽的记录 / 作用域默认不列出来；勾上才显示',
-          onClick: () => { const next = !showBlocked; setShowBlocked(next); load(q, scopeFilter, semantic, { blocked: next }) },
-        }, showBlocked ? '隐藏已屏蔽' : '显示已屏蔽'),
         h('button', { onClick: () => load(q, scopeFilter), disabled: loading }, loading ? '刷新中…' : '刷新'),
         filtering ? h('button', { className: 'linkbtn', onClick: () => { setQ(''); setScopeFilter(''); setSupersededFilter('hide'); setSearchInfo(null); load('', '', semantic) } }, '清空筛选') : null,
       )
@@ -4711,12 +4731,10 @@ window.__ModuleLoader__.load({
             // 0.32.0：项目作用域同理（绑定工作区，工作区删掉时自动归档、重加时自动恢复）。
             archived: s.archived === true,
             archivedKind: s.archivedKind === 'project' ? 'project' : (s.archivedKind === 'session' ? 'session' : undefined),
-            // 0.32.0：Agent 主动屏蔽（会话级 / 工作区级），解除即刻复原。
-            blocked: s.blocked === true,
-            blockedLevel: s.blockedLevel === 'workspace' ? 'workspace' : (s.blockedLevel === 'session' ? 'session' : undefined),
           }))
-          // 归档 / 屏蔽默认折叠：它们不该混在日常清单里，但计数开关让人知道有东西被藏着。
-          .filter((row) => (showArchived || !row.archived) && (showBlocked || !row.blocked))
+          // 归档默认折叠：它不该混在日常清单里，但计数开关让人知道有东西被藏着。
+          // 屏蔽不参与折叠（0.33.0）：总面板一律列全部，屏蔽感知在会话面板的「记录」页。
+          .filter((row) => showArchived || !row.archived)
           .filter((row) => needle === ''
             || row.label.toLowerCase().includes(needle)
             || row.scope.toLowerCase().includes(needle)
@@ -4725,7 +4743,6 @@ window.__ModuleLoader__.load({
           .sort((a, b) => b.records - a.records || b.updatedAt - a.updatedAt || a.label.localeCompare(b.label))
       })()
       const archivedCount = scopes.filter((s) => s.archived === true).length
-      const blockedCount = scopes.filter((s) => s.blocked === true).length
       const viewSwitch = h('div', { className: 'row' },
         h('div', { className: 'subtabs' },
           h('button', {
@@ -4753,13 +4770,6 @@ window.__ModuleLoader__.load({
               onClick: () => setShowArchived((v) => !v),
             }, `${showArchived ? '隐藏' : '显示'}已归档 ${archivedCount}`)
           : null,
-        blockedCount > 0
-          ? h('button', {
-              className: 'linkbtn' + (showBlocked ? ' on' : ''),
-              title: '被 Agent 屏蔽的作用域不参与检索与注入；勾上才能在清单里看到并解除屏蔽',
-              onClick: () => setShowBlocked((v) => !v),
-            }, `${showBlocked ? '隐藏' : '显示'}已屏蔽 ${blockedCount}`)
-          : null,
         scopeQuery.trim() !== '' ? h('button', { className: 'linkbtn', onClick: () => setScopeQuery('') }, '清空筛选') : null,
       )
       const scopeListBody = !loading && !error && scopeRows.length === 0
@@ -4778,14 +4788,6 @@ window.__ModuleLoader__.load({
                           ? '所属工作区已从侧边栏移除（或手动归档）：作用域与记忆被冻结；工作区重新加入时自动恢复，也可在这里解除归档'
                           : '所属会话已归档：作用域与记忆被冻结，取消归档后自动恢复读写',
                       }, '已归档')
-                    : null,
-                  row.blocked
-                    ? h('span', {
-                        className: 'badge',
-                        title: row.blockedLevel === 'workspace'
-                          ? 'Agent 申请、用户批准的工作区级屏蔽：该工作区所有会话都看不到这个域；解除后立刻复原'
-                          : 'Agent 申请的会话级屏蔽：只有当前会话看不到这个域；解除后立刻复原',
-                      }, row.blockedLevel === 'workspace' ? '已屏蔽 · 工作区级' : '已屏蔽 · 会话级')
                     : null,
                   row.pendingEmbeds > 0
                     ? h('span', { className: 'pending', title: '待嵌入向量：向量服务就绪后会自动补上' }, `待嵌入 ${row.pendingEmbeds}`)
@@ -4849,13 +4851,6 @@ window.__ModuleLoader__.load({
                             title: '解除归档：这个作用域的记忆立刻重新参与检索与注入',
                             onClick: () => restoreArchivedScope(row.scope),
                           }, '解除归档')
-                        : null,
-                      row.blocked
-                        ? h('button', {
-                            className: 'linkbtn',
-                            title: '解除屏蔽：这个作用域的记忆立刻重新参与检索与注入',
-                            onClick: () => unblockScope(row),
-                          }, '解除屏蔽')
                         : null,
                     ),
               )
@@ -4923,13 +4918,133 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * 会话内的「记忆审计」视图：和 Chat/Trajectory 同一个 view ring。
+     * 会话面板的「记录」页（0.33.0）。
+     *
+     * 只列**这个会话权限范围内**的记忆：服务端 /session-records 带着真实会话 id
+     * 解析可见域（会话 + 项目 + global + 工作区绑定），并算出该会话生效的屏蔽。
+     * 这也是唯一该出现「显示已屏蔽 / 解除屏蔽」的地方 —— 主面板没有 agent，
+     * 按层级判断屏蔽只会给出一份"半真"的状态（会话级屏蔽它根本看不见）。
+     */
+    function SessionRecordsTab({ sessionId }) {
+      const [records, setRecords] = React.useState([])
+      const [scopes, setScopes] = React.useState([])
+      const [blockedCount, setBlockedCount] = React.useState(0)
+      const [showBlocked, setShowBlocked] = React.useState(false)
+      const [loading, setLoading] = React.useState(true)
+      const [error, setError] = React.useState('')
+      const [notice, setNotice] = React.useState('')
+
+      // 作用域键 → 展示名（服务端已按会话标题 / 别名算好）。
+      const labels = {}
+      for (const entry of scopes) {
+        if (entry && typeof entry.scope === 'string' && typeof entry.label === 'string') labels[entry.scope] = entry.label
+      }
+
+      const load = async (withBlocked) => {
+        const wantBlocked = withBlocked !== undefined ? withBlocked : showBlocked
+        setLoading(true); setError('')
+        try {
+          const params = new URLSearchParams({ session: sessionId })
+          if (wantBlocked) params.set('blocked', '1')
+          const value = await api(`session-records?${params}`)
+          setRecords(Array.isArray(value.records) ? value.records : [])
+          setScopes(Array.isArray(value.scopes) ? value.scopes : [])
+          setBlockedCount(Number(value.blockedCount) || 0)
+        } catch (e) {
+          setError(String(e.message || e))
+        }
+        setLoading(false)
+      }
+      React.useEffect(() => { load(false) }, [sessionId])
+
+      /**
+       * 解除一条屏蔽。
+       *
+       * 走 /blocks 的 restore 分支：层级与 key 都显式给（会话级 = 会话 id，
+       * 工作区级 = 该记录所属的 project: 键），并带上屏蔽自己的 id 做精确匹配。
+       * 面板不靠 agent 反推层级 —— 那条屏蔽可能来自父会话，反推会删错文件。
+       */
+      const unblock = async (rec) => {
+        const level = rec.blockedLevel === 'workspace' ? 'workspace' : 'session'
+        const workspace = typeof rec.scope === 'string' && rec.scope.startsWith('project:') ? rec.scope : ''
+        const value = await api('blocks', {
+          level,
+          session: sessionId,
+          workspace,
+          scope: rec.scope,
+          ...(typeof rec.blockedId === 'string' && rec.blockedId !== '' ? { id: rec.blockedId } : {}),
+          restore: true,
+        })
+        const removed = Array.isArray(value?.removed) ? value.removed.reduce((sum, item) => sum + (Number(item?.removed) || 0), 0) : 0
+        setNotice(removed > 0 ? '已解除屏蔽' : '这条屏蔽已经不在了')
+        setTimeout(() => setNotice(''), 2200)
+        await load()
+      }
+
+      const scopeRows = scopes
+        .filter((s) => s && typeof s.scope === 'string')
+        .sort((a, b) => (Number(b.records) || 0) - (Number(a.records) || 0) || a.scope.localeCompare(b.scope))
+
+      return h('div', { className: 'mem-recs' },
+        h('div', { className: 'mem-recs-toolbar' },
+          h('span', { className: 'muted' },
+            `本会话可见 ${scopeRows.length} 个作用域 · ${records.length} 条记忆`),
+          h('span', { className: 'spacer' }),
+          blockedCount > 0
+            ? h('button', {
+                className: 'linkbtn' + (showBlocked ? ' on' : ''),
+                title: '被 Agent 屏蔽的记录不参与检索与注入；勾上才显示，并可在卡片里解除',
+                onClick: () => { const next = !showBlocked; setShowBlocked(next); load(next) },
+              }, `${showBlocked ? '隐藏' : '显示'}已屏蔽 ${blockedCount}`)
+            : null,
+          h('button', { onClick: () => load(), disabled: loading }, loading ? '刷新中…' : '刷新'),
+          notice !== '' ? h('span', { className: 'meta-done' }, notice) : null,
+        ),
+        // 作用域一览：这里回答的是"本会话能读到哪些域"，与主面板的目录同源但按
+        // 会话可见域裁剪过。
+        scopeRows.length > 0
+          ? h('div', { className: 'mem-recs-scopes' },
+              scopeRows.map((row) => h('span', {
+                key: row.scope,
+                className: 'badge scope' + (row.blocked ? ' blocked' : ''),
+                title: scopeTitle(row.scope, scopeLabel(row.scope, labels))
+                  + (row.blocked ? `\n已屏蔽（${row.blockedLevel === 'workspace' ? '工作区级' : '会话级'}）：本会话不会检索 / 注入它` : ''),
+              }, `${scopeLabel(row.scope, labels)} · ${Number(row.records) || 0}`)),
+            )
+          : null,
+        error ? h('div', { className: 'err' }, error) : null,
+        h('div', { className: 'mem-recs-scroll' + (records.length > 0 || loading ? '' : ' is-empty') },
+          records.length === 0 && !loading
+            ? h('div', { className: 'empty' }, error === '' ? '这个会话的可见域里还没有记忆' : '加载失败')
+            : h('div', { className: 'list' },
+                records.map((rec) => h(RecordCard, {
+                  key: rec.id,
+                  rec,
+                  labels,
+                  vectorOn: false,
+                  onSaved: () => load(),
+                  onDeleted: () => load(),
+                  onUnblock: unblock,
+                }))),
+        ),
+      )
+    }
+
+    /**
+     * 会话内的「记忆」视图：和 Chat/Trajectory 同一个 view ring。
+     *
+     * 两个标签页（0.33.0）：
+     *   记录 —— 本会话权限范围内的记忆（可展开「显示已屏蔽」，并在卡片里解除）；
+     *   审计 —— 本会话的注入评估、投递与记忆工具调用。
+     * 记录在左、默认打开：日常真正要看的是"我这个会话记了什么"。
      *
      * 它拿到 owner 传下来的 `openView(view, focus)`，所以从这里跳轨迹是宿主
      * 官方支持的深链路径，不依赖任何内部字段。主面板（侧栏/设置）不在 view
      * ring 里，走 `conversationStoreFor` 的 bridge。
      */
     function MemoryAuditView({ sessionId, openView, sessionInfo }) {
+      // 默认「记录」：进来先看这个会话记得什么，而不是一堆投递事件。
+      const [view, setView] = React.useState('records')
       const openTrajectory = (focus) => {
         try {
           if (typeof openView === 'function') {
@@ -4946,8 +5061,20 @@ window.__ModuleLoader__.load({
         'data-conversation-composer-overlay': '',
       },
         h('div', { className: 'mem-view-head' },
-          h('b', null, '记忆审计'),
-          h('span', { className: 'muted' }, '本会话的注入评估、投递与记忆工具调用；选中一条可在轨迹里精确定位。'),
+          h('div', { className: 'subtabs' },
+            h('button', {
+              className: 'subtab' + (view === 'records' ? ' on' : ''),
+              onClick: () => setView('records'),
+            }, '记录'),
+            h('button', {
+              className: 'subtab' + (view === 'audit' ? ' on' : ''),
+              onClick: () => setView('audit'),
+            }, '审计'),
+          ),
+          h('span', { className: 'muted' },
+            view === 'records'
+              ? '本会话权限范围内的记忆；被屏蔽的可以点开「显示已屏蔽」再解除。'
+              : '本会话的注入评估、投递与记忆工具调用；选中一条可在轨迹里精确定位。'),
           h('span', { className: 'spacer' }),
           h('button', {
             className: 'linkbtn',
@@ -4955,14 +5082,16 @@ window.__ModuleLoader__.load({
           }, '打开完整面板'),
         ),
         h('div', { className: 'mem-view-body' },
-          h(AuditTab, {
-            scopes: [],
-            records: [],
-            sessionInfo,
-            lockSession: sessionId,
-            audience: 'view',
-            openTrajectory,
-          }),
+          view === 'records'
+            ? h(SessionRecordsTab, { sessionId })
+            : h(AuditTab, {
+                scopes: [],
+                records: [],
+                sessionInfo,
+                lockSession: sessionId,
+                audience: 'view',
+                openTrajectory,
+              }),
         ),
       )
     }
@@ -6900,6 +7029,7 @@ window.__ModuleLoader__.load({
       paintNavIcon: paintNavIcon,
       // 审计 ↔ 轨迹桥（测试只覆盖纯解析/焦点总线，不碰宿主 slot 实例）
       MemoryAuditView: MemoryAuditView,
+      SessionRecordsTab: SessionRecordsTab,
       TrajectoryMemoryBadge: TrajectoryMemoryBadge,
       TrajectoryMemoryMarks: TrajectoryMemoryMarks,
       TrajectoryDetailAudit: TrajectoryDetailAudit,

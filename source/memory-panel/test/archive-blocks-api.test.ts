@@ -126,7 +126,7 @@ test('面板 /archive：scope 为空 → 400', async () => {
   }
 })
 
-test('面板 /blocks：按作用域屏蔽后 /status 带 blocked，解除后复原', async () => {
+test('面板 /blocks：屏蔽后 /session-records 折叠它，解除后复原（/status 不再带 blocked）', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-memory-panel-blocks-'))
   const svc = makeService(dir)
   try {
@@ -141,14 +141,31 @@ test('面板 /blocks：按作用域屏蔽后 /status 带 blocked，解除后复�
     assert.equal(blocked.status, 200)
     assert.equal(blocked.body.value.outcome, 'blocked')
 
+    // 0.33.0：主面板没有 agent，`/status` 不再报 blocked —— 会话级屏蔽它根本看不见，
+    // 报一份"半真"的状态比不报更糟。屏蔽状态只在带真实会话 id 的接口上出现。
     const status = await call(svc, get(`${ROUTE}/status`))
     const row = status.body.value.scopes.find((s) => String(s.scope).startsWith('project:'))
-    assert.equal(row.blocked, true)
-    assert.equal(row.blockedLevel, 'workspace')
+    assert.equal(row.blocked, undefined)
+    assert.equal(row.blockedLevel, undefined)
 
     // 工作区级屏蔽影响该工作区所有会话：换一个会话也看不到。
     const other = { session: { header: { id: 'other', cwd: 'D:/proj' } } }
     assert.equal(svc.isRecordBlocked(other, { id: saved.id, scope: saved.scope }), true)
+
+    // 会话面板的「记录」页：默认折叠屏蔽，但计数如实给出；勾上才列出来并标层级。
+    const hidden = await call(svc, get(`${ROUTE}/session-records?session=other`))
+    assert.equal(hidden.status, 200)
+    assert.equal(hidden.body.value.blockedCount, 1, '折叠开关要能显示被藏了几条')
+    assert.equal(hidden.body.value.records.length, 0, '屏蔽的记录默认不列')
+    const scopeRow = hidden.body.value.scopes.find((s) => String(s.scope).startsWith('project:'))
+    assert.equal(scopeRow.blocked, true)
+    assert.equal(scopeRow.blockedLevel, 'workspace')
+
+    const shown = await call(svc, get(`${ROUTE}/session-records?session=other&blocked=1`))
+    assert.equal(shown.body.value.records.length, 1)
+    assert.equal(shown.body.value.records[0].blocked, true)
+    assert.equal(shown.body.value.records[0].blockedLevel, 'workspace')
+    assert.equal(typeof shown.body.value.records[0].blockedId, 'string', '带上屏蔽 id，解除时可精确删那一条')
 
     const listed = await call(svc, get(`${ROUTE}/blocks?workspace=project:D:/proj`))
     assert.equal(listed.body.value.workspace.length, 1)
@@ -163,9 +180,9 @@ test('面板 /blocks：按作用域屏蔽后 /status 带 blocked，解除后复�
     assert.equal(restored.body.value.removed.length, 1)
     assert.equal(svc.isRecordBlocked(other, { id: saved.id, scope: saved.scope }), false)
 
-    const after = await call(svc, get(`${ROUTE}/status`))
-    const row2 = after.body.value.scopes.find((s) => String(s.scope).startsWith('project:'))
-    assert.notEqual(row2.blocked, true)
+    const after = await call(svc, get(`${ROUTE}/session-records?session=other`))
+    assert.equal(after.body.value.blockedCount, 0)
+    assert.equal(after.body.value.records.length, 1, '解除后立刻回到列表里')
   } finally {
     svc.flushSync()
     rmSync(dir, { recursive: true, force: true })

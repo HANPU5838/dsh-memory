@@ -307,6 +307,74 @@ export class CordisMemoryService extends Service {
     return this.impl.scopeCatalog(agent)
   }
 
+  /**
+   * 归档 / 屏蔽（0.32.0）。
+   *
+   * 面板通过 `ctx.get('memory')` 拿到的是**这个包装实例**，不是 LocalMemoryService。
+   * 0.32.0 的实现只加在 LocalMemoryService 上，包装层没转发，于是真实 profile 里
+   * `memory.listBlocks` / `memory.unblock` / `memory.archiveScope` 全是 undefined ——
+   * 面板的「解除归档 / 解除屏蔽」和 `/status` 的 blocked 字段于是静默失效，
+   * 而单测直接 new LocalMemoryService 所以完全看不见。这一组必须显式转发。
+   */
+  archiveScope(scope        , by        , note         )                                                 {
+    return this.impl.archiveScope(scope, by, note)
+  }
+
+  /** 解除项目作用域归档；返回是否真的解除了一条。 */
+  restoreScope(scope        )                                                 {
+    return this.impl.restoreScope(scope)
+  }
+
+  /** 已归档的项目作用域清单（面板 / 目录用）。 */
+  archivedProjectScopes()                                                          {
+    return this.impl.archivedProjectScopes()
+  }
+
+  /** 当前 agent 生效的**全部**屏蔽（会话链 + 工作区级）。 */
+  blocksFor(agent         )                                              {
+    return this.impl.blocksFor(agent)
+  }
+
+  /** 面板 / 诊断：当前 agent 生效的屏蔽清单。 */
+  listBlocks(agent         )                                               {
+    return this.impl.listBlocks(agent)
+  }
+
+  /** 面板：某会话自己的会话级屏蔽（不含父链、不含工作区级）。 */
+  sessionBlocks(sessionId        )                                                  {
+    return this.impl.sessionBlocks(sessionId)
+  }
+
+  /** 面板：某工作区的工作区级屏蔽。 */
+  workspaceBlocks(workspace        )                                                    {
+    return this.impl.workspaceBlocks(workspace)
+  }
+
+  /** 这个作用域当前是否被屏蔽（会话级或工作区级）。 */
+  isScopeBlocked(agent         , scope        )          {
+    return this.impl.isScopeBlocked(agent, scope)
+  }
+
+  /** 这条记录当前是否被屏蔽（作用域级屏蔽也算）。 */
+  isRecordBlocked(agent         , record                               )          {
+    return this.impl.isRecordBlocked(agent, record)
+  }
+
+  /** 解除一条屏蔽（面板 / 工具共用）。 */
+  unblock(agent         , match                                              )                                            {
+    return this.impl.unblock(agent, match)
+  }
+
+  /** 清空某一层级的全部屏蔽。 */
+  clearBlocks(agent         , level                                                  )         {
+    return this.impl.clearBlocks(agent, level)
+  }
+
+  /** Agent 请求屏蔽（0.32.0；审批矩阵在 provider 里）。 */
+  requestBlock(agent         , input                                                   )                                                 {
+    return this.impl.requestBlock(agent, input)
+  }
+
   /** 注入设置(面板「设置」标签页读它)。 */
   injectSettings()                                                   {
     return this.impl.injectSettings()

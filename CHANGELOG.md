@@ -2,6 +2,17 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.33.0 — 屏蔽不再在总面板折叠；会话面板拆成「记录 / 审计」两页
+
+- **问题（0.32.0 的一处设计错位）**：屏蔽按**会话 / 工作区**生效，但总面板（侧栏 / 设置）没有 agent —— 服务端一直调 `scopeCatalog(undefined)`，只能拿到兜底项目键那一层。于是「显示已屏蔽」开关几乎永远无效：**会话级屏蔽在总面板里根本不存在**（它连自己的会话 id 都没有），工作区级屏蔽也只在兜底项目键恰好等于真实工作区时才冒出来。更糟的是它会把用户**本来想看的记录藏起来**，而开关上看不出这是"判不准"还是"真的没有"。
+- **总面板改为老实列全部**：移除 `showBlocked` 状态、工具栏的「显示已屏蔽 N」、作用域行上的「已屏蔽 · 工作区级 / 会话级」徽标、每行的「解除屏蔽」按钮，以及 `unblockScope()`。`/status` 与 `/records` 也不再传 `blocked` / `blockedLevel` —— 与其给一份"半真"的状态，不如不给。**归档照旧**（它不依赖会话，总面板判得准）：默认折叠、「显示已归档 N」、徽标、「解除归档」全部保留。
+- **会话面板的「记忆」页拆成两个标签页**（`conversation.view`，id 仍是 `memory`）：**记录**（在左，默认打开）与本会话的**审计**。日常真正要看的是"我这个会话记了什么"，所以记录在前；审计保持原样（真实空状态，不补造数据）。
+- **「记录」页只列这个会话权限范围内的记忆**：新增 `GET /memory/api/session-records?session=<id>`，带着真实会话 id 走 `resolveReadScopes(agentLike)` 解析可见域（会话 + 项目 + global + 工作区绑定，显式「记忆范围」优先），归档作用域不列，记录按更新时间倒序。返回 `{ session, workspace, scopes, records, blockedCount }`。
+- **屏蔽感知搬到这里**：`listBlocks(agentLike)` 一次算出该会话**生效**的屏蔽（会话链含父会话 + 工作区级），同一目标以工作区级为准，记录级按 `recordId` / 前缀匹配。默认折叠被屏蔽的记录并给出「显示已屏蔽 N」，勾上才列出来，卡片带「已屏蔽 · 工作区级 / 会话级」徽标与「解除屏蔽」。每条记录还带上**屏蔽自己的 id**（`blockedId`），解除时按 id 精确删那一条，不会顺手带走别的屏蔽。
+- **修掉一处会让功能整体失效的漏转发**：面板通过 `ctx.get('memory')` 拿到的是 `CordisMemoryService` 包装实例，而 0.32.0 的归档 / 屏蔽方法只加在 `LocalMemoryService` 上、**包装层没转发**。真实 profile 里 `memory.listBlocks` / `unblock` / `archiveScope` 全是 `undefined`，面板的「解除归档 / 解除屏蔽」点了没反应，`/status` 的 `blocked` 字段永远是空 —— 而单测直接 `new LocalMemoryService`，所以完全看不见。现在 `archiveScope` / `restoreScope` / `archivedProjectScopes` / `blocksFor` / `listBlocks` / `sessionBlocks` / `workspaceBlocks` / `isScopeBlocked` / `isRecordBlocked` / `unblock` / `clearBlocks` / `requestBlock` 全部显式转发，并在 `service-delegation.test.ts` 里锁死。
+- **记录卡新增可选 `onUnblock`**：只有会话面板的「记录」页传，主面板不传 —— 「解除屏蔽」从此只会出现在算得准层级的地方。
+- 测试：`archive-blocks-api.test.ts` 改为锁新口径（`/status` 不再带 `blocked`、`/session-records` 默认折叠 + 计数 + `blocked=1` 列出 + `blockedId` + 解除后回到列表），新增「会话记忆视图：记录 / 审计 两个标签页，记录在左且默认打开」与「记录页：显示已屏蔽 才列出屏蔽项，解除走 `/blocks` restore」两例，`service-delegation.test.ts` 加一例锁转发，`记忆视图用 composer overlay 占满高度` 加一条 `.mem-recs-scroll` 滚动契约。全套 579 tests / 578 pass / 1 skipped。
+
 ## 0.32.0 — 作用域归档（会话 / 项目）+ Agent 主动屏蔽（会话级 / 工作区级）
 
 - **两件不同的事，两个不同的机制**：**归档**是生命周期事实（会话被归档、工作区被从侧边栏移除），没有审批通道，恢复时自动复原；**屏蔽**是 Agent 主动降噪（「这条与本轮任务无关，别再出现」），可以随时解除。两者都不删除数据，都不改读写权限，但在检索、注入、目录里效果一样：**看不见**。代码里也刻意分成两套 deny reason（`SCOPE_ARCHIVED` / `SCOPE_BLOCKED`），因为它们该给用户的解释完全不同。

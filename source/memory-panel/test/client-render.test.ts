@@ -3286,7 +3286,160 @@ test('记忆视图用 composer overlay 占满高度，滚动只发生在审计�
   assert.match(css, /\.mem-view\{[^}]*height:100%/, '记忆视图占满 viewArea')
   assert.match(css, /\.mem-view-body\{[^}]*overflow:hidden/, '外层内容不滚动')
   assert.match(css, /\.mem-view \.audit\{height:100%/, '审计页填满剩余高度')
+  assert.match(css, /\.mem-recs-scroll\{[^}]*overflow-y:auto/, '记录页的滚动只发生在列表里')
   assert.doesNotMatch(css, /\.mem-head-btn/, '会话头部按钮样式已移除')
+})
+
+test('会话记忆视图：记录 / 审计 两个标签页，记录在左且默认打开', async () => {
+  const { exports, hooks } = await loadBundle()
+  hooks.resetAll()
+  const globals = globalThis as Record<string, unknown>
+  const calls: string[] = []
+  globals.fetch = async (url: string) => {
+    calls.push(String(url))
+    return {
+      status: 200,
+      json: async () => ({
+        ok: true,
+        value: String(url).includes('/session-records')
+          ? {
+              session: 's1',
+              workspace: 'project:C:/demo',
+              scopes: [
+                { scope: 'session:s1', label: 'session:s1', records: 1 },
+                { scope: 'project:C:/demo', label: 'project:演示', records: 2 },
+              ],
+              records: [
+                makeRecord({ id: 'rec-1', scope: 'session:s1', content: '本会话记下的一条事实' }),
+                makeRecord({ id: 'rec-2', scope: 'project:C:/demo', content: '项目里的一条约定' }),
+              ],
+              blockedCount: 0,
+            }
+          : { ok: true, value: { scopes: [], records: [], entries: [], total: 0 } },
+      }),
+    }
+  }
+  try {
+    const View = (exports.__test as { MemoryAuditView: (p: Record<string, unknown>) => unknown }).MemoryAuditView
+    const element = () => hooks.React.createElement(View, {
+      sessionId: 's1',
+      openView: () => {},
+      sessionInfo: () => ({}),
+    })
+    let current: RenderNode | null = render(element(), hooks)
+    hooks.setRerender(() => { current = render(element(), hooks) })
+    hooks.runEffects()
+    for (let i = 0; i < 8; i++) await Promise.resolve()
+    hooks.runEffects()
+    for (let i = 0; i < 4; i++) await Promise.resolve()
+
+    const subtabs = collect(current).filter((n) => String(n.props?.className ?? '').split(/\s+/).includes('subtab'))
+    assert.deepEqual(subtabs.map((n) => textOf(n).trim()), ['记录', '审计'], '记录在左、审计在右')
+    assert.ok(String(subtabs[0].props?.className).includes('on'), '默认落在「记录」页')
+    assert.ok(!String(subtabs[1].props?.className).includes('on'), '审计页默认不选中')
+
+    // 默认页拉的是带会话 id 的 /session-records，而不是主面板那份不带 agent 的 /records。
+    assert.ok(calls.some((url) => url.includes('session-records?session=s1')), `按会话拉记录（实际:${calls.join(', ')}）`)
+    assert.ok(!calls.some((url) => /\/records\b/.test(url)), '不再走主面板的无 agent 列表')
+    const text = textOf(current)
+    assert.ok(text.includes('本会话记下的一条事实'), '记录页展示本会话可见域里的记忆')
+    assert.ok(text.includes('项目里的一条约定'))
+    assert.ok(text.includes('本会话可见 2 个作用域 · 2 条记忆'), '如实给出可见域与条数')
+    assert.ok(!text.includes('记忆审计'), '顶部标题已移除')
+
+    // 切到「审计」：仍然复用 AuditTab（真实空状态，不补造）。
+    const audit = collect(current).find((n) => n.tag === 'button' && textOf(n).trim() === '审计')
+    ;(audit!.props!.onClick as () => void)()
+    hooks.runEffects()
+    for (let i = 0; i < 6; i++) await Promise.resolve()
+    hooks.runEffects()
+    const auditText = textOf(current)
+    assert.ok(auditText.includes('自动刷新') || auditText.includes('当前筛选没有审计事件'), '审计页仍是原样')
+    hooks.resetAll()
+  } finally {
+    delete globals.fetch
+  }
+})
+
+test('会话记忆视图的记录页：显示已屏蔽 才列出屏蔽项，解除走 /blocks restore', async () => {
+  const { exports, hooks } = await loadBundle()
+  hooks.resetAll()
+  const globals = globalThis as Record<string, unknown>
+  const calls: Array<{ url: string; method: string; body: unknown }> = []
+  const blockedRecord = makeRecord({ id: 'rec-b', scope: 'project:C:/demo', content: '被屏蔽掉的一条' })
+  const openRecord = makeRecord({ id: 'rec-a', scope: 'project:C:/demo', content: '正常可见的一条' })
+  globals.fetch = async (url: string, init?: { method?: string; body?: string }) => {
+    const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined
+    calls.push({ url: String(url), method: init?.method ?? 'GET', body })
+    const shown = String(url).includes('blocked=1')
+    return {
+      status: 200,
+      json: async () => ({
+        ok: true,
+        value: String(url).includes('/blocks')
+          ? { removed: [{ level: 'workspace', removed: 1 }] }
+          : {
+              session: 's1',
+              workspace: 'project:C:/demo',
+              scopes: [{ scope: 'project:C:/demo', label: 'project:演示', records: 2, blocked: false }],
+              records: shown
+                ? [
+                    { ...blockedRecord, blocked: true, blockedLevel: 'workspace', blockedId: 'blk-1' },
+                    openRecord,
+                  ]
+                : [openRecord],
+              blockedCount: 1,
+            },
+      }),
+    }
+  }
+  try {
+    const SessionRecordsTab = (exports.__test as { SessionRecordsTab: (p: Record<string, unknown>) => unknown }).SessionRecordsTab
+    const element = () => hooks.React.createElement(SessionRecordsTab, { sessionId: 's1' })
+    let current: RenderNode | null = render(element(), hooks)
+    hooks.setRerender(() => { current = render(element(), hooks) })
+    hooks.runEffects()
+    for (let i = 0; i < 8; i++) await Promise.resolve()
+    hooks.runEffects()
+    for (let i = 0; i < 4; i++) await Promise.resolve()
+
+    assert.ok(textOf(current).includes('正常可见的一条'), '默认列出正常记录')
+    assert.ok(!textOf(current).includes('被屏蔽掉的一条'), '屏蔽项默认折叠')
+    const toggle = collect(current).find((n) => n.tag === 'button' && textOf(n).includes('显示已屏蔽'))
+    assert.ok(toggle, '有屏蔽时给出「显示已屏蔽 N」')
+    assert.ok(textOf(toggle).includes('1'), '计数如实')
+
+    ;(toggle!.props!.onClick as () => void)()
+    // 测试用的假 React 会忽略 useEffect 的依赖数组，重跑 effect 会把列表拉回默认态，
+    // 所以这里只等 setState 触发的重渲染，不再 runEffects。
+    for (let i = 0; i < 10; i++) await Promise.resolve()
+    assert.ok(calls.some((c) => c.url.includes('blocked=1')), '勾上后请求带 blocked=1')
+    const shownText = textOf(current)
+    assert.ok(shownText.includes('被屏蔽掉的一条'), '勾上后列出屏蔽项')
+    assert.ok(shownText.includes('已屏蔽 · 工作区级'), '标出屏蔽层级')
+
+    // 展开那张卡 → 「解除屏蔽」→ POST /blocks restore，带屏蔽 id 精确匹配。
+    const card = collect(current).find((n) => String(n.props?.className ?? '').split(/\s+/).includes('rec')
+      && textOf(n).includes('被屏蔽掉的一条'))
+    assert.ok(card, '屏蔽卡片出现在列表里')
+    const head = collect(card).find((n) => String(n.props?.className ?? '').includes('rec-head'))
+    assert.ok(head, '屏蔽卡片可展开')
+    ;(head!.props!.onClick as () => void)()
+    const unblock = collect(current).find((n) => n.tag === 'button' && textOf(n).trim() === '解除屏蔽')
+    assert.ok(unblock, '屏蔽卡片带「解除屏蔽」')
+    ;(unblock!.props!.onClick as () => void)()
+    for (let i = 0; i < 12; i++) await Promise.resolve()
+
+    const post = calls.find((c) => c.method === 'POST' && c.url.includes('/blocks'))
+    assert.ok(post, `解除走 /blocks（实际:${calls.map((c) => `${c.method} ${c.url}`).join(', ')}）`)
+    assert.equal((post!.body as Record<string, unknown>).restore, true)
+    assert.equal((post!.body as Record<string, unknown>).level, 'workspace')
+    assert.equal((post!.body as Record<string, unknown>).session, 's1')
+    assert.equal((post!.body as Record<string, unknown>).id, 'blk-1', '按屏蔽 id 精确解除')
+    hooks.resetAll()
+  } finally {
+    delete globals.fetch
+  }
 })
 
 test('轨迹详情页签展示该 callId 的审计并可打开本会话面板', async () => {
