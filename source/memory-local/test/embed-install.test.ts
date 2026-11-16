@@ -878,18 +878,153 @@ test('cancel 在没有任务时是 no-op', () => {
 
 // ─────────────────────────── 错误分支 ───────────────────────────
 
-test('GitHub API 限流：phase=error 且 message 可读', async () => {
+test('GitHub API 限流：phase=error 且 message 可读（据 x-ratelimit-remaining 判定）', async () => {
   const root = tempDir('dsh-install-403-')
   try {
-    const fetchImpl = fakeFetch(() => new Response('rate limited', { status: 403 }))
-    const installer = new VectorInstaller({ root, fetchImpl })
+    // 只有 remaining=0 才是真限流；光凭 403 判限流会把代理/权限错误误报成限流（issue #5）。
+    const fetchImpl = fakeFetch(() => new Response('rate limited', {
+      status: 403,
+      headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '1794858108' },
+    }))
+    const installer = new VectorInstaller({ root, fetchImpl, token: '' })
     installer.start()
     await waitFor(() => installer.progress.phase === 'error', '进入 error')
     assert.equal(installer.progress.phase, 'error')
     assert.match(installer.progress.message, /GitHub API 限流/)
+    assert.match(installer.progress.message, /GITHUB_TOKEN/, '告诉用户配 token 就能绕过匿名 60 次/小时')
+    assert.match(installer.progress.message, /额度将在 \d{2}:\d{2} 恢复/, '给出恢复时间，别只说「稍后重试」')
     assert.equal(installer.progress.error, installer.progress.message)
     assert.equal(installer.progress.paths, null)
     assert.equal(existsSync(installPaths(root).dir), true, '目录已经建好，只是没下东西')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('403 但没有限流头：按普通 HTTP 错误报，不误判成限流', async () => {
+  const root = tempDir('dsh-install-403-plain-')
+  try {
+    const fetchImpl = fakeFetch(() => new Response('forbidden by proxy', { status: 403, statusText: 'Forbidden' }))
+    const installer = new VectorInstaller({ root, fetchImpl, token: '' })
+    installer.start()
+    await waitFor(() => installer.progress.phase === 'error', '进入 error')
+    assert.doesNotMatch(installer.progress.message, /限流/)
+    assert.match(installer.progress.message, /HTTP 403/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('有 token 时只给 api.github.com 带 Authorization，且限流文案改口径', async () => {
+  const root = tempDir('dsh-install-token-')
+  try {
+    const runtime = buildRuntimeFixture()
+    const modelBytes = Buffer.alloc(16 * 1024, 3)
+    const authByHost: Array<{ url: string; auth: string | null }> = []
+    const fetchImpl = fakeFetch((url, init) => {
+      const headers = (init?.headers ?? {}) as Record<string, string>
+      authByHost.push({ url, auth: headers.authorization ?? null })
+      if (url.includes('/releases?')) {
+        return jsonResponse([{ assets: [{ name: runtime.name, browser_download_url: 'https://example.invalid/runtime' }] }])
+      }
+      if (url === 'https://example.invalid/runtime') return streamResponse([runtime.bytes], runtime.bytes.length)
+      return streamResponse([modelBytes], modelBytes.length)
+    })
+    const installer = new VectorInstaller({ root, fetchImpl, token: 'ghp_test_token' })
+    installer.start()
+    await waitFor(() => installer.progress.phase === 'done' || installer.progress.phase === 'error', '安装结束')
+    assert.equal(installer.progress.phase, 'done', installer.progress.error ?? installer.progress.message)
+
+    const api = authByHost.filter((call) => call.url.includes('api.github.com'))
+    assert.ok(api.length > 0)
+    for (const call of api) assert.equal(call.auth, 'Bearer ghp_test_token', 'API 请求必须带 token')
+    // 模型源是第三方主机：把 GitHub token 发过去等于泄漏凭据。
+    const model = authByHost.filter((call) => call.url.includes(MODEL_FILE_NAME))
+    assert.ok(model.length > 0)
+    for (const call of model) assert.equal(call.auth, null, '第三方下载源不能收到 token')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('一次安装只查一次发行版列表（主包与 CUDA 伴生包共用）', async (t) => {
+  if (!hostSupported()) {
+    t.skip(`宿主平台 ${process.platform}-${process.arch} 不在支持列表，跳过`)
+    return
+  }
+  const fixture = buildCudaFixture()
+  if (fixture === null) {
+    t.skip('该平台没有 CUDA 构建，不涉及伴生包')
+    return
+  }
+  const root = tempDir('dsh-install-onequery-')
+  try {
+    const modelBytes = Buffer.alloc(16 * 1024, 4)
+    let releaseQueries = 0
+    const fetchImpl = fakeFetch((url) => {
+      if (url.includes('/releases?')) {
+        releaseQueries++
+        return jsonResponse([{ assets: fixture.assets }])
+      }
+      if (url === 'https://example.invalid/main') return streamResponse([fixture.main.bytes], fixture.main.bytes.length)
+      if (url === 'https://example.invalid/companion') return streamResponse([fixture.companion.bytes], fixture.companion.bytes.length)
+      return streamResponse([modelBytes], modelBytes.length)
+    })
+    const installer = new VectorInstaller({ root, fetchImpl, flavor: 'cuda' })
+    installer.start()
+    await waitFor(() => installer.progress.phase === 'done' || installer.progress.phase === 'error', 'CUDA 安装结束')
+    assert.equal(installer.progress.phase, 'done', installer.progress.error ?? installer.progress.message)
+    assert.equal(releaseQueries, 1, 'CUDA 安装需要主包 + 伴生包两份资产，但只该查一次列表')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('限流时退回近期缓存：额度用完也能把安装走完', async (t) => {
+  if (!hostSupported()) {
+    t.skip(`宿主平台 ${process.platform}-${process.arch} 不在支持列表，跳过`)
+    return
+  }
+  const root = tempDir('dsh-install-cache-')
+  try {
+    const runtime = buildRuntimeFixture()
+    const modelBytes = Buffer.alloc(16 * 1024, 5)
+    // 第一轮：正常查询，顺带把发行版列表写进 <root>/llamacpp/.releases-cache.json。
+    const first = fakeFetch((url) => {
+      if (url.includes('/releases?')) {
+        return jsonResponse([{ assets: [{ name: runtime.name, browser_download_url: 'https://example.invalid/runtime' }] }])
+      }
+      if (url === 'https://example.invalid/runtime') return streamResponse([runtime.bytes], runtime.bytes.length)
+      return streamResponse([modelBytes], modelBytes.length)
+    })
+    const seedRoot = tempDir('dsh-install-cache-seed-')
+    try {
+      const seed = new VectorInstaller({ root: seedRoot, fetchImpl: first })
+      seed.start()
+      await waitFor(() => seed.progress.phase === 'done' || seed.progress.phase === 'error', '第一轮结束')
+      assert.equal(seed.progress.phase, 'done', seed.progress.error ?? seed.progress.message)
+      const cache = readFileSync(join(installPaths(seedRoot).dir, '.releases-cache.json'), 'utf8')
+      mkdirSync(installPaths(root).dir, { recursive: true })
+      writeFileSync(join(installPaths(root).dir, '.releases-cache.json'), cache)
+    } finally {
+      rmSync(seedRoot, { recursive: true, force: true })
+    }
+
+    // 第二轮：缓存已在，但接口被限流 —— 应该拿缓存把安装做完，而不是直接失败。
+    const reports: InstallProgress[] = []
+    const limited = fakeFetch((url) => {
+      if (url.includes('/releases?')) {
+        return new Response('rate limited', { status: 403, headers: { 'x-ratelimit-remaining': '0' } })
+      }
+      if (url === 'https://example.invalid/runtime') return streamResponse([runtime.bytes], runtime.bytes.length)
+      return streamResponse([modelBytes], modelBytes.length)
+    })
+    const installer = new VectorInstaller({ root, fetchImpl: limited, onProgress: (p) => reports.push(p) })
+    installer.start()
+    await waitFor(() => installer.progress.phase === 'done' || installer.progress.phase === 'error', '第二轮结束')
+    assert.equal(installer.progress.phase, 'done', installer.progress.error ?? installer.progress.message)
+    assert.ok(reports.some((p) => /改用 \d+ 分钟前的缓存结果/.test(p.message)), '命中缓存要说出来，不能让用户以为是最新构建')
+    assert.ok(detectInstalled(root) !== null)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

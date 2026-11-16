@@ -2,6 +2,16 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.34.1 — 修掉首次安装必撞的 GitHub 匿名限流（issue #5）
+
+- **问题（issue #5）**：第一次装向量后端就失败，提示「安装失败：GitHub API 限流（未认证请求每小时 60 次），请稍后重试」。用户照着「稍后重试」永远重试不好 —— 匿名额度是**按出口 IP** 算的，公司 / 校园网 / CI 里别人的进程随时会把它吃光；而且这条文案把**所有 403** 都当成限流，代理拒绝、区域策略、token 权限不足全被伪装成「等一会儿就好」。旧实现在一次 CUDA 安装里还会把发行版列表查两遍（主包一次、cudart 伴生包一次），多点几次按钮，60 次额度就没了。
+- **判定改为看响应头，不看状态码**：只有 `x-ratelimit-remaining: 0`、429、或带 `retry-after` 的 403 才算限流；其余 403 按 `查询 llama.cpp 发行版失败：HTTP 403（url）` 照实报，不再把网络 / 权限问题误导成「限流」。
+- **限流文案重写**：说清是谁的额度用完了、`x-ratelimit-reset` 换算成本地「几点恢复」、以及在匿名状态下直接给出解决办法 ——「设置 `GITHUB_TOKEN`（或 `GH_TOKEN`）后重试，额度升到 5000 次/小时」。有 token 仍被限流时报另一套口径（5000 次/小时），不再冤枉成「未认证」。
+- **支持 token**：`InstallerOptions.token` 显式注入优先，否则读 `GITHUB_TOKEN` / `GH_TOKEN` 环境变量。**只发给 `api.github.com`** —— 模型下载源是 hf-mirror / modelscope / huggingface 这些第三方主机，把 GitHub token 发过去等于泄漏凭据（有测试锁住）。
+- **一次安装只查一次发行版**：主包与 CUDA 伴生包共用同一份列表（此前 `resolveRuntimeAsset` 与 `resolveRuntimeCompanion` 各查一次）；换风味重装时缓存会重置，不会拿上一轮的结果。
+- **加了降级通道**：发行版列表写到 `<root>/llamacpp/.releases-cache.json`（15 分钟 TTL，随运行时目录一起被卸载清掉）。接口失败时用它把安装走完，并在进度消息里明说「改用 N 分钟前的缓存结果」—— 限流不该让用户卡住，也不该让人误以为拿到的是最新构建。
+- 测试：`embed-install.test.ts` 把「403 一律算限流」的旧用例改为按响应头判定，新增「403 但无限流头时不误判」「token 只给 api.github.com、第三方源不带」「CUDA 安装只查一次列表」「限流时退回缓存并说明」四例。全套 587 tests / 586 pass / 1 skipped。
+
 ## 0.34.0 — 让 Agent 真的会主动屏蔽：把 memory_block 写进常驻策略段与注入头部
 
 - **问题**：0.32.0 就做出了 `memory_block`，工具、存储、审批矩阵、`blockFilter` 全链路都在，但**模型从来不用它**。实测现象是「明明有一堆与当前项目无关的记忆（别的项目、别的插件的发布流程与踩坑）反复被注入，Agent 一直忍着」。原因不在功能而在**可发现性**：模型每轮唯一必读的记忆文本是 `POLICY_TEXT`（常驻 `## 记忆系统` 段）加摘要 / 召回的头部，这三处**一处都没提过 `memory_block`** —— 策略段列了 `memory_search / memory_list / memory_get / memory_save / memory_forget / memory_scopes` 六个工具，唯独漏掉屏蔽；摘要头部和召回头部还都写着「删除用 memory_forget」，等于把唯一的降噪动作指到了**删除**上。工具自己的 `description` 写得再全也没用：不先调用它就看不到。
