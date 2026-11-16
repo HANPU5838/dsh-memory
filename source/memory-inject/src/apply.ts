@@ -620,7 +620,7 @@ export function apply(ctx: Context, config: MemoryInjectConfig = {}) {
   }
 
   /** 记忆工具自身的调用:不属于注入评估,但它是审计里最有用的轨迹锚点。 */
-  const MEMORY_TOOL_NAMES = new Set(['memory_save', 'memory_search', 'memory_forget', 'memory_list', 'memory_get', 'memory_scopes'])
+  const MEMORY_TOOL_NAMES = new Set(['memory_save', 'memory_search', 'memory_forget', 'memory_list', 'memory_get', 'memory_scopes', 'memory_block'])
   const rememberMemoryToolCall = (
     sessionId: string,
     data: Record<string, unknown>,

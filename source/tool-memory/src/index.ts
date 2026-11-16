@@ -2026,7 +2026,7 @@ const BLOCK_NOTE_RULE =
 export function memoryBlockTool(opts: MemoryToolsOptions): ToolSpec<BlockArgs, BlockResult> {
   return {
     name: 'memory_block',
-    description: 'Hide memories that are irrelevant to the current task so they stop appearing in search, injection and the scope catalog — without deleting anything. Blocking by record id/prefix needs no approval; blocking a whole scope, a rule (kind="rule"), or anything at workspace level raises an approval dialog for the user. action="unblock" removes a block; action="list" shows the active blocks. Blocks are recoverable: the data is never touched.',
+    description: 'Hide memories that are irrelevant to the current task so they stop appearing in search, injection and the scope catalog — without deleting anything. Use it proactively: when recall/digest keeps injecting records that clearly belong to another project or stack, block them by record id (no approval, reversible) instead of tolerating the noise or deleting them. Blocking by record id/prefix needs no approval; blocking a whole scope, a rule (kind="rule"), or anything at workspace level raises an approval dialog for the user. action="unblock" removes a block; action="list" shows the active blocks. Blocks are recoverable: the data is never touched.',
     parameters: {
       action: {
         type: 'string',

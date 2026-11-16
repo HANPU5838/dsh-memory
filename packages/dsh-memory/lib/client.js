@@ -2654,7 +2654,7 @@ window.__ModuleLoader__.load({
       },
       {
         key: 'policy', title: '记忆使用策略',
-        desc: '系统提示常驻段：什么时候该查记忆、查到后怎么用、查不到怎么办。',
+        desc: '系统提示常驻段：什么时候该查记忆、查到后怎么用、查不到怎么办、无关记忆什么时候该屏蔽。',
         fields: [
           { k: 'enabled', label: '启用', type: 'bool', hint: '关闭只移除这段提示，不影响记忆检索。' },
         ],

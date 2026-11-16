@@ -236,7 +236,7 @@ export function renderRecallBlock(
   const chars = impression ? (options.chars ?? 120) : 300
   const header = impression
     ? '以下是与你这次请求可能相关的记忆摘要：'
-    : '以下是与此请求可能相关的记忆，供参考（需要正文用 memory_get，用 memory_forget 删除）：'
+    : '以下是与此请求可能相关的记忆，供参考（需要正文用 memory_get；与本轮无关的用 memory_block 屏蔽，可逆、不删数据）：'
   let tokens = estimateTokens(header) + 4
   const lines: string[] = []
   const ids: string[] = []
