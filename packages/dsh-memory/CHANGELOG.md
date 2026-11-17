@@ -2,6 +2,12 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.35.3 — 钩子否决保存时自动带上关联规则 ID
+
+- **问题**：钩子拒绝一条记忆写入时，报错只说「钩子『记忆内容规范（概括句：正文）』判定不符合要求」，模型看不到这条校验代码挂在**哪条规则记忆**上 —— 脚本的 `message` 往往只讲"缺什么"，模型想按规则全文改对却无从取起。
+- **修法**：`HookOutcome.hook` 带上 `ruleId`（钩子创建时由 `memory_save.hookCode` 关联的规则记忆 id）；`before-save` 否决时报错自动追加一行「关联规则记忆：<完整 id>（用 memory_get("<8位短 id>") 取全文，按规则改好后重试）」。`memory_hooks run` 的判定说明、试跑 outcome 也带上同一个 ruleId。没有关联规则的手动钩子不会凭空造出这一行。
+- 回归守卫：`hooks.test.ts` 加两条（报错带 ruleId + memory_get 提示 / 裸钩子不伪造 ruleId，试跑 outcome 带 ruleId），`bundled-skills.test.ts` 加一条静态守卫。全套 641 tests / 640 pass / 1 skipped。
+
 ## 0.35.2 — 修复「未批准的新脚本无法试跑」：试跑改按 id 精确执行
 
 - **问题（再次实机验证发现）**：技能 `memory-hook-scripts` 的上手流程第一步就是「先 `memory_hooks run` 试跑样例，再上线」。但 0.35.0/0.35.1 的 `run` 走的是 `runHooks(phase, ...)`，而 `runHooks` 会在 `HookStore.forRun()` 里过滤掉**未批准**的钩子（审批门禁放在存储层是对的），于是刚保存、还没批准的新脚本试跑时永远报「脚本没有命中这次输入（作用域/类型过滤把它排除了）」—— 实际上是审批门禁挡的，报错还说错了原因。流程直接走不通。

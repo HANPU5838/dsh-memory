@@ -64,7 +64,12 @@ function stubHooks(overrides: Partial<MemoryToolService> = {}): MemoryToolServic
       const hook = hooks.get(id)
       if (hook === undefined) return []
       return [{
-        hook: { id: hook.id, name: hook.name, phase: hook.phase },
+        hook: {
+          id: hook.id,
+          name: hook.name,
+          phase: hook.phase,
+          ...(hook.ruleId !== undefined ? { ruleId: hook.ruleId as string } : {}),
+        },
         ok: !String((input as { memory: { content?: string } }).memory.content ?? '').includes('缺'),
         durationMs: 1,
       } as never]

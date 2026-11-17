@@ -259,6 +259,36 @@ test('保存路径:批准的 before-save 校验能拒绝写入，错误码 HOOK_
   assert.equal(record.kind, 'rule')
 })
 
+test('保存路径:拒绝信息自动带上关联规则 id 与 memory_get 取全文提示 (0.35.3)', async () => {
+  const service = makeService()
+  const ruleId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+  const hook = service.saveHook({ phase: 'before-save', code: COLON_CHECK, name: '内容规范', ruleId })
+  service.approveHook(hook.id)
+
+  await assert.rejects(
+    () => service.save({ scope: 'global', kind: 'rule', content: '没有冒号的内容' }),
+    (error: Error & { code?: string }) => {
+      assert.equal(error.code, 'HOOK_REJECTED')
+      assert.match(error.message, new RegExp(ruleId), '报错要带关联规则记忆的完整 id')
+      assert.match(error.message, /memory_get\("aaaaaaaa"\)/, '要提示用短 id 取规则全文')
+      return true
+    },
+  )
+
+  // 没有关联规则的钩子（手动新建）不应凭空造出 ruleId。
+  // 用不同作用域，避免与上面那条带 ruleId 的钩子（会先否决并 break）串味。
+  const bareService = makeService()
+  const bare = bareService.saveHook({ phase: 'before-save', code: COLON_CHECK, name: '裸钩子' })
+  bareService.approveHook(bare.id)
+  await assert.rejects(
+    () => bareService.save({ scope: 'global', kind: 'rule', content: '没有冒号的内容' }),
+    (error: Error) => {
+      assert.doesNotMatch(error.message, /关联规则记忆/)
+      return true
+    },
+  )
+})
+
 test('保存路径:未批准的钩子不执行，保存也不会被拦', async () => {
   const service = makeService()
   service.saveHook({ phase: 'before-save', code: COLON_CHECK, name: '没批准的' })
@@ -374,6 +404,14 @@ test('试跑:未批准也能按 id 精确试跑，且不记统计', () => {
   assert.match(trial[0]!.message ?? '', /缺少全角冒号/)
   // 试跑不记统计（不是真实运行）
   assert.equal(service.listHooks()[0]!.runCount, 0)
+})
+
+test('试跑:outcome 带回关联规则 id (0.35.3)', () => {
+  const service = makeService()
+  const ruleId = '11111111-2222-3333-4444-555555555555'
+  const hook = service.saveHook({ phase: 'before-save', code: COLON_CHECK, name: '规范', ruleId })
+  const trial = service.runHookTrial(hook.id, { memory: MEMORY('没有冒号') })
+  assert.equal(trial[0]!.hook.ruleId, ruleId)
 })
 
 test('试跑:不存在的 id 返回空', () => {

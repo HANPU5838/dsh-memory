@@ -118,7 +118,8 @@ const PHASE_ENTRY                              = {
 
 /** 单个钩子的运行结果。 */
                               
-                                                      
+                                                              
+                                                                       
                                                   
              
                     
@@ -561,7 +562,12 @@ export function runHooks(
     const result = runHookCode(hook.code, phase, input, settings)
     const crashed = result.error !== undefined
     const outcome              = {
-      hook: { id: hook.id, name: hook.name, phase },
+      hook: {
+        id: hook.id,
+        name: hook.name,
+        phase,
+        ...(hook.ruleId !== undefined ? { ruleId: hook.ruleId } : {}),
+      },
       // 崩溃时 ok 恒 true —— 调用方据此"不阻断"。
       ok: crashed ? true : result.ok,
       durationMs: Date.now() - started,

@@ -1071,7 +1071,12 @@ export class LocalMemoryService implements MemoryServiceApi {
     const result = runHookCode(hook.code, hook.phase, input, this.hookSettings())
     const crashed = result.error !== undefined
     return [{
-      hook: { id: hook.id, name: hook.name, phase: hook.phase },
+      hook: {
+        id: hook.id,
+        name: hook.name,
+        phase: hook.phase,
+        ...(hook.ruleId !== undefined ? { ruleId: hook.ruleId } : {}),
+      },
       ok: crashed ? true : result.ok,
       durationMs: Date.now() - started,
       ...(result.message !== undefined ? { message: result.message } : {}),
@@ -3379,9 +3384,16 @@ export class LocalMemoryService implements MemoryServiceApi {
       const veto = outcomes.find((outcome) => outcome.error === undefined && !outcome.ok)
       if (veto !== undefined) {
         const why = veto.message !== undefined && veto.message !== '' ? veto.message : '内容不符合规则记忆的要求'
+        // 0.35.3：把关联的规则记忆 id 自动带进报错。钩子只是规则的执行体，
+        // 模型看到"哪个校验器拒了"还不够 —— 它要能立刻取规则全文才能改对，
+        // 否则只能靠脚本 message 里那几句话猜。
+        const ruleId = veto.hook.ruleId
+        const ruleLine = ruleId !== undefined && ruleId !== ''
+          ? `\n关联规则记忆：${ruleId}（用 memory_get("${ruleId.slice(0, 8)}") 取全文，按规则改好后重试）。`
+          : ''
         throw memoryError(
           'HOOK_REJECTED',
-          `记忆未保存：钩子「${veto.hook.name}」判定不符合要求 —— ${why}\n`
+          `记忆未保存：钩子「${veto.hook.name}」判定不符合要求 —— ${why}${ruleLine}\n`
           + '按提示改好 content 后重新调用 memory_save（这不是权限问题，不需要审批）。',
         )
       }

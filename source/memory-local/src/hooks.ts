@@ -118,7 +118,8 @@ export interface HookRunInput {
 
 /** 单个钩子的运行结果。 */
 export interface HookOutcome {
-  hook: { id: string; name: string; phase: HookPhase }
+  /** ruleId = 这条钩子所关联的规则记忆 id（可能为 undefined：手动建的钩子没有关联规则）。 */
+  hook: { id: string; name: string; phase: HookPhase; ruleId?: string }
   /** false = 脚本明确判定"不合规"（before-save 会因此拒绝写入）。 */
   ok: boolean
   /** 给模型/用户看的说明。 */
@@ -561,7 +562,12 @@ export function runHooks(
     const result = runHookCode(hook.code, phase, input, settings)
     const crashed = result.error !== undefined
     const outcome: HookOutcome = {
-      hook: { id: hook.id, name: hook.name, phase },
+      hook: {
+        id: hook.id,
+        name: hook.name,
+        phase,
+        ...(hook.ruleId !== undefined ? { ruleId: hook.ruleId } : {}),
+      },
       // 崩溃时 ok 恒 true —— 调用方据此"不阻断"。
       ok: crashed ? true : result.ok,
       durationMs: Date.now() - started,

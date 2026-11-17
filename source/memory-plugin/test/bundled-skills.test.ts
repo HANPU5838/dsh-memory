@@ -58,6 +58,15 @@ test('memory_save 的结果渲染回传钩子登记 / 审批结局', () => {
   assert.match(apply, /不会运行/, '未批准 / 拒绝 / 超时都要明确说"不会运行"')
 })
 
+test('HOOK_REJECTED 报错自动带关联规则 id 与 memory_get 提示 (0.35.3)', () => {
+  const provider = readFileSync(join(root, 'source', 'memory-local', 'src', 'index.ts'), 'utf8')
+  assert.match(provider, /veto\.hook\.ruleId/, '拒绝分支必须读钩子的 ruleId')
+  assert.match(provider, /关联规则记忆/, '报错要显式列出关联规则 id')
+  assert.match(provider, /memory_get/, '要提示用 memory_get 取规则全文')
+  const hooks = readFileSync(join(root, 'source', 'memory-local', 'src', 'hooks.ts'), 'utf8')
+  assert.match(hooks, /ruleId\?: string/, 'HookOutcome.hook 要带 ruleId 字段')
+})
+
 test('memory_hooks run 走 runHookTrial（按 id 精确试跑，绕过审批门禁）', () => {
   const toolSrc = readFileSync(join(root, 'source', 'tool-memory', 'src', 'index.ts'), 'utf8')
   assert.match(toolSrc, /runHookTrial\?\(/, 'MemoryToolService 要声明 runHookTrial')

@@ -370,7 +370,8 @@ import { canonicalWorkspacePath, defaultScopeDescription, normalizeScopeInput, r
 
 /** 一次钩子运行的结果（试跑与真实运行同形）。 */
                                   
-                                                          
+                                      
+                                                                           
              
                   
                   
@@ -2536,13 +2537,16 @@ export function memoryHooksTool(opts                    )                       
       }
       const mine = service.runHookTrial(hook.id, input)
       const verdict = mine[0]
+      const ruleRef = verdict?.hook.ruleId !== undefined && verdict.hook.ruleId !== ''
+        ? `（关联规则记忆 ${verdict.hook.ruleId}，可用 memory_get 取全文）`
+        : ''
       const note = verdict === undefined
         ? '脚本没有命中这次输入（作用域/类型过滤把它排除了）。'
         : verdict.error !== undefined
           ? `脚本运行失败：${verdict.error}`
           : verdict.ok
-            ? '脚本判定：通过。'
-            : `脚本判定：不通过 —— ${verdict.message ?? '（脚本没给 message）'}`
+            ? `脚本判定：通过。${ruleRef}`
+            : `脚本判定：不通过 —— ${verdict.message ?? '（脚本没给 message）'}${ruleRef}`
       return { action, hooks: [withApproval(hook)], outcomes: mine, note }
     },
   }
