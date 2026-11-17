@@ -109,18 +109,25 @@ export function mountBundledSkills(ctx: {
   effect?: (run: () => unknown, label?: string) => unknown
   logger?: { warn?: (message: string) => void }
 }): void {
-  // 0.35.0：`ctx.get('skills')` 在 apply 早期可能还是 undefined（服务由别的插件
-  // provide）。此时**什么也不做** —— 记忆插件自己的工具/面板必须照常起来。
+  // 0.35.1 修复：调用方现在通过 ctx.inject(['skills'], scope => ...) 在服务**就绪后**
+  // 才进来，所以这里拿到的 ctx 就是已注入的 scope，skills 一定在。
+  // 保留 ctx.get 兜底是为了兼容仍在 apply 里直接调用它的老路径（测试 / 独立加载）。
   let skills: { registerProvider?: (factory: () => unknown) => unknown } | undefined
   try {
     skills = (ctx.skills ?? ctx.get?.('skills')) as typeof skills | undefined
   } catch {
     skills = undefined
   }
-  if (skills === undefined || typeof skills.registerProvider !== 'function') return
+  if (skills === undefined || typeof skills.registerProvider !== 'function') {
+    ctx.logger?.warn?.('dsh-memory: skills 服务尚未就绪，随包技能未注册（记忆功能不受影响）')
+    return
+  }
 
   const names = skillNames()
-  if (names.length === 0) return
+  if (names.length === 0) {
+    ctx.logger?.warn?.(`dsh-memory: 没找到随包技能目录 ${SKILLS_ROOT}`)
+    return
+  }
 
   const build = (): { name: string; list: () => Promise<SkillCandidate[]>; get: (winner: SkillCandidate) => Promise<unknown> } => {
     const candidates = names.map(candidateFor)

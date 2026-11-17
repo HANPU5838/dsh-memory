@@ -706,6 +706,7 @@ window.__ModuleLoader__.load({
       '.mem-approval-bulk button:hover:not(:disabled){text-decoration:underline}',
       '.mem-approval-bulk button:disabled{color:var(--dsw-alias-label-secondary);opacity:.55;cursor:default;text-decoration:none}',
       '.mem-approval-summary{color:var(--dsw-alias-label-secondary);font-size:11.5px;line-height:1.5;word-break:break-word}',
+      '.mem-approval-code{margin:0;padding:8px 10px;max-height:260px;overflow:auto;white-space:pre-wrap;word-break:break-word;border-radius:8px;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-primary);font-family:var(--ds-font-family-code,ui-monospace,monospace);font-size:11px;line-height:1.55}',
       '.mem-approval-check{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;margin-top:1px;padding:0;border:none;background:transparent;flex:none;cursor:pointer}',
       '.mem-approval-check .box{display:flex;align-items:center;justify-content:center;width:16px;height:16px;border:1.5px solid color-mix(in srgb,var(--dsw-alias-label-secondary) 52%,var(--dsw-alias-border-l1));border-radius:5px;background:color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent);color:var(--dsw-alias-label-primary-foreground);transition:background .12s ease,border-color .12s ease}',
       '.mem-approval-check.on .box{background:var(--dsw-alias-state-business-primary,#4176e6);border-color:var(--dsw-alias-state-business-primary,#4176e6);color:var(--dsw-alias-label-primary-foreground)}',
@@ -6847,8 +6848,14 @@ window.__ModuleLoader__.load({
       // 0.32.0：block 模式 = Agent 请求「屏蔽」某条记忆 / 某个作用域。它不改权限，
       // 只是让这些东西不再出现在检索、注入与目录里；可随时解除，所以文案要说清可逆。
       const blockMode = pending.mode === 'block'
-      const actionLabel = blockMode ? '屏蔽' : grantMode ? '访问' : action === 'write' ? '写入' : action === 'delete' ? '删除' : '读取'
-      const actionHint = blockMode
+      // 0.35.0：hook 模式 = Agent 提交了一段要在 DSH 进程里运行的规则脚本。
+      // 这比普通的"写入可见域外"危险得多：用户必须逐行看清代码再决定，绝不能套用
+      // 那套"写入 / 读取"的文案（既误导，又把代码压成一行看不清）。
+      const hookMode = pending.mode === 'hook'
+      const actionLabel = hookMode ? '运行代码' : blockMode ? '屏蔽' : grantMode ? '访问' : action === 'write' ? '写入' : action === 'delete' ? '删除' : '读取'
+      const actionHint = hookMode
+        ? 'Agent 提交了一段脚本，批准后它会在 DSH 进程里运行（在沙箱内，无网络 / 文件访问）。请先逐行看清下面的代码和运行时机，再决定是否允许。代码改动后会再次征求你的同意。'
+        : blockMode
         ? 'Agent 想把下列记忆从检索、注入与作用域目录里藏起来（不删除、可随时解除）。按作用域屏蔽、工作区级屏蔽，或目标是硬性规则时都需要你确认。'
         : grantMode
           ? 'Agent 申请访问可见域外的作用域。勾选要授予的权限（默认只读）；授权仅在本会话有效，子 Agent 会继承。'
@@ -6938,7 +6945,9 @@ window.__ModuleLoader__.load({
 
       const allowLabel = busy === pending.id
         ? '处理中…'
-        : blockMode
+        : hookMode
+          ? '批准这段代码'
+          : blockMode
           ? selectable && selectedCount !== allIds.length
             ? `屏蔽选中的 ${selectedCount} 项`
             : '确认屏蔽'
@@ -6955,7 +6964,7 @@ window.__ModuleLoader__.load({
         'data-approval-id': pending.id,
         onKeyDown: keydown,
       },
-        h('div', { className: 'mem-approval-card', role: 'dialog', 'aria-label': blockMode ? '记忆屏蔽审批' : grantMode ? '记忆访问授权审批' : `记忆${actionLabel}审批`, 'aria-busy': busy === pending.id },
+        h('div', { className: 'mem-approval-card', role: 'dialog', 'aria-label': hookMode ? '规则代码运行审批' : blockMode ? '记忆屏蔽审批' : grantMode ? '记忆访问授权审批' : `记忆${actionLabel}审批`, 'aria-busy': busy === pending.id },
           h('div', { className: 'mem-approval-strip' },
             h('span', { className: 'mem-approval-dot' }),
             h('span', null, busy === pending.id ? '处理中…' : '等待审批'),
@@ -6975,7 +6984,9 @@ window.__ModuleLoader__.load({
           isCollapsed
             ? null
             : h('div', { className: 'mem-approval-body' },
-                h('div', { className: 'mem-approval-headline' }, blockMode
+                h('div', { className: 'mem-approval-headline' }, hookMode
+                  ? `工具 ${pending.tool || 'memory'} 提交了一段规则代码，需要你批准后才能运行`
+                  : blockMode
                   ? `工具 ${pending.tool || 'memory'} 请求屏蔽这些记忆 / 作用域`
                   : grantMode
                     ? `工具 ${pending.tool || 'memory'} 申请访问可见域外的作用域`
@@ -7053,20 +7064,28 @@ window.__ModuleLoader__.load({
                               : grantMode
                                 ? (item.grantPermission === 'write' ? '可写' : '只读')
                                 : (String(item.id).length > 12 ? `${item.id.slice(0, 8)}…${item.id.slice(-4)}` : String(item.id))),
-                          // 作用域显示名带类型前缀;title 里给出「显示名 → 真实键」。
-                          h('span', { className: 'audit-pill mute', title: scopeTitle(item.scope, scopeLabel(item.scope)) }, scopeLabel(item.scope)),
-                          grantMode
+                          // hook 模式的 scope 是 '*' 或逗号分隔的列表，不是记忆作用域键。
+                          hookMode
+                            ? null
+                            : h('span', { className: 'audit-pill mute', title: scopeTitle(item.scope, scopeLabel(item.scope)) }, scopeLabel(item.scope)),
+                          hookMode
+                            ? h('span', { className: 'audit-pill mute' }, '规则代码')
+                            : grantMode
                             ? h('span', { className: 'audit-pill mute' }, item.grantPermission === 'write' ? '写入 / 删除' : '只读访问')
                             : h('span', { className: 'audit-pill mute' }, item.kind ? kindMeta(item.kind).label : '未知'),
                           blockMode
                             ? h('span', { className: 'audit-pill warn' }, '屏蔽')
                             : grantMode
                               ? h('span', { className: 'audit-pill warn' }, '本会话授权')
-                              : item.reason === 'kind'
-                                ? h('span', { className: 'audit-pill warn' }, '类型受限')
-                                : h('span', { className: 'audit-pill warn' }, '范围外'),
+                              : hookMode
+                                ? h('span', { className: 'audit-pill warn' }, '待批准 · 批准后运行')
+                                : item.reason === 'kind'
+                                  ? h('span', { className: 'audit-pill warn' }, '类型受限')
+                                  : h('span', { className: 'audit-pill warn' }, '范围外'),
                         ),
-                        h('div', { className: 'mem-approval-summary' }, blockMode
+                        hookMode
+                          ? h('pre', { className: 'mem-approval-code' }, String(item.content || ''))
+                          : h('div', { className: 'mem-approval-summary' }, blockMode
                           ? '确认后它将不再出现在检索、注入与作用域目录里；数据不删除，随时可以解除。'
                           : grantMode
                             ? (item.grantPermission === 'write' ? '允许新增、修改与删除该作用域的记录' : '允许查询与读取该作用域的正文')
