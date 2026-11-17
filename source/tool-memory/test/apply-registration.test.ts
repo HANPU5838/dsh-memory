@@ -39,14 +39,14 @@ test('工具参数只用扁平 schema，不使用嵌套 object', () => {
 })
 
 /**
- * 0.36.0：memory_save 的返回提示必须统一带上「保存到的目标作用域 key」，
- * supersedes 场景再补一条修正关系。这里对渲染源码做静态守卫，防止以后改文案时
- * 把这条模型可见的关键信息删掉（模型要靠它确认记忆落在哪个作用域）。
+ * 0.36.0 / 0.37.0：memory_save 的返回提示必须在「@ <key>」里带上保存到的目标作用域 key，
+ * 但只出现一次（0.37.0 去掉了额外的「保存到的目标作用域 key：」行，避免同一 key 重复两遍）。
  */
-test('memory_save 渲染统一带目标作用域 key 与 supersedes 修正提示', () => {
+test('memory_save 渲染带一次目标作用域 key，且不再有冗余的第二行', () => {
   const here = dirname(fileURLToPath(import.meta.url))
   const apply = readFileSync(join(here, '..', 'src', 'apply.ts'), 'utf8')
-  assert.ok(apply.includes('保存到的目标作用域 key'), '返回提示必须带目标作用域 key')
-  assert.ok(apply.includes('value.scope'), '提示里必须用记录实际保存到的 scope')
+  assert.ok(apply.includes('value.scope'), 'head 要用记录实际保存到的 scope key')
+  assert.ok(apply.includes('@ ${value.scope}'), '作用域 key 出现在 @ 后')
+  assert.equal(apply.includes('保存到的目标作用域 key：'), false, '不能再有第二行重复 key')
   assert.ok(apply.includes('value.supersedes'), 'supersedes 场景必须额外说明修正关系')
 })

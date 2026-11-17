@@ -1100,6 +1100,13 @@ export class LocalMemoryService                             {
     {
     const settings = this.hookSettings()
     if (!settings.enabled || records.length === 0) return { records: [...records], changed: [], warnings: [] }
+    // 0.37.0：设置快照只读一次，传给每条记录的 before-inject 钩子（ctx.settings）。
+    const injectCfg = this.injectSettings()
+    const settingsView = {
+      digestChars: 160,
+      impressionChars: injectCfg.impression.chars,
+      recallChars: 300,
+    }
     const out                 = []
     const changed                                                                       = []
     const warnings           = []
@@ -1122,6 +1129,7 @@ export class LocalMemoryService                             {
           },
           tool: 'inject',
           ...(sessionId !== undefined ? { sessionId } : {}),
+          settings: settingsView,
         })
         const outcome = outcomes.find((item) => item.hook.id === hook.id)
         if (outcome === undefined) continue

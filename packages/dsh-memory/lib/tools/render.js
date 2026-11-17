@@ -142,7 +142,11 @@ export function renderListResult(value            , label            )         {
         omitted += 1
         return shortId(record.id)
       }
-      return `(${label(record.scope)}/${record.kind}) ${record.content}`
+      const full = record.fullTime
+      const timeLine = full === undefined
+        ? ''
+        : ` [创建 ${full.createdAt} · 更新 ${full.updatedAt}${full.expiresAt !== undefined ? ` · 过期 ${full.expiresAt}` : ''}]`
+      return `(${label(record.scope)}/${record.kind})${timeLine} ${record.content}`
     }).join('\n')
   const note = renderWithheldNote(value.withheld)
   const tail = [omitted > 0 ? DEDUPE_NOTE : '', note].filter((part) => part !== '').join('\n\n')

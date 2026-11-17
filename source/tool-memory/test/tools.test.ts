@@ -228,6 +228,34 @@ test('上下文去重:memory_list 返回过的正文第二次只回 id', async (
   assert.equal(renderListResult(second, label), `abcdef12\n\n${DEDUPE_NOTE}`)
 })
 
+test('memory_list fields=full_time：给出精确到秒的完整时间戳且渲染出来 (0.37.0)', async () => {
+  const ts = {
+    ...record,
+    createdAt: Date.UTC(2026, 0, 2, 3, 4, 5, 678),
+    updatedAt: Date.UTC(2026, 5, 6, 7, 8, 9, 123),
+    expiresAt: Date.UTC(2027, 0, 1, 0, 0, 0, 0),
+  }
+  const listService = { ...service, list: async () => [ts] }
+  const tool = memoryListTool({ getService: () => listService })
+
+  // 不传 fields：不带 fullTime 字段
+  const plain = await tool.execute({})
+  assert.equal(plain.records[0]!.fullTime, undefined)
+  assert.ok(!renderListResult(plain, label).includes('创建 '))
+
+  // fields=full_time：三个时间戳都到秒（无毫秒）
+  const full = await tool.execute({ fields: ['full_time'] })
+  assert.deepEqual(full.records[0]!.fullTime, {
+    createdAt: '2026-01-02T03:04:05Z',
+    updatedAt: '2026-06-06T07:08:09Z',
+    expiresAt: '2027-01-01T00:00:00Z',
+  })
+  const text = renderListResult(full, label)
+  assert.ok(text.includes('创建 2026-01-02T03:04:05Z'), '渲染含创建时间到秒')
+  assert.ok(text.includes('更新 2026-06-06T07:08:09Z'))
+  assert.ok(text.includes('过期 2027-01-01T00:00:00Z'))
+})
+
 test('memory_search 范围外命中默认只给索引,不弹审批;requestApproval=true 才逐条允许', async () => {
   const outside = {
     id: 'outside-1',
@@ -390,8 +418,7 @@ test('memory_search 范围外索引:绝对限制不出现,拒绝/超时后索引
   assert.deepEqual(rejected.outOfScope?.scopes.map((entry) => [entry.scope, entry.records]), [['other-project', 1]], '拒绝后清单仍在,模型能再判断')
 })
 
-test('renderListResult:去重条目只给 id,提示用 memory_get 取全文', () => {
-  const text = renderListResult({
+test('renderListResult:去重条目只给 id,提示用 memory_get 取全文', () => {  const text = renderListResult({
     records: [
       { id: record.id, scope: 'global', kind: 'fact', updatedAt: 1, content: '正文一' },
       { id: bare.id, scope: 'session:s1', kind: 'note', updatedAt: 2, content: '', deduped: true },

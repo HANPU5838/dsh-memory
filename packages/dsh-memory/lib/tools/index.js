@@ -218,7 +218,7 @@ import { canonicalWorkspacePath, defaultScopeDescription, normalizeScopeInput, r
                                                               
                                                                                                                                                                                           
                                                                      
-                                                                                                                                                              
+                                                                                                                                                                                                      
                                      
                                   
                                                       
@@ -1633,16 +1633,41 @@ export function memoryForgetTool(opts                    )                      
   }
 }
 
+/** 毫秒时间戳 → ISO 8601 精确到秒（去掉毫秒）。非法值返回 undefined。 */
+function isoSecond(value         )                     {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
+  return new Date(value).toISOString().slice(0, 19) + 'Z'
+}
+
+/** memory_list 的 fields 解析：目前只认 full_time。 */
+function listWantsFullTime(fields                               )          {
+  return Array.isArray(fields) && fields.some((field) => String(field).trim() === 'full_time')
+}
+
                            
                 
                
                 
+     
+                                          
+                                                               
+     
+                   
                                       
                       
  
 
                              
-                                                                                                                    
+                  
+              
+                 
+                
+                     
+                   
+                     
+                                                                  
+                                                                           
+    
                                                     
                                                                                                    
      
@@ -1661,6 +1686,11 @@ export function memoryListTool(opts                    )                        
       kind: { type: 'string' },
       limit: { type: 'number', description: '1~200' },
       description: { type: 'string', description: DESCRIPTION_PARAM_DESCRIPTION },
+      fields: {
+        type: 'array',
+        items: { type: 'string' },
+        description: '可选字段。`full_time` = 每条记忆给出精确到秒的完整时间戳（createdAt / updatedAt / expiresAt）；不传则不带。',
+      },
     },
     async execute(args          , exec          )                      {
       const service = svc(opts)
@@ -1728,12 +1758,24 @@ export function memoryListTool(opts                    )                        
         const selected = raw
           .filter((record) => insideIds.has(record.id) || approvedOutsideIds.has(record.id))
           .slice(0, limit)
+        const wantFullTime = listWantsFullTime(args.fields)
         records = selected.map((r) => ({
           id: r.id,
           scope: r.scope,
           kind: r.kind,
           updatedAt: r.updatedAt,
           content: r.content,
+          ...(wantFullTime
+            ? {
+                fullTime: {
+                  createdAt: isoSecond(r.createdAt) ?? isoSecond(r.updatedAt) ?? '',
+                  updatedAt: isoSecond(r.updatedAt) ?? '',
+                  ...(r.expiresAt !== undefined && Number.isFinite(r.expiresAt)
+                    ? { expiresAt: isoSecond(r.expiresAt)  }
+                    : {}),
+                },
+              }
+            : {}),
         }))
         const denied = outside.length - approvedOutside.length
         if (denied > 0) {
@@ -2609,6 +2651,8 @@ export function memoryHooksTool(opts                    )                       
           importance: 0.8,
         },
         tool: 'memory_hooks',
+        // 0.37.0：试跑也带设置快照，脚本里读 ctx.settings.* 不会是 undefined。
+        settings: { digestChars: 160, impressionChars: 120, recallChars: 300 },
       }
       const mine = service.runHookTrial(hook.id, input)
       const verdict = mine[0]

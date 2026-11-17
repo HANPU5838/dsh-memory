@@ -107,6 +107,22 @@ export interface HookMemoryView {
   initial?: boolean
 }
 
+/**
+ * 钩子脚本能读到的注入设置（只读快照，随 ctx 进沙箱）。
+ *
+ * 只暴露"和摘要字数相关"的几项，不把整个 settings.json 倒进沙箱：
+ * 脚本用它决定"冒号前的内容如果太长，按哪个上限截断"。
+ * 各项与 inject-settings.ts 里的默认值一致，调用方（parseForInject）用实时设置覆盖。
+ */
+export interface HookSettingsView {
+  /** 会话第一步摘要里每条正文最多多少字（digestLine 的 slice 上限）。 */
+  digestChars: number
+  /** 自动召回"印象"模式下每条摘要的字数上限。 */
+  impressionChars: number
+  /** 自动召回完整模式下每条正文的字数上限。 */
+  recallChars: number
+}
+
 /** 一次运行的输入。 */
 export interface HookRunInput {
   memory: HookMemoryView
@@ -114,6 +130,8 @@ export interface HookRunInput {
   tool?: string
   sessionId?: string
   description?: string
+  /** 只读设置快照，注入到沙箱的 ctx.settings（脚本用它读摘要字数限制）。 */
+  settings?: HookSettingsView
 }
 
 /** 单个钩子的运行结果。 */
@@ -300,6 +318,8 @@ export function runHookCode(
     ...(input.tool !== undefined ? { tool: input.tool } : {}),
     ...(input.sessionId !== undefined ? { sessionId: input.sessionId } : {}),
     ...(input.description !== undefined ? { description: input.description } : {}),
+    // 0.37.0：只读设置快照进沙箱 ctx.settings —— 脚本能按当前摘要字数限制截断。
+    ...(input.settings !== undefined ? { settings: input.settings } : {}),
     now: Date.now(),
   })
   const driver = new vm.Script(

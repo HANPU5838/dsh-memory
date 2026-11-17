@@ -218,7 +218,7 @@ export interface MemoryToolService {
   save(input: unknown): Promise<{ id: string; scope: string }>
   search(input: unknown): Promise<Array<{ record: { id: string; scope: string; kind: string; updatedAt: number; content: string; tags?: string[]; importance?: number }; score: number }>>
   forget(input: unknown): Promise<{ removed: number; ids: string[] }>
-  list(input?: unknown): Promise<Array<{ id: string; scope: string; kind: string; updatedAt: number; content: string; tags?: string[]; importance?: number }>>
+  list(input?: unknown): Promise<Array<{ id: string; scope: string; kind: string; updatedAt: number; content: string; tags?: string[]; importance?: number; createdAt?: number; expiresAt?: number }>>
   /** 读 "all" 前把所有磁盘上的 scope 发现出来。 */
   discoverScopes?(): MemoryScope[]
   /** 作用域清单(scope + 记录数),用于 memory_list 的尾部摘要与错误提示。 */
@@ -1633,16 +1633,41 @@ export function memoryForgetTool(opts: MemoryToolsOptions): ToolSpec<ForgetArgs,
   }
 }
 
+/** 毫秒时间戳 → ISO 8601 精确到秒（去掉毫秒）。非法值返回 undefined。 */
+function isoSecond(value: unknown): string | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
+  return new Date(value).toISOString().slice(0, 19) + 'Z'
+}
+
+/** memory_list 的 fields 解析：目前只认 full_time。 */
+function listWantsFullTime(fields: readonly string[] | undefined): boolean {
+  return Array.isArray(fields) && fields.some((field) => String(field).trim() === 'full_time')
+}
+
 export interface ListArgs {
   scope?: string
   kind?: string
   limit?: number
+  /**
+   * 可选字段选择。`full_time` = 每条记忆给出精确到秒的完整时间戳
+   * （createdAt / updatedAt / expiresAt，ISO 8601 到秒）；不传则不带时间字段。
+   */
+  fields?: string[]
   /** 本次调用的用途(给用户看);普通限制下必填,审批弹窗展示。 */
   description?: string
 }
 
 export interface ListResult {
-  records: Array<{ id: string; scope: string; kind: string; updatedAt: number; content: string; deduped?: boolean }>
+  records: Array<{
+    id: string
+    scope: string
+    kind: string
+    updatedAt: number
+    content: string
+    deduped?: boolean
+    /** fields 含 full_time 时给出，ISO 8601 精确到秒（无该时间则为 undefined）。 */
+    fullTime?: { createdAt: string; updatedAt: string; expiresAt?: string }
+  }>
   /** 作用域清单(名字 + 条数);文案由 apply.ts 统一渲染(那里能查会话标题)。 */
   scopeStats?: Array<{ scope: string; records: number; pendingEmbeds: number; archived?: boolean }>
   /**
@@ -1661,6 +1686,11 @@ export function memoryListTool(opts: MemoryToolsOptions): ToolSpec<ListArgs, Lis
       kind: { type: 'string' },
       limit: { type: 'number', description: '1~200' },
       description: { type: 'string', description: DESCRIPTION_PARAM_DESCRIPTION },
+      fields: {
+        type: 'array',
+        items: { type: 'string' },
+        description: '可选字段。`full_time` = 每条记忆给出精确到秒的完整时间戳（createdAt / updatedAt / expiresAt）；不传则不带。',
+      },
     },
     async execute(args: ListArgs, exec?: unknown): Promise<ListResult> {
       const service = svc(opts)
@@ -1728,12 +1758,24 @@ export function memoryListTool(opts: MemoryToolsOptions): ToolSpec<ListArgs, Lis
         const selected = raw
           .filter((record) => insideIds.has(record.id) || approvedOutsideIds.has(record.id))
           .slice(0, limit)
+        const wantFullTime = listWantsFullTime(args.fields)
         records = selected.map((r) => ({
           id: r.id,
           scope: r.scope,
           kind: r.kind,
           updatedAt: r.updatedAt,
           content: r.content,
+          ...(wantFullTime
+            ? {
+                fullTime: {
+                  createdAt: isoSecond(r.createdAt) ?? isoSecond(r.updatedAt) ?? '',
+                  updatedAt: isoSecond(r.updatedAt) ?? '',
+                  ...(r.expiresAt !== undefined && Number.isFinite(r.expiresAt)
+                    ? { expiresAt: isoSecond(r.expiresAt)! }
+                    : {}),
+                },
+              }
+            : {}),
         }))
         const denied = outside.length - approvedOutside.length
         if (denied > 0) {
@@ -2609,6 +2651,8 @@ export function memoryHooksTool(opts: MemoryToolsOptions): ToolSpec<HooksArgs, H
           importance: 0.8,
         },
         tool: 'memory_hooks',
+        // 0.37.0：试跑也带设置快照，脚本里读 ctx.settings.* 不会是 undefined。
+        settings: { digestChars: 160, impressionChars: 120, recallChars: 300 },
       }
       const mine = service.runHookTrial(hook.id, input)
       const verdict = mine[0]

@@ -137,18 +137,17 @@ export function apply(ctx     , config                   = {}) {
   }
 
   register(tools.memory_save, (value, _args, exec) => {
-    const agent = (exec                                   )?.agent
+    // 0.37.0：作用域 key 只在头部出现一次 —— head 直接写原始 key（value.scope），
+    // 去掉了原先额外追加的那行 key 文案（它和 @ <scope> 说同一件事，重复）。
+    // 文案仍以「已保存记忆 <uuid> @ <key>」开头，signals.ts 按 UUID 抽取不受影响。
     const head = value.deduped
-      ? `已更新既有记忆（内容相同，去重）：${value.id} @ ${renderScope(value.scope, agent)}`
-      : `已保存记忆 ${value.id} @ ${renderScope(value.scope, agent)}`
-    // 0.36.0：所有 memory_save 返回统一带上保存到的目标作用域 key；用 supersedes
-    // 修正旧记忆时额外说明修正关系（旧记录所在作用域可不同）。文案仍以
-    // 「已保存记忆 <uuid> @ <scope>」开头，signals.ts 按 UUID 抽取不受影响。
-    const scopeKeyLine = `保存到的目标作用域 key：${value.scope}`
+      ? `已更新既有记忆（内容相同，去重）：${value.id} @ ${value.scope}`
+      : `已保存记忆 ${value.id} @ ${value.scope}`
+    // supersedes 场景补一条修正关系（旧记录所在作用域可不同）。
     const correctionLine = value.supersedes === undefined
       ? ''
       : `\n已用本条修正旧记忆 ${value.supersedes.id}${value.supersedes.scope !== undefined ? `（旧记录在 ${value.supersedes.scope}）` : ''}`
-    const tail = `\n${scopeKeyLine}${correctionLine}`
+    const tail = correctionLine
     const hook = value.hook
     if (hook === undefined) return `${head}${tail}`
     const approvalText                         = {

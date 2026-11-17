@@ -2,6 +2,14 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.37.0 — 钩子可读设置数据 + memory_list 完整时间戳 + 去掉冗余 key
+
+- **钩子沙箱可读设置（ctx.settings）**：`HookRunInput` 新增可选 `settings`（只读快照：`digestChars` / `impressionChars` / `recallChars`），经 `runHookCode` 序列化进沙箱 `ctx.settings`；`parseForInject` 从实时 `injectSettings()` 取值（摘要 160 字、印象字数面板可改、召回 300 字）传入，`memory_hooks run` 试跑也带默认快照。before-inject 规则代码从此能按"当前摘要字数限制"截断，不写死数字。
+- **新增规则代码**：挂了一条 `before-inject` 钩子「注入摘要只取概括句」——注入摘要时只保留记忆里第一个全角冒号「：」前的内容，没有冒号就用全文，超长按 `ctx.settings` 里的摘要字数上限截断。已试跑验证。
+- **memory_list fields=full_time**：`fields` 参数新增 `full_time`，传了就给每条记录 `fullTime:{createdAt,updatedAt,expiresAt?}`（ISO 8601 精确到秒，无毫秒），渲染文案同步显示「创建/更新/过期」。不传则不带时间字段，保持旧行为。
+- **去掉 save 提示里冗余的作用域 key**：`memory_save` 结果文案此前既在头部 `@ <scope>`、又追加一行「保存到的目标作用域 key：」说同一件事；现在只在头部 `@ <原始 key>` 出现一次，开头格式不变（`memorySaveResultIds` 按 UUID 抽取不受影响）。
+- 回归守卫：`hooks.test.ts` 加 ctx.settings 透传与跟随实时设置两例，`tools.test.ts` 加 full_time 数据与渲染一例，`apply-registration.test.ts` 守卫 key 不再重复。全套 62 个测试文件 0 失败。
+
 ## 0.36.1 — 删除钩子加二次确认
 
 - **问题**：用户误点面板「删除」把「记忆内容规范（概括句：正文）」校验钩子删掉了——`memory_hooks delete` 与面板删除都是硬删除（`hooks.json` 直接 filter 后原子覆盖，没有回收站、没有 .bak），一次点击/一次调用代码就没了，且没有任何确认。

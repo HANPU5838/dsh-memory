@@ -368,6 +368,37 @@ test('注入前解析:可以丢弃整条', () => {
   assert.deepEqual(parsed.changed, [{ id: 'a', hook: '丢状态', option: 'dropped' }])
 })
 
+test('注入前解析:脚本能读到 ctx.settings 的摘要字数限制 (0.37.0)', () => {
+  const service = makeService()
+  // 用 log 把 ctx.settings 带出来验证；同时按 digestChars 截断。
+  const hook = service.saveHook({
+    phase: 'before-inject',
+    code: 'function parse(memory, ctx){ log("LIMIT=" + ctx.settings.digestChars); '
+      + 'var limit = ctx.settings.digestChars; return { content: memory.content.slice(0, limit) } }',
+    name: '读设置',
+  })
+  service.approveHook(hook.id)
+  const parsed = service.parseForInject([
+    { id: 'a', scope: 'global', kind: 'fact', content: 'X'.repeat(200), tags: [], importance: 1, createdAt: 1, updatedAt: 1, lastAccessedAt: 1, accessCount: 0, source: {} } as never,
+  ])
+  assert.equal(parsed.records[0]!.content.length, 160, '按 ctx.settings.digestChars=160 截断')
+})
+
+test('注入前解析:印象字数上限随面板设置变化传给脚本 (0.37.0)', () => {
+  const service = makeService()
+  service.updateInjectSettings({ impression: { chars: 77 } })
+  const hook = service.saveHook({
+    phase: 'before-inject',
+    code: 'function parse(memory, ctx){ return { content: String(ctx.settings.impressionChars) } }',
+    name: '读印象上限',
+  })
+  service.approveHook(hook.id)
+  const parsed = service.parseForInject([
+    { id: 'a', scope: 'global', kind: 'fact', content: '随便', tags: [], importance: 1, createdAt: 1, updatedAt: 1, lastAccessedAt: 1, accessCount: 0, source: {} } as never,
+  ])
+  assert.equal(parsed.records[0]!.content, '77', 'impressionChars 跟随实时设置')
+})
+
 test('注入前解析:脚本崩溃时记录原样保留', () => {
   const service = makeService()
   const hook = service.saveHook({ phase: 'before-inject', code: 'function parse(){ throw new Error("坏了") }', name: '坏解析' })

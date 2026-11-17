@@ -76,7 +76,17 @@ function verify(memory) {
 `ctx` 描述这次调用：
 
 ```js
-{ phase, tool, sessionId, description, now }
+{ phase, tool, sessionId, description, now, settings }
+```
+
+`settings` 是**只读设置快照**（0.37.0 起），脚本能读到当前注入设置里的摘要字数限制，按它截断而不写死数字：
+
+```js
+{
+  digestChars: 160,      // 会话第一步摘要里每条正文的字数上限
+  impressionChars: 120,  // 自动召回"印象"模式每条摘要的字数上限（面板可改）
+  recallChars: 300,      // 自动召回完整模式每条正文的字数上限
+}
 ```
 
 `tool` 是触发者（`'memory_save'` / `'memory_hooks'` / `'inject'`），可以据此分支：
