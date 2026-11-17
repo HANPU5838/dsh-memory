@@ -430,6 +430,11 @@ export class CordisMemoryService extends Service {
     return this.impl.runHooks(phase, input)
   }
 
+  /** 试跑指定钩子（绕过审批门禁，不写记忆、不记统计）。 */
+  runHookTrial(id        , input                                                   )                                                 {
+    return this.impl.runHookTrial(id, input)
+  }
+
   parseForInject(records                                                     , sessionId         )                                                   {
     return this.impl.parseForInject(records, sessionId)
   }

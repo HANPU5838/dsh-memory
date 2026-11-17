@@ -1297,13 +1297,14 @@ async function handle(ctx, routePath, req, res) {
       }
 
       if (action === 'run') {
-        if (typeof memory.runHooks !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供记忆钩子试跑接口')
+        if (typeof memory.runHookTrial !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供记忆钩子试跑接口（请升级 @restregular/dsh-memory）')
         const id = typeof body.id === 'string' ? body.id : ''
         const content = typeof body.content === 'string' ? body.content : ''
         if (content.trim() === '') throw new ApiError(400, 'HOOK_CONTENT_REQUIRED', 'content 不能为空（试跑要一段样例正文）')
         const hook = typeof memory.getHook === 'function' ? memory.getHook(id) : undefined
         if (hook === undefined) throw new ApiError(404, 'HOOK_NOT_FOUND', '没有找到这个钩子')
-        const outcomes = memory.runHooks(hook.phase, {
+        // 0.35.2：按 id 精确试跑、绕过审批门禁 —— 新脚本未批准时也要能先看判断结果。
+        const outcomes = memory.runHookTrial(id, {
           memory: {
             scope: hook.scopes[0] ?? 'global',
             kind: hook.kinds[0] ?? 'rule',
@@ -1313,7 +1314,7 @@ async function handle(ctx, routePath, req, res) {
           },
           tool: 'panel',
         })
-        writeJson(res, { ok: true, value: { outcomes: outcomes.filter((item) => item.hook.id === hook.id) } })
+        writeJson(res, { ok: true, value: { outcomes } })
         return
       }
 

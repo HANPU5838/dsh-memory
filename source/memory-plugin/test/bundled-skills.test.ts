@@ -52,6 +52,20 @@ test('工具描述引导 Agent 加载 memory-hook-scripts 技能', () => {
   assert.match(toolSrc, /`skill` 工具/, '要告诉 Agent 用 skill 工具加载')
 })
 
+test('memory_save 的结果渲染回传钩子登记 / 审批结局', () => {
+  const apply = readFileSync(join(root, 'source', 'tool-memory', 'src', 'apply.ts'), 'utf8')
+  assert.match(apply, /value\.hook/, 'memory_save 渲染必须读 value.hook，否则 Agent 不知道脚本挂没挂上')
+  assert.match(apply, /不会运行/, '未批准 / 拒绝 / 超时都要明确说"不会运行"')
+})
+
+test('memory_hooks run 走 runHookTrial（按 id 精确试跑，绕过审批门禁）', () => {
+  const toolSrc = readFileSync(join(root, 'source', 'tool-memory', 'src', 'index.ts'), 'utf8')
+  assert.match(toolSrc, /runHookTrial\?\(/, 'MemoryToolService 要声明 runHookTrial')
+  assert.match(toolSrc, /service\.runHookTrial\(hook\.id/, 'run 必须按 id 试跑，不再用 phase+scope/kind 过滤')
+  const providerSrc = readFileSync(join(root, 'source', 'memory-local', 'src', 'index.ts'), 'utf8')
+  assert.match(providerSrc, /runHookTrial\(id: string/, 'provider 要实现 runHookTrial')
+})
+
 test('hook 审批卡有专属文案与代码展示，不套用普通写入审批', () => {
   const client = readFileSync(join(root, 'source', 'memory-panel', 'lib', 'client.js'), 'utf8')
   // 必须具备 hookMode 变量与专属文案。

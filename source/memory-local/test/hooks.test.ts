@@ -360,6 +360,27 @@ test('注入前解析:总开关关掉时原样返回', () => {
 
 // ---------------------------------------------------------------- 审批通道
 
+test('试跑:未批准也能按 id 精确试跑，且不记统计', () => {
+  const service = makeService()
+  const hook = service.saveHook({ phase: 'before-save', code: COLON_CHECK, name: '未批准的', kinds: ['rule'] })
+  assert.equal(service.hookPendingApproval(hook.id), true, '这条钩子确实未批准')
+
+  // 真实运行会被门禁挡掉
+  assert.equal(service.runHooks('before-save', { memory: MEMORY('没有冒号') }).length, 0)
+  // 试跑必须能命中 —— 技能里"先 run 试跑再上线"的流程依赖它
+  const trial = service.runHookTrial(hook.id, { memory: MEMORY('没有冒号') })
+  assert.equal(trial.length, 1)
+  assert.equal(trial[0]!.ok, false)
+  assert.match(trial[0]!.message ?? '', /缺少全角冒号/)
+  // 试跑不记统计（不是真实运行）
+  assert.equal(service.listHooks()[0]!.runCount, 0)
+})
+
+test('试跑:不存在的 id 返回空', () => {
+  const service = makeService()
+  assert.deepEqual(service.runHookTrial('hook-nope', { memory: MEMORY('x') }), [])
+})
+
 test('审批:没有审批通道时保守拒绝，代码不生效', async () => {
   const service = makeService()
   const hook = service.saveHook({ phase: 'before-save', code: COLON_CHECK, name: 'x' })

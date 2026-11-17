@@ -2,6 +2,13 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.35.2 — 修复「未批准的新脚本无法试跑」：试跑改按 id 精确执行
+
+- **问题（再次实机验证发现）**：技能 `memory-hook-scripts` 的上手流程第一步就是「先 `memory_hooks run` 试跑样例，再上线」。但 0.35.0/0.35.1 的 `run` 走的是 `runHooks(phase, ...)`，而 `runHooks` 会在 `HookStore.forRun()` 里过滤掉**未批准**的钩子（审批门禁放在存储层是对的），于是刚保存、还没批准的新脚本试跑时永远报「脚本没有命中这次输入（作用域/类型过滤把它排除了）」—— 实际上是审批门禁挡的，报错还说错了原因。流程直接走不通。
+- **修法**：新增 `runHookTrial(id, input)` —— 按 id 精确跑**指定的那一条**，绕过审批门禁，且不记统计（试跑不是真实运行）。它不写记忆、不改数据，只是把脚本跑一遍拿返回值，所以绕过门禁是安全的；真实运行（保存前 / 保存后 / 注入前）仍走原来的审批门禁。`memory_hooks run` 与面板「试跑」都改用它，不再用 phase+scope/kind 二次过滤。
+- **附带修复**：`memory_save` 的结果渲染此前忽略了 `hook` 字段，带 `hookCode` 保存后只说「已保存记忆」，Agent 不知道脚本挂没挂上、是不是还在等批准。现在回传「随附规则代码 <id>（<时机>）：已获批准 / 用户拒绝·不会运行 / 等待批准超时·不会运行 / 当前环境无法审批·不会运行」。
+- 回归守卫：`bundled-skills.test.ts` 加两条（run 走 runHookTrial、memory_save 渲染回传 hook），`hooks.test.ts` 加两条（未批准也能按 id 精确试跑且不记统计、不存在的 id 返回空）。全套 638 tests / 637 pass / 1 skipped。
+
 ## 0.35.1 — 修复 0.35.0 实机验证发现的两个问题
 
 - **问题 1：随包技能 `memory-hook-scripts` 加载不到**。两个工具的描述都引导 Agent 用 `skill` 工具加载它，但实机 `skill("memory-hook-scripts")` 报 unknown。根因是冷启动丢注册：`mountBundledSkills` 在 apply 里用 `ctx.get('skills')` 一次性取样，而 `skills` 服务由宿主核心提供、常晚于本插件 apply 就绪 —— 取到 undefined 且不会重试，技能永久消失（与 0.8.x 那次插件冷启动丢注册同一个坑）。改为在 apply 里用 `ctx.inject(['skills'], scope => mountBundledSkills(scope))` 等服务就绪后再挂，且放在独立 inject 回调里，不把整条 entry 拖成 PENDING。

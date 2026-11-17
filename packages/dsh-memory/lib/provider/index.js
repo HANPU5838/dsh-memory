@@ -53,6 +53,7 @@ import {
   describeOutcomes,
   hashHookCode,
   hookNeedsApproval,
+  runHookCode,
   runHooks,
                    
                  
@@ -1051,9 +1052,34 @@ export class LocalMemoryService                             {
     return answer.outcome === 'timeout' ? 'timeout' : answer.outcome === 'unavailable' ? 'unavailable' : 'rejected'
   }
 
-  /** 真正跑一批钩子（工具 / 注入共用）。 */
+  /** 真正跑一批钩子（工具 / 注入共用）。未批准的钩子不会执行。 */
   runHooks(phase           , input                                )                {
     return runHooks(this.hooks, phase, input, this.hookSettings())
+  }
+
+  /**
+   * 试跑指定的一条钩子（memory_hooks run / 面板试跑）。
+   *
+   * 与 runHooks 唯一的区别是**绕过审批门禁**：新写的脚本还没批准时必须能先看判断
+   * 结果，否则技能里"先 run 试跑再上线"的流程根本走不通。试跑不产生副作用 ——
+   * 不写记忆、不改数据，只是把脚本跑一遍拿返回值；统计也不记（试跑不是真实运行）。
+   */
+  runHookTrial(id        , input                                )                {
+    const hook = this.hooks.get(id)
+    if (hook === undefined) return []
+    const started = Date.now()
+    const result = runHookCode(hook.code, hook.phase, input, this.hookSettings())
+    const crashed = result.error !== undefined
+    return [{
+      hook: { id: hook.id, name: hook.name, phase: hook.phase },
+      ok: crashed ? true : result.ok,
+      durationMs: Date.now() - started,
+      ...(result.message !== undefined ? { message: result.message } : {}),
+      ...(result.content !== undefined ? { content: result.content } : {}),
+      ...(result.drop === true ? { drop: true } : {}),
+      ...(crashed ? { error: result.error } : {}),
+      ...(result.logs.length > 0 ? { logs: result.logs.slice(0, 20) } : {}),
+    }]
   }
 
   /**

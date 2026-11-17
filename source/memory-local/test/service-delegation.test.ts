@@ -68,7 +68,7 @@ test('CordisMemoryService 暴露记忆钩子接口', () => {
   for (const name of [
     'hookSettings', 'updateHookSettings', 'listHooks', 'getHook', 'saveHook',
     'deleteHook', 'approveHook', 'hookPendingApproval', 'requestHookApproval',
-    'runHooks', 'parseForInject',
+    'runHooks', 'runHookTrial', 'parseForInject',
   ]) {
     assert.equal(
       typeof proto[name],

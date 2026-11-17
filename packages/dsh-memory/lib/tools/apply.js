@@ -138,9 +138,25 @@ export function apply(ctx     , config                   = {}) {
 
   register(tools.memory_save, (value, _args, exec) => {
     const agent = (exec                                   )?.agent
-    return value.deduped
+    const head = value.deduped
       ? `已更新既有记忆（内容相同，去重）：${value.id} @ ${renderScope(value.scope, agent)}`
       : `已保存记忆 ${value.id} @ ${renderScope(value.scope, agent)}`
+    // 0.35.2：带 hookCode 时把钩子的登记 / 审批结局回给模型 —— 否则它不知道
+    // 脚本到底挂没挂上、是不是还在等批准（未批准 = 不会运行）。
+    const hook = value.hook
+    if (hook === undefined) return head
+    const approvalText                         = {
+      approved: '已获批准，会按设定时机运行',
+      rejected: '用户拒绝批准，**不会运行**（改脚本或让用户批准后才生效）',
+      timeout: '等待批准超时，**不会运行**',
+      unavailable: '当前环境无法审批，**不会运行**',
+      unsupported: '当前 provider 不支持钩子，脚本未登记',
+      'not-needed': '无需批准',
+    }
+    const state = hook.approval.startsWith('save-failed')
+      ? `登记失败：${hook.approval.slice('save-failed: '.length)}`
+      : approvalText[hook.approval] ?? hook.approval
+    return `${head}\n随附规则代码 ${hook.id !== '' ? `${hook.id} ` : ''}（${hook.phase}）：${state}`
   })
 
   register(tools.memory_search, (value, _args, exec) => {

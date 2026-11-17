@@ -329,8 +329,13 @@ import { canonicalWorkspacePath, defaultScopeDescription, normalizeScopeInput, r
                                            
                                       
                                                                                                                                                                                          
-                                        
+                          
                                                                     
+     
+                                                  
+                                        
+     
+                                                              
                          
                                                                                                           
  
@@ -2510,13 +2515,16 @@ export function memoryHooksTool(opts                    )                       
 
       // run：拿一段正文试跑，不写记忆。这是唯一能"先看效果再上线"的入口。
       const hook = findHook(service, args.id ?? '')
-      if (typeof service.runHooks !== 'function') {
-        throw new MemoryToolError('HOOKS_UNSUPPORTED', '当前 memory provider 不支持记忆钩子试跑')
+      if (typeof service.runHookTrial !== 'function') {
+        throw new MemoryToolError('HOOKS_UNSUPPORTED', '当前 memory provider 不支持记忆钩子试跑（请升级 @restregular/dsh-memory）')
       }
       const content = typeof args.content === 'string' && args.content.trim() !== ''
         ? args.content
         : throwErr(new MemoryToolError('HOOK_CONTENT_REQUIRED', 'run 需要 content：拿一段正文让脚本跑一次'))
-      const outcomes = service.runHooks(hook.phase, {
+      // 0.35.2：按 id 精确试跑这一条，绕过审批门禁。老写法用 phase+scope/kind
+      // 再过滤一遍，未批准的钩子会被门禁挡掉、表现为"脚本没有命中"，与
+      // 技能里"先 run 试跑再上线"的流程直接矛盾。
+      const input = {
         memory: {
           scope: (args.scopes ?? hook.scopes)[0] ?? 'global',
           kind: (args.kinds ?? hook.kinds)[0] ?? 'rule',
@@ -2525,8 +2533,8 @@ export function memoryHooksTool(opts                    )                       
           importance: 0.8,
         },
         tool: 'memory_hooks',
-      })
-      const mine = outcomes.filter((outcome) => outcome.hook.id === hook.id)
+      }
+      const mine = service.runHookTrial(hook.id, input)
       const verdict = mine[0]
       const note = verdict === undefined
         ? '脚本没有命中这次输入（作用域/类型过滤把它排除了）。'
