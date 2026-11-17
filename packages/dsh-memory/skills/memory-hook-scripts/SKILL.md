@@ -137,6 +137,20 @@ function verify(memory, ctx) {
 
 改代码之后要重新批准：审批记的是**代码指纹**，改一个字符就会重新变回待批准。
 
+## 删除钩子要二次确认（不可逆）
+
+`memory_hooks({ action: 'delete', id })` **不会一次删掉**——删除是从 `hooks.json` 直接移除、没有回收站，写好的代码找不回来（只能从会话日志里翻）。所以它分两步：
+
+```
+1. memory_hooks({ action: 'delete', id: '<id>', description: '...' })
+   → 返回 requiresConfirmation:true + 待删预览，此时**什么都没删**
+2. 确认要删后，再调一次并带上 confirm：
+   memory_hooks({ action: 'delete', id: '<id>', confirm: '<钩子的 name 或完整 id>', description: '...' })
+   → 才真正删除
+```
+
+`confirm` 必须精确等于该钩子的 `name` 或完整 `id`，写错或省略只会再拿到一次预览，不会误删别的钩子。面板里的「删除」按钮同样有确认弹窗；**只是想让它停下就点「停用」**（代码保留、随时可再启用），别用删除。
+
 ## 常见错误
 
 | 现象 | 原因 |

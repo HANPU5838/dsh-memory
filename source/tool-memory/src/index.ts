@@ -2360,6 +2360,12 @@ export interface HooksArgs {
   kinds?: string[]
   /** run 试跑时喂给脚本的正文。 */
   content?: string
+  /**
+   * delete 的二次确认：删除是不可逆的（hooks.json 直接覆盖、无回收站），
+   * 必须显式传一次 —— 值等于目标钩子的 name 或 id 才执行删除。
+   * 省略时只返回待确认清单（requiresConfirmation），不会删除。
+   */
+  confirm?: string
   /** 本次调用的用途(给用户看);普通限制下必填,审批弹窗展示。 */
   description?: string
 }
@@ -2372,6 +2378,8 @@ export interface HooksResult {
   outcomes?: HookOutcomeView[]
   /** 面向模型的一句话说明（审批结局等）。 */
   note?: string
+  /** delete 未带正确 confirm 时 = true，此时 hooks 是"待删除"预览、removed=0。 */
+  requiresConfirmation?: boolean
   removed?: number
 }
 
@@ -2395,6 +2403,7 @@ const HOOKS_TOOL_DESCRIPTION =
   'Manage executable memory hooks: scripts attached to rule memories that the plugin runs at a fixed phase. '
   + 'before-save validates a memory and can REJECT the save; after-save only observes; before-inject parses text before it enters context. '
   + 'Hook code lives in hooks.json and is NEVER part of memory search/list/digest. '
+  + 'Deleting a hook is IRREVERSIBLE — action="delete" requires a two-step confirmation: first call without confirm to get a preview, then repeat with confirm="<hook name or id>". '
   + 'Load the `memory-hook-scripts` skill (via the `skill` tool) before writing code — it documents the entry-function names, the sandbox API, the return contract and ready-made examples.'
 
 export function memoryHooksTool(opts: MemoryToolsOptions): ToolSpec<HooksArgs, HooksResult> {
@@ -2406,10 +2415,11 @@ export function memoryHooksTool(opts: MemoryToolsOptions): ToolSpec<HooksArgs, H
         type: 'string',
         enum: ['list', 'get', 'save', 'delete', 'approve', 'enable', 'disable', 'run'],
         required: true,
-        description: 'list=列全部（不含代码）；get=读代码；save=新建/更新；delete=删除；approve=请用户批准代码（首次或改代码后）；'
+        description: 'list=列全部（不含代码）；get=读代码；save=新建/更新；delete=删除（不可逆，**必须二次确认**：先不带 confirm 调用拿预览，再带 confirm="<钩子的 name 或 id>" 重复调用才真删）；approve=请用户批准代码（首次或改代码后）；'
           + 'enable/disable=开关；run=拿一段正文试跑（不写记忆）。',
       },
       id: { type: 'string', description: '钩子 id（或唯一前缀 / 名字）；get/delete/approve/enable/disable/run 必填' },
+      confirm: { type: 'string', description: 'delete 专用二次确认：值必须等于目标钩子的 name 或完整 id。删除不可逆（hooks.json 直接覆盖、无回收站），不带或写错只返回待删预览、不会删除。' },
       code: { type: 'string', description: '脚本源码（save 必填）。入口函数名与返回约定见技能 memory-hook-scripts。' },
       phase: {
         type: 'string',
@@ -2508,6 +2518,20 @@ export function memoryHooksTool(opts: MemoryToolsOptions): ToolSpec<HooksArgs, H
         const hook = findHook(service, args.id ?? '')
         if (typeof service.deleteHook !== 'function') {
           throw new MemoryToolError('HOOKS_UNSUPPORTED', '当前 memory provider 不支持记忆钩子')
+        }
+        // 0.36.1：删除不可逆（hooks.json 硬覆盖、无回收站），必须二次确认。
+        // 第一次调用不带 confirm → 只给"待删除"预览，不删；模型要把 name/id 回填到
+        // confirm 再调一次才真删。确认值必须精确等于目标的 name 或 id，杜绝误删别的钩子。
+        const confirmation = typeof args.confirm === 'string' ? args.confirm.trim() : ''
+        const matches = confirmation !== '' && (confirmation === hook.name || confirmation === hook.id)
+        if (!matches) {
+          return {
+            action,
+            hooks: [withApproval(hook)],
+            requiresConfirmation: true,
+            removed: 0,
+            note: `删除钩子「${hook.name}」是不可逆的（直接从 hooks.json 移除，没有回收站）。这是第一次确认：如确要删除，请用同样的 id 再调用一次并带上 confirm="${hook.name}"（或 confirm="${hook.id}"）；confirm 不符则不会删除。`,
+          }
         }
         const deleted = service.deleteHook(hook.id)
         return {

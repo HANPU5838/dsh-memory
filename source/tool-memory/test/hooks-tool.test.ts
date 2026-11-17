@@ -197,13 +197,31 @@ test('memory_hooks.enable/disable:只翻开关，代码原样保留', async () =
   assert.equal(service.getHook!(saved.id)!.enabled, false, 'stub 按 enabled 字段存储；真实 provider 会保留代码')
 })
 
-test('memory_hooks.delete:删掉后清单为空', async () => {
+test('memory_hooks.delete:二次确认——第一次只给预览不删，confirm 匹配才真删', async () => {
   const service = stubHooks()
   const saved = service.saveHook!({ code: CODE, name: 'x', phase: 'before-save' })
   const tool = memoryHooksTool({ getService: getService(service) })
-  const result = await tool.execute({ action: 'delete', id: saved.id }, exec)
-  assert.equal(result.removed, 1)
-  assert.equal(result.hooks.length, 0)
+
+  // 第一次：不带 confirm → 只给待删预览，钩子还在
+  const preview = await tool.execute({ action: 'delete', id: saved.id }, exec)
+  assert.equal(preview.requiresConfirmation, true)
+  assert.equal(preview.removed, 0)
+  assert.equal(preview.hooks.length, 1, '预览里钩子仍在')
+  assert.match(preview.note ?? '', /不可逆|confirm/)
+  assert.ok(service.getHook!(saved.id), '第一次调用绝不删除')
+
+  // confirm 写错 → 仍是预览，不删
+  const wrong = await tool.execute({ action: 'delete', id: saved.id, confirm: 'not-the-name' }, exec)
+  assert.equal(wrong.requiresConfirmation, true)
+  assert.equal(wrong.removed, 0)
+  assert.ok(service.getHook!(saved.id), 'confirm 不符不删除')
+
+  // confirm 等于 name → 真删
+  const done = await tool.execute({ action: 'delete', id: saved.id, confirm: 'x' }, exec)
+  assert.equal(done.requiresConfirmation, undefined)
+  assert.equal(done.removed, 1)
+  assert.equal(done.hooks.length, 0)
+  assert.equal(service.getHook!(saved.id), undefined, '确认后钩子真的被删')
 })
 
 test('memory_hooks.run:返回脚本判定与 message', async () => {

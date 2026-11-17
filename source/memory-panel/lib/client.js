@@ -2967,6 +2967,9 @@ window.__ModuleLoader__.load({
       }
 
       const remove = async (hook) => {
+        // 0.36.1：删除钩子不可逆（hooks.json 直接覆盖、无回收站），面板也加一道二次确认，
+        // 与工具层的 confirm 参数对齐 —— 用户误点不再瞬间丢掉写好的规则代码。
+        if (!window.confirm(`确定删除钩子「${hook.name || hook.id}」吗？\n\n这一步不可逆：规则代码会从 hooks.json 直接移除，没有回收站。若只是想让它停下，请改用「停用」。`)) return
         setBusy(true)
         setError('')
         try {

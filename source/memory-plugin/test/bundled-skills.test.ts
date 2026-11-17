@@ -75,6 +75,17 @@ test('memory_hooks run 走 runHookTrial（按 id 精确试跑，绕过审批门�
   assert.match(providerSrc, /runHookTrial\(id: string/, 'provider 要实现 runHookTrial')
 })
 
+test('删除钩子有二次确认：工具层 confirm 参数 + 面板 confirm 弹窗 (0.36.1)', () => {
+  const toolSrc = readFileSync(join(root, 'source', 'tool-memory', 'src', 'index.ts'), 'utf8')
+  assert.match(toolSrc, /confirm\?: string/, 'HooksArgs 要有 confirm 参数')
+  assert.match(toolSrc, /requiresConfirmation/, '第一次删除只给预览、不真删')
+  assert.match(toolSrc, /confirmation === hook\.name \|\| confirmation === hook\.id/, 'confirm 必须精确匹配 name 或 id')
+  const client = readFileSync(join(root, 'source', 'memory-panel', 'lib', 'client.js'), 'utf8')
+  assert.match(client, /window\.confirm\(`确定删除钩子/, '面板删除要弹二次确认')
+  const skill = readFileSync(join(root, 'source', 'memory-plugin', 'skills', 'memory-hook-scripts', 'SKILL.md'), 'utf8')
+  assert.match(skill, /删除钩子要二次确认/, '技能文档要写清删除的两步流程')
+})
+
 test('hook 审批卡有专属文案与代码展示，不套用普通写入审批', () => {
   const client = readFileSync(join(root, 'source', 'memory-panel', 'lib', 'client.js'), 'utf8')
   // 必须具备 hookMode 变量与专属文案。

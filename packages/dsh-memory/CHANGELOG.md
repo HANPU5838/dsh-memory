@@ -2,6 +2,14 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.36.1 — 删除钩子加二次确认
+
+- **问题**：用户误点面板「删除」把「记忆内容规范（概括句：正文）」校验钩子删掉了——`memory_hooks delete` 与面板删除都是硬删除（`hooks.json` 直接 filter 后原子覆盖，没有回收站、没有 .bak），一次点击/一次调用代码就没了，且没有任何确认。
+- **工具层**：`memory_hooks({action:'delete'})` 改成两步——第一次不带 `confirm` 只返回 `requiresConfirmation:true` + 待删预览（`removed:0`，钩子仍在），模型要把目标钩子的 `name` 或完整 `id` 回填到 `confirm` 再调一次才真删；`confirm` 写错或省略只会再拿一次预览，不会误删别的钩子。工具 description 与返回 `note` 都写明"不可逆、没有回收站"。
+- **面板**：删除按钮加 `window.confirm()`，弹窗点名钩子名、说明不可逆，并提示"只是想让它停下请改用停用"。
+- **文档**：随包技能 `memory-hook-scripts` 补「删除钩子要二次确认」一节；`bundled-skills.test.ts` 与 `hooks-tool.test.ts` 加守卫。全套 62 个测试文件 0 失败。
+- **附注**：本次被删的钩子已从会话日志里找回（多帧 zstd 要先用 zstd.exe 全解，Node 内置 zstd 只解首帧），已重新挂回并试跑验证；恢复后是新 id、需用户重新批准一次才生效。
+
 ## 0.36.0 — supersedes 支持跨作用域修正，且必须显式带 scope
 
 - **跨作用域修正**：此前 `memory_save.supersedes` 的旧记录按 id 精确查找时**只查新记录写入的那一个 scope**，旧记录在别的作用域一律报 `SUPERSEDES_UNKNOWN`（且文案与"id 不存在"完全一样）。现在改成跨全部作用域按完整 id 查找（`findById`）：新记录可以落在任意作用域去修正另一作用域里的旧记录（project / global / session / 自定义均可）。配套把"已修正/退役"标记也改成全局收集 —— `search` / `listSync` / 自动召回的 `excludedIds` 不再只看当前搜索的 scopes，否则 global 里的修正版挡不住 project 里的旧记录。
