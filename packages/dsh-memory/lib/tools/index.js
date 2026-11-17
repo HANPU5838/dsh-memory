@@ -2310,7 +2310,12 @@ export function memoryBlockTool(opts                    )                       
                                                     
                        
                
-                      
+     
+                                                         
+                                                                       
+                   
+     
+                 
                                    
                    
                                    
@@ -2374,6 +2379,11 @@ export function memoryHooksTool(opts                    )                       
         description: '运行时机；省略 = 更新时沿用旧值，新建默认 before-save。',
       },
       name: { type: 'string', description: '显示名（面板与审批卡用）' },
+      ruleId: {
+        type: 'string',
+        description: '可选：把钩子关联到一条规则记忆（报错时带 id，可用 memory_get 取全文）。'
+          + '**省略 = 通用钩子**（不挂任何记忆，靠 scopes/kinds/phase 与脚本里的 ctx 决定何时自动执行）。更新时省略 = 保留旧关联。',
+      },
       scopes: { type: 'array', items: { type: 'string' }, description: '适用作用域键；省略 = 全部适用（更新时保留旧值）' },
       kinds: { type: 'array', items: { type: 'string' }, description: '适用记忆类型（fact/rule/...）；省略 = 全部适用' },
       content: { type: 'string', description: 'run 试跑用的正文（只跑脚本，不写记忆）' },
@@ -2426,7 +2436,10 @@ export function memoryHooksTool(opts                    )                       
             ...(args.kinds !== undefined ? { kinds: args.kinds.map(String) } : { kinds: existing?.kinds ?? [] }),
             ...(args.description !== undefined ? { description: args.description } : {}),
             createdBy: 'agent',
-            ...(existing?.ruleId !== undefined ? { ruleId: existing.ruleId } : {}),
+            // 0.35.4：显式给了就更新；否则沿用旧关联；新建时省略 = 通用钩子（无 ruleId）。
+            ...(args.ruleId !== undefined
+              ? { ruleId: args.ruleId }
+              : existing?.ruleId !== undefined ? { ruleId: existing.ruleId } : {}),
           })
         } catch (error) {
           throw toolError(error)

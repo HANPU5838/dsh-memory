@@ -370,9 +370,11 @@ memory_scopes({
 
 | 时机 | 触发点 | 能做什么 |
 | --- | --- | --- |
-| `before-save` | `memory_save` 落盘前 | 返回 `{ ok: false, message: '哪里错、怎么改' }` **拒绝这次保存**，理由原样回给模型，它改对后重试 |
+| `before-save` | `memory_save` 落盘前 | 返回 `{ ok: false, message: '哪里错、怎么改' }` **拒绝这次保存**，理由原样回给模型，它改对后重试；报错自动带上关联规则 id |
 | `after-save` | 落盘后 | 只观察 / 附注，不改结果、不阻断 |
-| `before-inject` | 进入上下文前 | 返回 `{ content: '改写后' }` 改写正文，`{ drop: true }` 丢弃整条 |
+| `before-inject` | 进入上下文前 | 返回 `{ content: '改写后' }` 改写正文，`{ drop: true }` 丢弃整条。覆盖**三条注入通道**：规则段、摘要、每轮自动召回 |
+
+钩子**不必挂在记忆上**：随 `memory_save.hookCode` 保存会关联到那条规则（记 `ruleId`）；用 `memory_hooks` 的 `action:"save"` 且不传 `ruleId` 则建成**通用钩子**，靠 `scopes` / `kinds` / `phase` 与脚本里的 `ctx` 决定何时自动执行。代码实际按作用域 + 类型匹配触发，`ruleId` 只作关联标注。
 
 随规则一起登记（`memory_save` 的 `hookCode` / `hookPhase`）：
 

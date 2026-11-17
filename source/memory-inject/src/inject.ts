@@ -210,11 +210,19 @@ export interface RecallRenderOptions {
   chars?: number
   /** 是否用"印象"形态。 */
   impression?: boolean
+  /** 0.35.4：当前会话 id，传给 transform（钩子按会话判断时用）。 */
+  sessionId?: string
+  /**
+   * 0.35.4：渲染前对召回记录做解析（before-inject 钩子）。
+   * 返回改写后的记录数组；被丢弃的 id 会以 reason='hook' 计入 omitted。
+   * 由 apply 层把 provider 的 parseForInject 包装进来，渲染函数本身保持纯净。
+   */
+  transform?: (records: readonly MemoryRecord[], sessionId?: string) => { records: readonly MemoryRecord[]; droppedIds?: ReadonlySet<string> }
 }
 
 export interface RecallOmission {
   id: string
-  reason: 'top_k' | 'budget'
+  reason: 'top_k' | 'budget' | 'hook'
 }
 
 export interface RecallBlock {
@@ -232,6 +240,24 @@ export function renderRecallBlock(
   options: RecallRenderOptions = {},
 ): RecallBlock | null {
   if (hits.length === 0) return null
+  // 0.35.4：before-inject 钩子先解析召回记录 —— 可改写正文或丢弃整条。
+  // 丢弃的要计入 omitted（审计要能解释"为什么某条没进上下文"）。
+  let effectiveHits = hits
+  const droppedIds = new Set<string>()
+  if (options.transform !== undefined) {
+    try {
+      const transformed = options.transform(hits.map((h) => h.record), options.sessionId)
+      const byId = new Map(transformed.records.map((record) => [record.id, record]))
+      effectiveHits = hits
+        .filter((h) => byId.has(h.record.id))
+        .map((h) => ({ ...h, record: byId.get(h.record.id)! }))
+      for (const id of transformed.droppedIds ?? []) droppedIds.add(id)
+      // 变换后没给 droppedIds 但记录变少了：按差集兜底。
+      if (transformed.droppedIds === undefined) {
+        for (const h of hits) if (!byId.has(h.record.id)) droppedIds.add(h.record.id)
+      }
+    } catch { /* 解析失败 = 没解析：记录原样进入上下文 */ }
+  }
   const impression = options.impression === true
   const chars = impression ? (options.chars ?? 120) : 300
   const header = impression
@@ -242,7 +268,11 @@ export function renderRecallBlock(
   const ids: string[] = []
   const omitted: RecallOmission[] = []
   let budgetExhausted = false
-  for (const [index, h] of hits.entries()) {
+  // 被钩子丢弃的记录：审计里要给出原因，不能凭空消失。
+  for (const h of hits) {
+    if (droppedIds.has(h.record.id)) omitted.push({ id: h.record.id, reason: 'hook' })
+  }
+  for (const [index, h] of effectiveHits.entries()) {
     if (index >= cfg.topK) {
       omitted.push({ id: h.record.id, reason: 'top_k' })
       continue
@@ -404,7 +434,8 @@ export class MemoryInjector {
     const freshIds = new Set(fresh.map((record) => record.id))
     const freshHits = candidates.filter((hit) => freshIds.has(hit.record.id))
     const optionsForRender = typeof this.renderOptions === 'function' ? this.renderOptions() : this.renderOptions
-    const block = renderRecallBlock(freshHits, cfg, optionsForRender)
+    // 0.35.4：把会话 id 传给 transform（before-inject 钩子按会话判断时用）。
+    const block = renderRecallBlock(freshHits, cfg, { ...optionsForRender, sessionId })
     const base: RecallResult = {
       ids: [], candidates: candidates.length, dedupSkipped: deduplicated.length, updated, omitted: [], query,
       // 全部候选都被去重时 block 为 null；把 id 留在结果里，审计才能解释"跳过了哪条"。

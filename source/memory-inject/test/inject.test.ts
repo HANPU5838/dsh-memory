@@ -63,6 +63,40 @@ test('renderRecallBlock respects token budget and topK', () => {
   assert.ok(tooTight!.omitted.every((entry) => entry.reason === 'budget' || entry.reason === 'top_k'))
 })
 
+test('0.35.4: renderRecallBlock 的 transform(before-inject) 可改写正文与丢弃记录', () => {
+  const cfg = { ...defaultInjectConfig, tokenBudget: 5000, topK: 10 }
+  const hits = [
+    hit('原始内容甲：正文', 0.9, 'id-a'),
+    hit('原始内容乙：正文', 0.8, 'id-b'),
+  ]
+  let seenSid: string | undefined
+  const block = renderRecallBlock(hits, cfg, {
+    transform: (records, sid) => {
+      seenSid = sid
+      return {
+        // 改写甲，丢弃乙
+        records: [{ ...records[0]!, content: '改写后内容甲：正文' }],
+        droppedIds: new Set(['id-b']),
+      }
+    },
+    sessionId: 'session-test',
+  })!
+  assert.equal(seenSid, 'session-test', 'transform 要能拿到会话 id')
+  assert.match(block.text, /改写后内容甲/, '改写后的正文要进上下文')
+  assert.doesNotMatch(block.text, /原始内容甲/, '原正文不能漏进去')
+  assert.doesNotMatch(block.text, /原始内容乙/, '被丢弃的记录不能进上下文')
+  assert.ok(block.omitted.some((entry) => entry.id === 'id-b' && entry.reason === 'hook'), '被丢弃的要计入 hook 省略')
+})
+
+test('0.35.4: transform 抛错时记录原样进入上下文（钩子坏掉不吞记忆）', () => {
+  const cfg = { ...defaultInjectConfig, tokenBudget: 5000, topK: 10 }
+  const hits = [hit('原始内容：正文', 0.9, 'id-x')]
+  const block = renderRecallBlock(hits, cfg, {
+    transform: () => { throw new Error('钩子崩了') },
+  })!
+  assert.match(block.text, /原始内容/, '解析失败要原样注入')
+})
+
 test('injector returns the recall text for the host to wrap into a real message', async () => {
   const hits = [hit('用户偏好 TypeScript', 0.9)]
   const search = async () => hits

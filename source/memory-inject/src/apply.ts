@@ -242,7 +242,24 @@ export function apply(ctx: Context, config: MemoryInjectConfig = {}) {
   }
   const impressionCfg = (): RecallRenderOptions => {
     const settings = settingsOf().impression
-    return { impression: settings.enabled, chars: settings.chars }
+    return {
+      impression: settings.enabled,
+      chars: settings.chars,
+      // 0.35.4：自动召回也走 before-inject 钩子 —— 之前只有规则段与摘要接了，
+      // 每轮按用户问题召回的正文没过钩子，是三个注入通道里的漏网之鱼。
+      // sessionId 由 injector 在渲染时传入（注入半边没有 agent 对象）。
+      transform: (records, sid) => {
+        const mem = ctx.get('memory') as MemoryWithInject | undefined
+        if (records.length === 0 || typeof mem?.parseForInject !== 'function') return { records }
+        try {
+          const parsed = mem.parseForInject(records, sid)
+          return { records: parsed.records, droppedIds: new Set(parsed.changed.filter((c) => c.option === 'dropped').map((c) => c.id)) }
+        } catch {
+          // 解析失败 = 没解析：记录原样进上下文，不能因为钩子坏掉就少注入记忆。
+          return { records }
+        }
+      },
+    }
   }
 
   const extraScopes = normalizeExtraScopes(config.extraScopes ?? [])

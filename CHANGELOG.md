@@ -2,6 +2,13 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.35.4 — 通用钩子 + 自动召回也走 before-inject
+
+- **钩子不再必须挂到记忆上**：`memory_hooks` 的 `action:"save"` 新增可选 `ruleId` —— 不传就是**通用钩子**（不挂任何记忆，靠 `scopes` / `kinds` / `phase` 与脚本里的 `ctx` 决定何时自动执行；`scopes:[]`+`kinds:[]` 即对所有记忆生效）。传了则关联到规则记忆（报错带 id、可 memory_get 取全文）。更新时省略 = 保留旧关联。此前创建入口只有 `memory_save.hookCode`（强制关联一条规则），无法建通用钩子。
+- **before-inject 覆盖自动召回**：此前只有规则段、摘要两条注入通道接了注入前解析，每轮按用户问题触发的自动召回没过钩子（三条通道里的漏网之鱼）。现在召回命中在渲染前过 `before-inject`：可返回 `{content}` 改写、 `{drop:true}` 丢弃（被丢的记录以 `reason:'hook'` 计入审计 omitted，不再凭空消失）。会话 id 由 injector 传给 transform；解析失败 = 没解析，记录原样进上下文，钩子坏掉不会吞掉记忆。
+- **技能与文档同步**：`memory-hook-scripts` 补充"钩子一定要挂到记忆上吗"（两种创建方式）与三条注入通道说明。
+- 回归守卫：`inject.test.ts` 加两条（transform 改写/丢弃 + 会话 id 传递、transform 抛错时原样注入），`hooks-tool.test.ts` 加两条（不传 ruleId 建通用钩子、显式 ruleId 关联）。全套 645 tests / 644 pass / 1 skipped。
+
 ## 0.35.3 — 钩子否决保存时自动带上关联规则 ID
 
 - **问题**：钩子拒绝一条记忆写入时，报错只说「钩子『记忆内容规范（概括句：正文）』判定不符合要求」，模型看不到这条校验代码挂在**哪条规则记忆**上 —— 脚本的 `message` 往往只讲"缺什么"，模型想按规则全文改对却无从取起。

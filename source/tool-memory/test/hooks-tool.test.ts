@@ -162,6 +162,25 @@ test('memory_hooks.save:新建后回传审批结局', async () => {
   assert.equal(result.hooks[0]!.phase, 'before-save')
 })
 
+test('memory_hooks.save:不传 ruleId 建通用钩子（不挂任何记忆）', async () => {
+  const tool = memoryHooksTool({ getService: getService(stubHooks()) })
+  const result = await tool.execute({
+    action: 'save', code: CODE, name: '通用格式校验', phase: 'before-save',
+    scopes: [], kinds: [],
+  }, exec)
+  assert.equal(result.hooks.length, 1)
+  assert.equal(result.hooks[0]!.ruleId, undefined, '通用钩子没有 ruleId')
+  assert.deepEqual(result.hooks[0]!.scopes, [], '空 scopes = 全部作用域')
+})
+
+test('memory_hooks.save:显式 ruleId 关联到规则记忆', async () => {
+  const tool = memoryHooksTool({ getService: getService(stubHooks()) })
+  const result = await tool.execute({
+    action: 'save', code: CODE, name: '规则专属', ruleId: 'abcd1234-0000-0000-0000-000000000000',
+  }, exec)
+  assert.equal(result.hooks[0]!.ruleId, 'abcd1234-0000-0000-0000-000000000000')
+})
+
 test('memory_hooks.get:按 id 或唯一前缀取到代码', async () => {
   const service = stubHooks()
   service.saveHook!({ code: CODE, name: '内容规范', phase: 'before-save' })
