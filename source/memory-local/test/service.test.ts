@@ -74,8 +74,25 @@ test('supersedes: default search excludes retired records, includeSuperseded bri
   assert.ok(history.some((h) => h.record.id === r2.id))
 })
 
-test('state: default TTL, expired hidden from search/list, getByIds still returns it', async () => {
-  const state = await svc.save({
+test('supersedes 跨作用域：目标旧记录在别的 scope 也能修正，且旧记录全局退役', async () => {
+  const oldInA = await svc.save({ scope: PROJECT, kind: 'fact', content: 'project 旧结论：端口 3000' })
+  // 新记录落 global，supersedes 指向 project 里的旧记录（跨作用域）
+  const fixed = await svc.save({ scope: 'global', kind: 'fact', content: 'global 修正：端口 4000', supersedes: oldInA.id })
+  assert.equal(fixed.scope, 'global')
+  assert.equal(fixed.supersedes, oldInA.id)
+  // 旧记录按 id 全局退役：project 搜索默认不再返回它，includeSuperseded 能取回
+  const current = await svc.search({ text: '端口 3000', scope: PROJECT })
+  assert.equal(current.some((h) => h.record.id === oldInA.id), false, '跨作用域修正后旧记录默认退役')
+  const history = await svc.search({ text: '端口 3000', scope: PROJECT, includeSuperseded: true } as never)
+  assert.ok(history.some((h) => h.record.id === oldInA.id), 'includeSuperseded 能取回历史')
+  // 未知目标仍要报错，且文案是 any scope
+  await assert.rejects(
+    () => svc.save({ scope: PROJECT, kind: 'fact', content: '指向不存在', supersedes: 'no-such-id' }),
+    (err: Error & { code?: string }) => err.code === 'SUPERSEDES_UNKNOWN' && /any scope/.test(err.message),
+  )
+})
+
+test('state: default TTL, expired hidden from search/list, getByIds still returns it', async () => {  const state = await svc.save({
     scope: PROJECT, kind: 'state', content: '当前部署在测试环境，验证后需要回滚',
     ttlMs: 30,
   } as never)

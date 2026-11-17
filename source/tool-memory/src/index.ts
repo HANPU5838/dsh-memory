@@ -645,6 +645,19 @@ function outOfScopeReason(
  */
 const SUPERSEDES_PARAM_DESCRIPTION =
   '被这条新记忆修正 / 替换掉的旧记录 id。必须传**完整 id**(36 位 UUID),不能传 memory_search / memory_list / 摘要 / 规则索引里显示的 8 位短 id;手头只有短 id 时先用 memory_get 取回 —— 它结果里每段首行的 [id] 就是完整 id。旧记录会被标记为「已修正」,默认不再出现在检索、规则和自动召回里,但 memory_get 仍能查到。'
+  + '传了 supersedes 时**必须显式带 scope 参数**（不接受省略 / 默认作用域）：scope 是新记录要保存到的目标作用域，本会话必须对它拥有写权限；跨作用域修正（旧记录在别的作用域）现在支持，但目标作用域必须写权限，否则直接拒绝，不做审批。'
+
+/** 带 supersedes 时必须显式写 scope：拒绝静默落到默认作用域造成“修错地方”。 */
+function requireScopeForSupersedes(args: SaveArgs, explicit: string | undefined): void {
+  if (args.supersedes === undefined || args.supersedes === '') return
+  const raw = args.scope?.trim()
+  if (explicit === undefined || raw === undefined || raw === '') {
+    throw new MemoryToolError(
+      'SUPERSEDES_SCOPE_REQUIRED',
+      '用 supersedes 修正旧记忆时必须显式传 scope 参数（新记录要保存到的目标作用域 key），不能省略、不能依赖默认作用域；否则拒绝保存。',
+    )
+  }
+}
 
 /** memory_* 的 description 参数说明(模型可见)。 */
 const DESCRIPTION_PARAM_DESCRIPTION =
@@ -956,10 +969,13 @@ export interface SaveArgs {
 
 export interface SaveResult {
   id: string
+  /** 新记录实际保存到的目标作用域 key —— 所有 memory_save 返回都带，supersedes 时也会在提示文案里再强调一次。 */
   scope: string
   /** 作用域别名（这次写入顺带登记的名字）。 */
   scopeName?: string
   deduped: boolean
+  /** supersedes 修正的场景：被修正旧记录 id 与其所在作用域（可跨作用域）。 */
+  supersedes?: { id: string; scope?: string }
   /** 0.35.0：随这条记忆登记的钩子（代码挂上了但没批准时也会给 id，附审批结局）。 */
   hook?: { id: string; name: string; phase: HookPhaseView; approval: string }
 }
@@ -1047,6 +1063,11 @@ export function memorySaveTool(opts: MemoryToolsOptions): ToolSpec<SaveArgs, Sav
         explicit = resolved
       }
 
+      // 0.36.0：带 supersedes 时 scope 必须显式给出（见 requireScopeForSupersedes），
+      // 且本会话必须对目标作用域已有写权限 —— 不触发范围外审批，权限不足直接拒绝。
+      requireScopeForSupersedes(args, explicit)
+      const isSupersedes = args.supersedes !== undefined && args.supersedes !== ''
+
       // 写入护栏（0.20.0 / 0.23.0）：write 开关与范围等级分开判断。
       //   - 作用域在范围内但「可写」关掉 → 直接拒绝并说明开关;
       //   - absolute 且作用域不在范围内 → 直接拒绝并说明绝对限制;
@@ -1058,7 +1079,16 @@ export function memorySaveTool(opts: MemoryToolsOptions): ToolSpec<SaveArgs, Sav
       const level = policy?.level ?? 'none'
       const target = explicit ?? (typeof service.resolveWriteScope === 'function' ? service.resolveWriteScope(agent) : undefined)
       let approved = false
-      if (level !== 'none' && target !== undefined && !scopeWritableBy(decide, service, agent, policy, target)) {
+      if (isSupersedes && level !== 'none' && target !== undefined && !scopeWritableBy(decide, service, agent, policy, target)) {
+        // supersedes 是"改旧记忆"的写操作：必须已有写权限，不走范围外审批。
+        // 不论拒绝原因是绝对限制 / 只读 / 范围外，统一用一个 dedicated 错误码与文案，
+        // 避免把 "SCOPE_NOT_IN_RANGE" 误报成 VISIBILITY_ABSOLUTE（见 0.36.0）。
+        throw new MemoryToolError(
+          'SUPERSEDES_SCOPE_NOT_WRITABLE',
+          `用 supersedes 修正旧记忆要求当前会话对目标作用域 ${target} 已有写权限（作用域不在本会话可写范围内），本次保存没有执行。请先让用户授予该作用域写权限，或改用本会话可写的作用域。`,
+        )
+      }
+      if (!isSupersedes && level !== 'none' && target !== undefined && !scopeWritableBy(decide, service, agent, policy, target)) {
         const decision = decide('write', target)
         if (decision !== undefined) {
           // provider 已经给出统一判定：不可申请就直接讲原因（absolute / 关闭 / 只读）。
@@ -1131,11 +1161,19 @@ export function memorySaveTool(opts: MemoryToolsOptions): ToolSpec<SaveArgs, Sav
             description: args.description,
           })
         }
+        let oldScope: string | undefined
+        if (isSupersedes) {
+          try {
+            const hit = (await service.getByIds?.([args.supersedes!]))?.[0]
+            oldScope = hit?.scope
+          } catch { /* 取不到旧记录作用域只影响提示，不影响保存成功 */ }
+        }
         return {
           id: record.id,
           scope: record.scope,
           ...(alias !== undefined ? { scopeName: alias } : {}),
           deduped: false,
+          ...(isSupersedes ? { supersedes: { id: args.supersedes!, ...(oldScope !== undefined ? { scope: oldScope } : {}) } } : {}),
           ...(hookInfo !== undefined ? { hook: hookInfo } : {}),
         }
       } catch (error) {

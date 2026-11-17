@@ -552,9 +552,11 @@ export function apply(ctx         , config                     = {}) {
     procedureTools.set(sessionId, recent)
   }
 
-  const excludedIds = (memory                     , scopes                               )                      => {
+  const excludedIds = (memory                     , _scopes                               )                      => {
     try {
-      return new Set(memory.supersededIds?.(scopes === undefined ? undefined : [...scopes]) ?? [])
+      // 0.36.0：supersedes 支持跨作用域，修正版可能不在本次注入的 scopes 里；
+      // 退役 id 必须扫全部 scope（省略参数），否则 global 里的修正版挡不住 project 旧记录。
+      return new Set(memory.supersededIds?.() ?? [])
     } catch {
       return new Set()
     }

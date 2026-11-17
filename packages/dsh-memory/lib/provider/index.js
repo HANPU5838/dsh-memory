@@ -1292,7 +1292,10 @@ export class LocalMemoryService                             {
       const s = this.store.peek(scope)
       if (s) stores.push(s)
     }
-    const retired = input.includeSuperseded ? new Set        () : new Set(this.supersededIds(wanted))
+    // 0.36.0：supersedes 支持跨作用域，所以退役标记也必须跨作用域收集 ——
+    // 一条落在 global 的修正版要能让 project 里的旧记录退出检索/注入。
+    // scope 参数只用于过滤"要枚举哪些记录",不再限制"从哪些 scope 收集修正关系"。
+    const retired = input.includeSuperseded ? new Set        () : new Set(this.supersededIds())
     const now = Date.now()
     const out                 = []
     for (const s of stores) {
@@ -3294,8 +3297,12 @@ export class LocalMemoryService                             {
     if (content.length > this.cfg.maxRecordChars) {
       throw memoryError('CONTENT_TOO_LONG', `content exceeds ${this.cfg.maxRecordChars} chars`)
     }
-    if (input.supersedes && !this.store.scope(scope).records.get(input.supersedes)) {
-      throw memoryError('SUPERSEDES_UNKNOWN', `supersedes target ${input.supersedes} not found in ${scope}`)
+    // 0.36.0：supersedes 的旧记录按**完整 id 跨作用域**查找 —— 新记录可以落在任意
+    // 作用域去修正另一作用域里的旧记录（project / global / session / 自定义均可）。
+    // 之前这里用 `this.store.scope(scope).records.get(id)` 只查新记录自己的 scope，
+    // 跨作用域一律报 SUPERSEDES_UNKNOWN；findById 会扫描全部已加载/已发现的 scope。
+    if (input.supersedes && !this.findById(input.supersedes)) {
+      throw memoryError('SUPERSEDES_UNKNOWN', `supersedes target ${input.supersedes} not found in any scope`)
     }
     // 状态型记忆(state)默认带 TTL:写入时算一次绝对 expiresAt,读取时只比较时间。
     // 显式 expiresAt 优先;ttlMs 对任何 kind 都生效(便于测试/特殊用途)。
@@ -3618,12 +3625,9 @@ export class LocalMemoryService                             {
 
     // 退役(superseded)记录默认不参与召回:它们只是被新记录修正过的历史版本,
     // 继续返回会让模型拿旧结论当现行事实。memory_get(id)/面板历史仍可直接取。
-    const retired = new Set        ()
-    for (const { store } of stores) {
-      for (const record of store.records.values()) {
-        if (record.supersedes) retired.add(record.supersedes)
-      }
-    }
+    // 0.36.0：跨作用域修正后，修正版可能不在本次搜索的 scopes 里（例如修正版落
+    // global、旧记录在 project），所以退役 id 必须扫全部 scope，不能只看 stores。
+    const retired = new Set        (this.supersededIds())
 
     // --- channel 1: lexical recall, scored per scope with local IDF ---
                                                                                 

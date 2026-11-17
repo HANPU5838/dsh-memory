@@ -557,5 +557,7 @@ test('memory_save.supersedes 的参数说明要求完整 id，并禁止 8 位短
   assert.ok(text.includes('8 位短 id'), '必须明确禁止 8 位短 id')
   assert.ok(text.includes('memory_get'), '必须给出拿完整 id 的办法（memory_get）')
   assert.ok(text.includes('36 位 UUID'), '必须给出完整 id 的形状')
+  assert.ok(text.includes('必须显式带 scope'), '必须写明 supersedes 时 scope 不能省略')
+  assert.ok(text.includes('写权限'), '必须写明目标作用域要有写权限')
 })
 

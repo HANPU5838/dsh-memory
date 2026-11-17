@@ -141,10 +141,16 @@ export function apply(ctx     , config                   = {}) {
     const head = value.deduped
       ? `已更新既有记忆（内容相同，去重）：${value.id} @ ${renderScope(value.scope, agent)}`
       : `已保存记忆 ${value.id} @ ${renderScope(value.scope, agent)}`
-    // 0.35.2：带 hookCode 时把钩子的登记 / 审批结局回给模型 —— 否则它不知道
-    // 脚本到底挂没挂上、是不是还在等批准（未批准 = 不会运行）。
+    // 0.36.0：所有 memory_save 返回统一带上保存到的目标作用域 key；用 supersedes
+    // 修正旧记忆时额外说明修正关系（旧记录所在作用域可不同）。文案仍以
+    // 「已保存记忆 <uuid> @ <scope>」开头，signals.ts 按 UUID 抽取不受影响。
+    const scopeKeyLine = `保存到的目标作用域 key：${value.scope}`
+    const correctionLine = value.supersedes === undefined
+      ? ''
+      : `\n已用本条修正旧记忆 ${value.supersedes.id}${value.supersedes.scope !== undefined ? `（旧记录在 ${value.supersedes.scope}）` : ''}`
+    const tail = `\n${scopeKeyLine}${correctionLine}`
     const hook = value.hook
-    if (hook === undefined) return head
+    if (hook === undefined) return `${head}${tail}`
     const approvalText                         = {
       approved: '已获批准，会按设定时机运行',
       rejected: '用户拒绝批准，**不会运行**（改脚本或让用户批准后才生效）',
@@ -156,7 +162,7 @@ export function apply(ctx     , config                   = {}) {
     const state = hook.approval.startsWith('save-failed')
       ? `登记失败：${hook.approval.slice('save-failed: '.length)}`
       : approvalText[hook.approval] ?? hook.approval
-    return `${head}\n随附规则代码 ${hook.id !== '' ? `${hook.id} ` : ''}（${hook.phase}）：${state}`
+    return `${head}${tail}\n随附规则代码 ${hook.id !== '' ? `${hook.id} ` : ''}（${hook.phase}）：${state}`
   })
 
   register(tools.memory_search, (value, _args, exec) => {

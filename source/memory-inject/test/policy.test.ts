@@ -24,6 +24,13 @@ test('策略段列出 memory_block 并说明它是主动降噪（不删数据、
   assert.ok(POLICY_TEXT.includes('memory_forget'), '仍要保留删除的正当用途')
 })
 
+test('策略段说明 supersedes 必须显式带 scope 且需要写权限', () => {
+  assert.ok(POLICY_TEXT.includes('supersedes'), '策略段必须提到 supersedes')
+  assert.ok(POLICY_TEXT.includes('必须显式带 scope'), '必须写明 scope 不能省略')
+  assert.ok(POLICY_TEXT.includes('写权限'), '必须写明目标作用域要有写权限')
+  assert.ok(POLICY_TEXT.includes('跨作用域'), '必须写明跨作用域修正已支持')
+})
+
 test('摘要头部：无关条目优先屏蔽，memory_forget 只用于过时/写错', () => {
   const record = {
     id: 'abcdef12-0000-4000-8000-000000000000',

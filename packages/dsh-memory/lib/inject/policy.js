@@ -18,6 +18,8 @@ memory_search 只返回印象（ID、作用域、类型、标签和少量摘要�
 
 新建自定义作用域时，memory_save 必须带 scopeDescription（一句话用途）；可选带 scopeRule 写一条初始规则。已有作用域带上 scopeDescription 表示更新用途，不会写初始记忆。
 
+用 memory_save 的 supersedes 修正 / 替换旧记忆时：**必须显式带 scope 参数**（新记录要保存到的目标作用域 key），省略或依赖默认作用域一律拒绝；目标旧记录按完整 id 跨作用域查找，可以不在同一作用域，但当前会话必须对目标作用域已有写权限（不足直接拒绝，不会走范围外审批）。supersedes 只传完整 id（36 位 UUID）；返回值里带「保存到的目标作用域 key」与修正关系。
+
 作用域的**用途**和**别名**可以改（用户也能在面板「记录 → 作用域」里改）：memory_scopes({ action: "edit", scope, scopeDescription?, scopeName? }) —— scopeDescription 是那句用途（空串 = 清空，回退到按类型的默认描述），scopeName 是别名（空串 = 移除；只影响显示与引用，不改作用域键；项目 / 自定义作用域支持，global / session 不支持）。两者至少给一个，且需要该作用域可写（范围外先用 action="request" 申请写权限）。把用途写清楚，后续检索的「范围外清单」会直接告诉接手的人这个域是干什么的。
 
 同一会话里已经出现过的记忆，memory_search / memory_list 只回 ID 并注明“摘要因上下文去重被省略”；那不是没找到，需要正文时直接用 memory_get 取。

@@ -2,6 +2,14 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.36.0 — supersedes 支持跨作用域修正，且必须显式带 scope
+
+- **跨作用域修正**：此前 `memory_save.supersedes` 的旧记录按 id 精确查找时**只查新记录写入的那一个 scope**，旧记录在别的作用域一律报 `SUPERSEDES_UNKNOWN`（且文案与"id 不存在"完全一样）。现在改成跨全部作用域按完整 id 查找（`findById`）：新记录可以落在任意作用域去修正另一作用域里的旧记录（project / global / session / 自定义均可）。配套把"已修正/退役"标记也改成全局收集 —— `search` / `listSync` / 自动召回的 `excludedIds` 不再只看当前搜索的 scopes，否则 global 里的修正版挡不住 project 里的旧记录。
+- **必须显式带 scope**：带 `supersedes` 时省略 `scope`（依赖默认作用域）一律拒绝（`SUPERSEDES_SCOPE_REQUIRED`），不静默落到默认作用域造成"修错地方"；`supersedes` / `scope` 两个参数的说明与常驻策略段都写清这条口径。
+- **写权限硬门槛**：带 `supersedes` 时当前会话必须对目标作用域**已有写权限**，不足直接拒绝（`SUPERSEDES_SCOPE_NOT_WRITABLE`），不走范围外审批 —— 旧实现会把 `SCOPE_NOT_IN_RANGE` 误报成 `VISIBILITY_ABSOLUTE`。
+- **返回提示统一带目标作用域 key**：所有 `memory_save` 的返回文案新增一行「保存到的目标作用域 key：<scope>」；`supersedes` 场景再补一条修正关系（含旧记录所在作用域）。返回值同时新增 `supersedes:{id,scope?}` 字段，文案仍以「已保存记忆 <uuid> @ <scope>」开头，`memorySaveResultIds` 按 UUID 抽取不受影响。
+- 回归守卫：`service.test.ts` 加跨作用域修正与全局退役用例，`access.test.ts` 加缺 scope / 无写权限 / 返回值三个用例，`tools.test.ts` 与 `policy.test.ts` 锁住参数说明与常驻策略段，`apply-registration.test.ts` 静态锁住返回提示。全套 62 个测试文件在受限沙箱内逐文件跑通（0 失败）。
+
 ## 0.35.4 — 通用钩子 + 自动召回也走 before-inject
 
 - **钩子不再必须挂到记忆上**：`memory_hooks` 的 `action:"save"` 新增可选 `ruleId` —— 不传就是**通用钩子**（不挂任何记忆，靠 `scopes` / `kinds` / `phase` 与脚本里的 `ctx` 决定何时自动执行；`scopes:[]`+`kinds:[]` 即对所有记忆生效）。传了则关联到规则记忆（报错带 id、可 memory_get 取全文）。更新时省略 = 保留旧关联。此前创建入口只有 `memory_save.hookCode`（强制关联一条规则），无法建通用钩子。
