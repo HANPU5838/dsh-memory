@@ -47,6 +47,20 @@ import { ScopeArchiveStore,                        } from './scope-archive.js'
 import { SessionGrantsStore,                                       } from './grants.js'
 import { ApprovalAuditStore,                                            } from './approval-audit.js'
 import {
+  DEFAULT_HOOK_SETTINGS,
+  HOOK_PHASES,
+  HookStore,
+  describeOutcomes,
+  hashHookCode,
+  hookNeedsApproval,
+  runHooks,
+                   
+                 
+                  
+                     
+                    
+} from './hooks.js'
+import {
   authorize as authorizeAccess,
                      
                       
@@ -200,6 +214,11 @@ function isInside(parent        , child        )          {
                                                                    
                                                                            
                                                              
+     
+                                 
+                                                         
+     
+                                         
  
 
                                  
@@ -621,7 +640,7 @@ export function resolveConfig(config                    = {})                 {
                     
                    
                                            
-                          
+                                   
                                                
                                    
  
@@ -829,6 +848,10 @@ export class LocalMemoryService                             {
                    archive                   
   /** 权限申请 / 授权生命周期审计（approvals.jsonl，不含正文）。 */
                    approvalAudit                    
+  /** 记忆钩子（0.35.0）：规则记忆附带的可执行校验/解析脚本，独立于记忆存储。 */
+                   hooks           
+  /** 钩子运行设置（随 settings.json 的 hooks 小节落盘）。 */
+          hookCfg              
   /** 可见域变更通知:下一次 pre-step 注入给 Agent 后删除(按会话)。 */
                    visibilityNotices = new Map                                                                ()
   /** 权限变更通知(0.25.0):授予 / 撤销；下一次 pre-step 注入给 Agent 后删除。 */
@@ -864,7 +887,7 @@ export class LocalMemoryService                             {
 
   constructor(config                    = {}) {
     this.cfg = resolveConfig(config)
-    this.inject = this.loadInjectSettings((config                        ).inject)
+    this.inject = this.loadInjectSettings((config                        ).inject, (config                       ).hooks)
     this.names = new ScopeNames(join(this.cfg.storeDir, 'scopes.json'))
     this.meta = new ScopeMetaStore({ root: this.cfg.storeDir })
     this.visibility = new SessionVisibilityStore({ root: this.cfg.storeDir })
@@ -873,6 +896,14 @@ export class LocalMemoryService                             {
     this.blocks = new MemoryBlocksStore({ root: this.cfg.storeDir })
     this.archive = new ScopeArchiveStore({ root: this.cfg.storeDir })
     this.approvalAudit = new ApprovalAuditStore({ root: this.cfg.storeDir })
+    this.hooks = new HookStore({
+      root: this.cfg.storeDir,
+      onWarn: (m) => console.warn(`[dsh-memory-local] ${m}`),
+    })
+    // 注意:loadInjectSettings() 已经把 settings.json 里的 hooks 小节覆盖进
+    // hookCfg 了(带磁盘覆盖)。这里绝不能再用 config 重新赋值 —— 那会把磁盘
+    // 上的覆盖冲掉,表现为"面板改了设置,重启后又变回来"。config 只在
+    // loadInjectSettings 里作为底座使用。
     this.rerankBudget = new DailyBudget(this.cfg.llm.dailyBudgetTokens)
     this.store = new MemoryStore(this.cfg.storeDir, { onWarn: (m) => console.warn(`[dsh-memory-local] ${m}`) })
     // Identity BEFORE the eager load (issue #1): ScopeStore skips its sidecar
@@ -910,6 +941,176 @@ export class LocalMemoryService                             {
   /** 读取注入设置(归一化后的快照)。 */
   injectSettings()                 {
     return normalizeInjectSettings(this.inject, this.inject)
+  }
+
+  // ---------------------------------------------------------------- 记忆钩子（0.35.0）
+
+  /** 当前钩子设置（配置 + settings.json 覆盖后的快照）。 */
+  hookSettings()               {
+    return { ...this.hookCfg }
+  }
+
+  /** 面板 / 配置改钩子设置。落盘进 settings.json 的 hooks 小节。 */
+  updateHookSettings(patch         )               {
+    this.hookCfg = resolveHookSettings({ ...this.hookCfg, ...(typeof patch === 'object' && patch !== null ? patch : {}) })
+    try {
+      mkdirSync(this.cfg.storeDir, { recursive: true })
+      const current = existsSync(this.settingsPath)
+        ? JSON.parse(readFileSync(this.settingsPath, 'utf8'))                           
+        : {}
+      current.hooks = this.hookCfg
+      writeFileSync(this.settingsPath, `${JSON.stringify(current, null, 2)}\n`, 'utf8')
+    } catch (error) {
+      console.warn(`[dsh-memory-local] 无法写入钩子设置 ${this.settingsPath}: ${error instanceof Error ? error.message : String(error)}`)
+    }
+    return this.hookSettings()
+  }
+
+  /** 全部钩子（含代码；只有 memory_hooks 与面板读它）。 */
+  listHooks()               {
+    return this.hooks.list()
+  }
+
+  getHook(id        )                         {
+    return this.hooks.get(id)
+  }
+
+  /** 新建 / 更新钩子。代码改过则旧的审批作废（审批按代码指纹记账）。 */
+  saveHook(input               )             {
+    return this.hooks.save(input, this.hookSettings())
+  }
+
+  deleteHook(id        )          {
+    return this.hooks.delete(id)
+  }
+
+  /** 记一次用户审批（把当前代码的指纹记为已批准）。 */
+  approveHook(id        )          {
+    const hook = this.hooks.get(id)
+    if (hook === undefined) return false
+    return this.hooks.approve(id, hashHookCode(hook.code))
+  }
+
+  /** 这条钩子是否还需要用户批准（代码变过也算需要）。 */
+  hookPendingApproval(id        )          {
+    const hook = this.hooks.get(id)
+    return hook === undefined ? false : hookNeedsApproval(hook, this.hookSettings())
+  }
+
+  /**
+   * 带代码的规则首次保存：**向用户审批一次**。
+   *
+   * 审批按代码指纹记账（`approvedHash`），所以：
+   *   - 同一段代码只问一次；
+   *   - 代码改一个字符就要重新批准（否则改两笔就能继续用旧授权）。
+   *
+   * `requireApproval=false`（用户显式关掉）时直接记批准，不弹窗。
+   * 没有审批通道（老宿主 / 测试）时**保守拒绝**：代码会在这个进程里执行，
+   * 拿不到用户点头就不该让它跑起来。
+   */
+  async requestHookApproval(
+    agent         ,
+    id        ,
+    options                                                 = {},
+  )                                                                              {
+    const hook = this.hooks.get(id)
+    if (hook === undefined) return 'unavailable'
+    const settings = this.hookSettings()
+    if (!hookNeedsApproval(hook, settings)) return 'not-needed'
+    if (!settings.requireApproval) {
+      this.hooks.approve(id, hashHookCode(hook.code))
+      return 'approved'
+    }
+    // 没有会话就没有审批浮层可挂:requestOutOfScope 会挂一个 5 分钟的等待,
+    // 在测试 / 老宿主里白白耗掉 5 分钟。这里直接判不可用 —— 代码保持未批准、
+    // 永远不会执行,既安全又不会卡住调用方。
+    if (this.rawSessionIdOf(agent) === undefined) return 'unavailable'
+    const preview = hook.code.length > 3000 ? `${hook.code.slice(0, 3000)}…` : hook.code
+    const answer = await this.requestOutOfScope(agent, {
+      tool: 'memory_hooks',
+      action: 'write',
+      query: hook.name,
+      mode: 'hook',
+      ...(options.description !== undefined ? { description: options.description } : {}),
+      items: [{
+        id: hook.id,
+        scope: hook.scopes.length > 0 ? hook.scopes.join(',') : '*',
+        kind: 'code',
+        content: `${hook.phase}｜${hook.name}\n${preview}`,
+        tags: ['hook', hook.phase],
+        importance: 1,
+        updatedAt: Date.now(),
+        reason: 'hook',
+      }                          ],
+      ...(options.signal !== undefined ? { signal: options.signal } : {}),
+    })
+    if (answer.outcome === 'allowed-once') {
+      this.hooks.approve(id, hashHookCode(hook.code))
+      return 'approved'
+    }
+    return answer.outcome === 'timeout' ? 'timeout' : answer.outcome === 'unavailable' ? 'unavailable' : 'rejected'
+  }
+
+  /** 真正跑一批钩子（工具 / 注入共用）。 */
+  runHooks(phase           , input                                )                {
+    return runHooks(this.hooks, phase, input, this.hookSettings())
+  }
+
+  /**
+   * 注入前解析：把一批记录按 before-inject 钩子处理一遍。
+   *
+   * 返回**新数组**（不改调用方持有的记录对象），并带回每个被改写/丢弃的 id，
+   * 让注入审计能对上账。脚本崩溃等于没跑过，记录原样保留。
+   */
+  parseForInject(records                         , sessionId         )   
+                           
+                                                                                 
+                      
+    {
+    const settings = this.hookSettings()
+    if (!settings.enabled || records.length === 0) return { records: [...records], changed: [], warnings: [] }
+    const out                 = []
+    const changed                                                                       = []
+    const warnings           = []
+    for (const record of records) {
+      let current = record
+      let dropped = false
+      // 同一批钩子里后面的脚本看到前面改写后的正文 —— 与保存路径的顺序一致。
+      for (const hook of this.hooks.forRun('before-inject', { scope: record.scope, kind: record.kind }, settings)) {
+        const outcomes = this.runHooks('before-inject', {
+          memory: {
+            id: current.id,
+            scope: current.scope,
+            kind: current.kind,
+            content: current.content,
+            tags: Array.isArray(current.tags) ? current.tags.map(String) : [],
+            importance: current.importance,
+            ...(current.triggers !== undefined ? { triggers: current.triggers } : {}),
+            createdAt: current.createdAt,
+            updatedAt: current.updatedAt,
+          },
+          tool: 'inject',
+          ...(sessionId !== undefined ? { sessionId } : {}),
+        })
+        const outcome = outcomes.find((item) => item.hook.id === hook.id)
+        if (outcome === undefined) continue
+        if (outcome.error !== undefined) {
+          warnings.push(`钩子「${hook.name}」在注入前解析时失败（已忽略）：${outcome.error}`)
+          continue
+        }
+        if (outcome.drop === true) {
+          dropped = true
+          changed.push({ id: record.id, hook: hook.name, option: 'dropped' })
+          break
+        }
+        if (typeof outcome.content === 'string' && outcome.content.trim() !== '' && outcome.content !== current.content) {
+          current = { ...current, content: outcome.content }
+          changed.push({ id: record.id, hook: hook.name, option: 'rewritten' })
+        }
+      }
+      if (!dropped) out.push(current)
+    }
+    return { records: out, changed, warnings }
   }
 
   /** 注入半边注册审计收集器。重复注册时后一个覆盖前一个(激活重载)。 */
@@ -987,8 +1188,12 @@ export class LocalMemoryService                             {
   }
 
   /** 配置先给底,磁盘上的 settings.json 覆盖它;坏文件忽略而不是启动失败。 */
-          loadInjectSettings(fromConfig         )                 {
+          loadInjectSettings(fromConfig         , hooksFromConfig          )                 {
     const base = normalizeInjectSettings(fromConfig)
+    // 无条件先给一份底座(配置里的 hooks),随后 settings.json 的 hooks 小节覆盖它。
+    // 不这样做的话:没有 settings.json 时 hookCfg 就是 undefined,而有 settings.json
+    // 时又只在文件分支里赋值 —— 两条路径不一致,且构造函数里那次赋值会把磁盘覆盖冲掉。
+    this.hookCfg = resolveHookSettings(hooksFromConfig)
     try {
       if (existsSync(this.settingsPath)) {
         const parsed = JSON.parse(readFileSync(this.settingsPath, 'utf8'))           
@@ -998,6 +1203,9 @@ export class LocalMemoryService                             {
         const oldDigestDefault = digest !== undefined && digest !== null
           && typeof digest === 'object' && digest.hintBudget === undefined
           && Number(digest.tokenBudget) === 400
+        // 钩子设置也走这里：配置是底，settings.json 里的 hooks 小节覆盖它。
+        const hookOverride = (parsed                              )?.hooks
+        if (hookOverride !== undefined) this.hookCfg = resolveHookSettings({ ...this.hookCfg, ...(typeof hookOverride === 'object' && hookOverride !== null ? hookOverride : {}) })
         const merged = mergeInjectSettings(base, parsed)
         if (oldDigestDefault) merged.digest.tokenBudget = base.digest.tokenBudget
         return merged
@@ -3117,6 +3325,42 @@ export class LocalMemoryService                             {
       this.meta.put(scope, { description, createdBy: metaBefore?.createdBy ?? createdBy, status: 'ready' })
     }
 
+    // 0.35.0：保存前校验钩子。**在真正写盘之前**跑，脚本可以否决这次保存。
+    //   崩溃/超时的钩子不会阻断（见 hooks.ts 文件头第 3 条）；只有脚本明确返回
+    //   ok:false 才是"规则说不合规"。
+    const hookSettings = this.hookSettings()
+    const draft = {
+      scope,
+      kind: String(input.kind ?? 'note'),
+      content,
+      tags: Array.isArray(input.tags) ? input.tags.map(String) : [],
+      importance: typeof input.importance === 'number' ? input.importance : 0.8,
+    }
+    if (hookSettings.enabled) {
+      const outcomes = this.runHooks('before-save', {
+        memory: {
+          ...draft,
+          ...(input.supersedes !== undefined ? { supersedes: input.supersedes } : {}),
+          ...(input.expiredAt !== undefined ? { expiresAt: input.expiredAt } : {}),
+        },
+        ...(typeof (input                          ).hookTool === 'string'
+          ? { tool: (input                         ).hookTool           }
+          : {}),
+        ...(saveAgent !== undefined && this.rawSessionIdOf(saveAgent) !== undefined
+          ? { sessionId: this.rawSessionIdOf(saveAgent)           }
+          : {}),
+      })
+      const veto = outcomes.find((outcome) => outcome.error === undefined && !outcome.ok)
+      if (veto !== undefined) {
+        const why = veto.message !== undefined && veto.message !== '' ? veto.message : '内容不符合规则记忆的要求'
+        throw memoryError(
+          'HOOK_REJECTED',
+          `记忆未保存：钩子「${veto.hook.name}」判定不符合要求 —— ${why}\n`
+          + '按提示改好 content 后重新调用 memory_save（这不是权限问题，不需要审批）。',
+        )
+      }
+    }
+
     let record              
     try {
       const saved = this.store.save(
@@ -3142,6 +3386,28 @@ export class LocalMemoryService                             {
     }
     void this.embedRecord(record).catch(() => {})
     this.store.scheduleFlush()
+    // 0.35.0：保存后观察钩子。**不阻断、不改写** —— 记录已经落盘，这里只让脚本
+    // 记录/附注；脚本崩溃只写日志，连告警都不回给模型（避免污染工具结果）。
+    if (hookSettings.enabled) {
+      try {
+        this.runHooks('after-save', {
+          memory: {
+            id: record.id,
+            scope: record.scope,
+            kind: record.kind,
+            content: record.content,
+            tags: Array.isArray(record.tags) ? record.tags.map(String) : [],
+            importance: record.importance,
+            ...(record.triggers !== undefined ? { triggers: record.triggers } : {}),
+            createdAt: record.createdAt,
+            updatedAt: record.updatedAt,
+            ...(record.expiredAt !== undefined ? { expiresAt: record.expiredAt } : {}),
+            ...(record.supersedes !== undefined ? { supersedes: record.supersedes } : {}),
+            ...(record.initial === true ? { initial: true } : {}),
+          },
+        })
+      } catch { /* 观察者的失败绝不能影响已完成的保存 */ }
+    }
     return record
   }
 
@@ -4286,6 +4552,29 @@ function memoryError(code        , message        )                           {
   const err = new Error(`[memory:${code}] ${message}`)                            
   err.code = code
   return err
+}
+
+/**
+ * 钩子设置归一化（配置 → HookSettings）。
+ *
+ * 默认**开启**：这是"规则能落地成代码"的核心能力，装上就该能用。关掉它需要用户
+ * 显式把 config.hooks.enabled 或面板设置改成 false。
+ */
+export function resolveHookSettings(raw         )               {
+  const base               = { ...DEFAULT_HOOK_SETTINGS }
+  if (typeof raw === 'boolean') return { ...base, enabled: raw }
+  if (raw === null || raw === undefined || typeof raw !== 'object') return base
+  const value = raw                           
+  if (typeof value.enabled === 'boolean') base.enabled = value.enabled
+  if (typeof value.requireApproval === 'boolean') base.requireApproval = value.requireApproval
+  if (typeof value.maxCodeChars === 'number' && Number.isFinite(value.maxCodeChars)) {
+    base.maxCodeChars = Math.max(500, Math.min(200_000, Math.round(value.maxCodeChars)))
+  }
+  if (typeof value.timeoutMs === 'number' && Number.isFinite(value.timeoutMs)) {
+    // 上限 5s：钩子是同步阻塞在写路径 / 注入路径上的，不能让它拖住整轮对话。
+    base.timeoutMs = Math.max(20, Math.min(5_000, Math.round(value.timeoutMs)))
+  }
+  return base
 }
 
 /** 作用域用途统一成一行（与工具的 description 同款收敛口径）。 */

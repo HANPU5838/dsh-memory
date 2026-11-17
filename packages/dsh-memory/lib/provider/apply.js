@@ -380,6 +380,60 @@ export class CordisMemoryService extends Service {
     return this.impl.injectSettings()
   }
 
+  // ---------------------------------------------------------------- 记忆钩子（0.35.0）
+  /**
+   * 钩子能力必须在这里**逐个转发**：面板与工具拿到的都是本包装实例，
+   * 少转一个方法就是 undefined（0.32.0 的归档/屏蔽就整体这样失效过，
+   * 而单测直接 new LocalMemoryService 完全看不见）。
+   */
+  hookSettings()                                                 {
+    return this.impl.hookSettings()
+  }
+
+  updateHookSettings(patch         )                                                       {
+    return this.impl.updateHookSettings(patch)
+  }
+
+  listHooks()                                              {
+    return this.impl.listHooks()
+  }
+
+  getHook(id        )                                            {
+    return this.impl.getHook(id)
+  }
+
+  saveHook(input                                               )                                             {
+    return this.impl.saveHook(input)
+  }
+
+  deleteHook(id        )          {
+    return this.impl.deleteHook(id)
+  }
+
+  approveHook(id        )          {
+    return this.impl.approveHook(id)
+  }
+
+  hookPendingApproval(id        )          {
+    return this.impl.hookPendingApproval(id)
+  }
+
+  requestHookApproval(
+    agent         ,
+    id        ,
+    options                                                           ,
+  )                                                        {
+    return this.impl.requestHookApproval(agent, id, options)
+  }
+
+  runHooks(phase                                               , input                                               )                                             {
+    return this.impl.runHooks(phase, input)
+  }
+
+  parseForInject(records                                                     , sessionId         )                                                   {
+    return this.impl.parseForInject(records, sessionId)
+  }
+
   /** 面板改设置:落盘后广播,注入半边下一步就能按新设置跑。 */
   updateInjectSettings(patch         )                                                   {
     const next = this.impl.updateInjectSettings(patch)

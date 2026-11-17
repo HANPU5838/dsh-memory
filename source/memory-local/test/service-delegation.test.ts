@@ -60,3 +60,20 @@ test('CordisMemoryService 暴露归档 / 屏蔽接口', () => {
     )
   }
 })
+
+test('CordisMemoryService 暴露记忆钩子接口', () => {
+  // 0.35.0：钩子的存储、运行、审批全在 LocalMemoryService 上；面板与 memory_hooks
+  // 工具拿的是包装实例，漏一个就是 undefined（面板「规则代码」页空白、工具报不支持）。
+  const proto = CordisMemoryService.prototype as unknown as Record<string, unknown>
+  for (const name of [
+    'hookSettings', 'updateHookSettings', 'listHooks', 'getHook', 'saveHook',
+    'deleteHook', 'approveHook', 'hookPendingApproval', 'requestHookApproval',
+    'runHooks', 'parseForInject',
+  ]) {
+    assert.equal(
+      typeof proto[name],
+      'function',
+      `ctx.get('memory').${name} 必须存在，否则记忆钩子静默失效`,
+    )
+  }
+})

@@ -305,6 +305,74 @@ export interface MemoryToolService {
   listBlocks?(agent: unknown): MemoryBlockView[]
   /** 某个作用域是否被屏蔽（目录 / 校验用）。 */
   isScopeBlocked?(agent: unknown, scope: string): boolean
+  // ---------------------------------------------------------------- 记忆钩子（0.35.0）
+  /** 全部钩子（含代码）。老 provider 没有时 memory_hooks 明确报不支持。 */
+  listHooks?(): HookRecordView[]
+  getHook?(id: string): HookRecordView | undefined
+  /** 新建 / 更新钩子。 */
+  saveHook?(input: {
+    id?: string
+    name?: string
+    phase: HookPhaseView
+    code: string
+    enabled?: boolean
+    scopes?: string[]
+    kinds?: string[]
+    description?: string
+    createdBy?: string
+    ruleId?: string
+  }): HookRecordView
+  deleteHook?(id: string): boolean
+  /** 记一次用户审批（把当前代码指纹记为已批准）。 */
+  approveHook?(id: string): boolean
+  /** 这条钩子是否还需要用户批准。 */
+  hookPendingApproval?(id: string): boolean
+  /** 向用户申请批准一条钩子的代码（首次保存 / 代码变更后）。 */
+  requestHookApproval?(agent: unknown, id: string, options?: { description?: string; signal?: AbortSignal }): Promise<'approved' | 'rejected' | 'timeout' | 'unavailable' | 'not-needed'>
+  /** 直接跑一批钩子（memory_hooks run 的试跑用）。 */
+  runHooks?(phase: HookPhaseView, input: unknown): HookOutcomeView[]
+  /** 钩子设置（面板 / 工具展示）。 */
+  hookSettings?(): { enabled: boolean; timeoutMs: number; requireApproval: boolean; maxCodeChars: number }
+}
+
+// ---------------------------------------------------------------- 记忆钩子（0.35.0）
+
+export type HookPhaseView = 'before-save' | 'after-save' | 'before-inject'
+
+/** provider 的一条钩子（代码会随 list/get 返回，但**不**进记忆检索）。 */
+export interface HookRecordView {
+  id: string
+  name: string
+  phase: HookPhaseView
+  code: string
+  enabled: boolean
+  scopes: string[]
+  kinds: string[]
+  description?: string
+  createdBy: string
+  createdAt: number
+  updatedAt: number
+  ruleId?: string
+  runCount: number
+  errorCount: number
+  rejectCount: number
+  lastRunAt?: number
+  lastOutcome?: 'ok' | 'rejected' | 'error'
+  lastMessage?: string
+  /** true = 代码改过 / 还没被用户批准过。 */
+  pendingApproval?: boolean
+}
+
+/** 一次钩子运行的结果（试跑与真实运行同形）。 */
+export interface HookOutcomeView {
+  hook: { id: string; name: string; phase: HookPhaseView }
+  ok: boolean
+  message?: string
+  content?: string
+  drop?: boolean
+  error?: string
+  logs?: string[]
+  durationMs: number
 }
 
 export interface MemoryToolsOptions {
@@ -867,6 +935,15 @@ export interface SaveArgs {
   scopeDescription?: string
   /** 初始化时可选写一条初始规则（kind=rule），只对新作用域生效。 */
   scopeRule?: string
+  /**
+   * 0.35.0：给这条（规则）记忆附带的脚本源码。脚本会按 `hookPhase` 在对应时机运行。
+   * 代码存在 hooks.json，**不**进记忆检索；首次保存需要用户批准一次。
+   */
+  hookCode?: string
+  /** 脚本运行的时机；给了 hookCode 时默认 'before-save'（保存前校验）。 */
+  hookPhase?: HookPhaseView
+  /** 脚本的显示名（面板 / 审批卡用）；缺省用记忆内容前 24 字。 */
+  hookName?: string
   /** 本次调用的用途(给用户看);普通限制下必填,审批弹窗展示。 */
   description?: string
 }
@@ -877,6 +954,8 @@ export interface SaveResult {
   /** 作用域别名（这次写入顺带登记的名字）。 */
   scopeName?: string
   deduped: boolean
+  /** 0.35.0：随这条记忆登记的钩子（代码挂上了但没批准时也会给 id，附审批结局）。 */
+  hook?: { id: string; name: string; phase: HookPhaseView; approval: string }
 }
 
 /**
@@ -909,6 +988,19 @@ export function memorySaveTool(opts: MemoryToolsOptions): ToolSpec<SaveArgs, Sav
       triggers: { type: 'array', items: { type: 'string' }, description: '流程触发词(kind=procedure)：工具名/关键词/路径；缺省用 tags' },
       scopeDescription: { type: 'string', description: '新建自定义作用域时必填：一句话说明这个作用域用来做什么（已有作用域带上它 = 更新用途）' },
       scopeRule: { type: 'string', description: '初始化时可选写一条初始规则(kind=rule)：只对新自定义作用域生效，用于约定该作用域只记录什么、不记录什么' },
+      hookCode: {
+        type: 'string',
+        description: '给这条规则附带的校验脚本源码（0.35.0）：同步函数，按 hookPhase 在对应时机运行。'
+          + '代码存在 hooks.json，不进记忆检索；首次保存会向用户申请批准一次。'
+          + '写脚本前先加载技能 memory-hook-scripts（`skill` 工具，名字就叫 memory-hook-scripts）——它写了入口函数名、可用 API、返回约定与现成范例。',
+      },
+      hookPhase: {
+        type: 'string',
+        enum: ['before-save', 'after-save', 'before-inject'],
+        description: '脚本运行时机（默认 before-save）：before-save=保存前校验，返回 {ok:false} 直接拒绝这次保存；'
+          + 'after-save=保存后观察，只能附注不阻断；before-inject=注入前解析，可改写正文或 drop 掉整条。',
+      },
+      hookName: { type: 'string', description: '脚本的显示名（面板与审批卡用）；缺省取内容前 24 字' },
       description: { type: 'string', description: DESCRIPTION_PARAM_DESCRIPTION },
     },
     async execute(args: SaveArgs, exec?: unknown): Promise<SaveResult> {
@@ -1017,12 +1109,85 @@ export function memorySaveTool(opts: MemoryToolsOptions): ToolSpec<SaveArgs, Sav
             : {}),
           source: { origin: 'explicit' },
         })
-        return { id: record.id, scope: record.scope, ...(alias !== undefined ? { scopeName: alias } : {}), deduped: false }
+        // 0.35.0：带代码的规则 —— 记忆先落盘（脚本可能正是用来校验别人写的记忆），
+        // 再登记钩子并申请一次批准。登记失败不该让保存变成"失败"，只附一句告知。
+        let hookInfo: SaveResult['hook']
+        const hookCode = typeof args.hookCode === 'string' ? args.hookCode.trim() : ''
+        if (hookCode !== '') {
+          hookInfo = await registerHookForSave(service, agent, exec, {
+            code: hookCode,
+            phase: args.hookPhase ?? 'before-save',
+            name: typeof args.hookName === 'string' && args.hookName.trim() !== ''
+              ? args.hookName.trim()
+              : content.replace(/\s+/g, ' ').slice(0, 24),
+            ruleId: record.id,
+            scopes: [record.scope],
+            description: args.description,
+          })
+        }
+        return {
+          id: record.id,
+          scope: record.scope,
+          ...(alias !== undefined ? { scopeName: alias } : {}),
+          deduped: false,
+          ...(hookInfo !== undefined ? { hook: hookInfo } : {}),
+        }
       } catch (error) {
         throw toolError(error)
       }
     },
   }
+}
+
+/**
+ * 登记一条随记忆保存的钩子，并向用户申请一次批准。
+ *
+ * 顺序很关键：**先保存钩子（未批准）再申请审批**。反过来的话，用户批准时
+ * 钩子还不存在，批准就无处可记；而且 `requireApproval=false` 时也不需要弹窗。
+ */
+async function registerHookForSave(
+  service: MemoryToolService,
+  agent: unknown,
+  exec: unknown,
+  input: {
+    code: string
+    phase: HookPhaseView
+    name: string
+    ruleId: string
+    scopes: string[]
+    description?: string
+  },
+): Promise<{ id: string; name: string; phase: HookPhaseView; approval: string }> {
+  if (typeof service.saveHook !== 'function') {
+    return { id: '', name: input.name, phase: input.phase, approval: 'unsupported' }
+  }
+  let hook: HookRecordView
+  try {
+    hook = service.saveHook({
+      name: input.name,
+      phase: input.phase,
+      code: input.code,
+      scopes: input.scopes,
+      ruleId: input.ruleId,
+      createdBy: 'agent',
+    })
+  } catch (error) {
+    return { id: '', name: input.name, phase: input.phase, approval: `save-failed: ${toolError(error).message}` }
+  }
+  let approval = 'not-needed'
+  if (typeof service.requestHookApproval === 'function') {
+    try {
+      approval = await service.requestHookApproval(agent, hook.id, {
+        ...(input.description !== undefined ? { description: input.description } : {}),
+        ...((exec as { signal?: AbortSignal } | undefined)?.signal !== undefined
+          ? { signal: (exec as { signal?: AbortSignal }).signal }
+          : {}),
+      })
+    } catch {
+      approval = 'unavailable'
+    }
+  }
+  return { id: hook.id, name: hook.name, phase: hook.phase, approval }
 }
 
 /** memory_search / memory_get(summary) 的默认摘要长度（字符）。 */
@@ -2127,6 +2292,275 @@ export function memoryBlockTool(opts: MemoryToolsOptions): ToolSpec<BlockArgs, B
   }
 }
 
+/** `memory_hooks` 支持的 action。 */
+export type HookAction = 'list' | 'get' | 'save' | 'delete' | 'approve' | 'enable' | 'disable' | 'run'
+
+export interface HooksArgs {
+  action: HookAction
+  /** get / delete / approve / enable / disable / run 的钩子 id（也接受唯一前缀）。 */
+  id?: string
+  /** save 时的脚本源码。 */
+  code?: string
+  /** save 时的时机；省略 = 沿用旧值（更新）或 'before-save'（新建）。 */
+  phase?: HookPhaseView
+  name?: string
+  description?: string
+  /** 适用作用域键；省略 = 更新时保留、新建时全部适用。 */
+  scopes?: string[]
+  /** 适用记忆类型；省略 = 更新时保留、新建时全部适用。 */
+  kinds?: string[]
+  /** run 试跑时喂给脚本的正文。 */
+  content?: string
+  /** 本次调用的用途(给用户看);普通限制下必填,审批弹窗展示。 */
+  description?: string
+}
+
+export interface HooksResult {
+  action: HookAction
+  hooks: HookRecordView[]
+  settings?: { enabled: boolean; timeoutMs: number; requireApproval: boolean; maxCodeChars: number }
+  /** run 的试跑结果。 */
+  outcomes?: HookOutcomeView[]
+  /** 面向模型的一句话说明（审批结局等）。 */
+  note?: string
+  removed?: number
+}
+
+/** 按 id 或唯一前缀找钩子（模型看不到完整 uuid 时也能操作）。 */
+function findHook(service: MemoryToolService, raw: string): HookRecordView {
+  const needle = raw.trim()
+  if (needle === '') throw new MemoryToolError('HOOK_ID_REQUIRED', '需要 id：先用 action="list" 看现有钩子')
+  if (typeof service.listHooks !== 'function') {
+    throw new MemoryToolError('HOOKS_UNSUPPORTED', '当前 memory provider 不支持记忆钩子（请升级 @restregular/dsh-memory）')
+  }
+  const all = service.listHooks()
+  const exact = all.find((hook) => hook.id === needle)
+  if (exact !== undefined) return exact
+  const matches = all.filter((hook) => hook.id.startsWith(needle) || hook.name === needle)
+  if (matches.length === 1) return matches[0]!
+  if (matches.length === 0) throw new MemoryToolError('HOOK_NOT_FOUND', `没有找到钩子 ${needle}`)
+  throw new MemoryToolError('HOOK_AMBIGUOUS', `前缀 ${needle} 命中 ${matches.length} 个钩子，请给更长的 id`)
+}
+
+const HOOKS_TOOL_DESCRIPTION =
+  'Manage executable memory hooks: scripts attached to rule memories that the plugin runs at a fixed phase. '
+  + 'before-save validates a memory and can REJECT the save; after-save only observes; before-inject parses text before it enters context. '
+  + 'Hook code lives in hooks.json and is NEVER part of memory search/list/digest. '
+  + 'Load the `memory-hook-scripts` skill (via the `skill` tool) before writing code — it documents the entry-function names, the sandbox API, the return contract and ready-made examples.'
+
+export function memoryHooksTool(opts: MemoryToolsOptions): ToolSpec<HooksArgs, HooksResult> {
+  return {
+    name: 'memory_hooks',
+    description: HOOKS_TOOL_DESCRIPTION,
+    parameters: {
+      action: {
+        type: 'string',
+        enum: ['list', 'get', 'save', 'delete', 'approve', 'enable', 'disable', 'run'],
+        required: true,
+        description: 'list=列全部（不含代码）；get=读代码；save=新建/更新；delete=删除；approve=请用户批准代码（首次或改代码后）；'
+          + 'enable/disable=开关；run=拿一段正文试跑（不写记忆）。',
+      },
+      id: { type: 'string', description: '钩子 id（或唯一前缀 / 名字）；get/delete/approve/enable/disable/run 必填' },
+      code: { type: 'string', description: '脚本源码（save 必填）。入口函数名与返回约定见技能 memory-hook-scripts。' },
+      phase: {
+        type: 'string',
+        enum: ['before-save', 'after-save', 'before-inject'],
+        description: '运行时机；省略 = 更新时沿用旧值，新建默认 before-save。',
+      },
+      name: { type: 'string', description: '显示名（面板与审批卡用）' },
+      scopes: { type: 'array', items: { type: 'string' }, description: '适用作用域键；省略 = 全部适用（更新时保留旧值）' },
+      kinds: { type: 'array', items: { type: 'string' }, description: '适用记忆类型（fact/rule/...）；省略 = 全部适用' },
+      content: { type: 'string', description: 'run 试跑用的正文（只跑脚本，不写记忆）' },
+      description: { type: 'string', description: DESCRIPTION_PARAM_DESCRIPTION },
+    },
+    async execute(args: HooksArgs, exec?: unknown): Promise<HooksResult> {
+      const service = svc(opts)
+      const agent = agentOf(exec)
+      requireDescription(service, agent, args.description)
+      if (typeof service.listHooks !== 'function') {
+        throw new MemoryToolError('HOOKS_UNSUPPORTED', '当前 memory provider 不支持记忆钩子（请升级 @restregular/dsh-memory）')
+      }
+      const action = args.action
+      const settings = typeof service.hookSettings === 'function' ? service.hookSettings() : undefined
+      const withApproval = (hook: HookRecordView): HookRecordView =>
+        typeof service.hookPendingApproval === 'function'
+          ? { ...hook, pendingApproval: service.hookPendingApproval(hook.id) }
+          : hook
+
+      if (action === 'list') {
+        return {
+          action,
+          hooks: service.listHooks().map(withApproval),
+          ...(settings !== undefined ? { settings } : {}),
+        }
+      }
+
+      if (action === 'get') {
+        const hook = findHook(service, args.id ?? '')
+        return { action, hooks: [withApproval(hook)], ...(settings !== undefined ? { settings } : {}) }
+      }
+
+      if (action === 'save') {
+        const code = typeof args.code === 'string' ? args.code : ''
+        if (code.trim() === '') throw new MemoryToolError('HOOK_CODE_REQUIRED', 'save 需要 code（脚本源码）')
+        if (typeof service.saveHook !== 'function') {
+          throw new MemoryToolError('HOOKS_UNSUPPORTED', '当前 memory provider 不支持记忆钩子（请升级 @restregular/dsh-memory）')
+        }
+        // 更新时省略的字段沿用旧值：脚本改了但作用域不想动是最常见的情况。
+        const existing = args.id !== undefined && args.id !== '' ? findHook(service, args.id) : undefined
+        const phase = args.phase ?? existing?.phase ?? 'before-save'
+        let saved: HookRecordView
+        try {
+          saved = service.saveHook({
+            ...(existing !== undefined ? { id: existing.id } : {}),
+            ...(args.name !== undefined ? { name: args.name } : existing !== undefined ? { name: existing.name } : {}),
+            phase,
+            code,
+            ...(args.scopes !== undefined ? { scopes: args.scopes.map(String) } : { scopes: existing?.scopes ?? [] }),
+            ...(args.kinds !== undefined ? { kinds: args.kinds.map(String) } : { kinds: existing?.kinds ?? [] }),
+            ...(args.description !== undefined ? { description: args.description } : {}),
+            createdBy: 'agent',
+            ...(existing?.ruleId !== undefined ? { ruleId: existing.ruleId } : {}),
+          })
+        } catch (error) {
+          throw toolError(error)
+        }
+        // 保存即申请批准：代码改过 / 首次创建都要用户点头。
+        let approval = 'not-needed'
+        if (typeof service.requestHookApproval === 'function') {
+          try {
+            approval = await service.requestHookApproval(agent, saved.id, {
+              ...(args.description !== undefined ? { description: args.description } : {}),
+              ...((exec as { signal?: AbortSignal } | undefined)?.signal !== undefined
+                ? { signal: (exec as { signal?: AbortSignal }).signal }
+                : {}),
+            })
+          } catch {
+            approval = 'unavailable'
+          }
+        }
+        return {
+          action,
+          hooks: [withApproval(saved)],
+          ...(settings !== undefined ? { settings } : {}),
+          note: approvalNote(approval),
+        }
+      }
+
+      if (action === 'delete') {
+        const hook = findHook(service, args.id ?? '')
+        if (typeof service.deleteHook !== 'function') {
+          throw new MemoryToolError('HOOKS_UNSUPPORTED', '当前 memory provider 不支持记忆钩子')
+        }
+        const deleted = service.deleteHook(hook.id)
+        return {
+          action,
+          hooks: service.listHooks().map(withApproval),
+          removed: deleted ? 1 : 0,
+          note: deleted ? `已删除钩子 ${hook.name}。` : '这个钩子已经不存在了。',
+        }
+      }
+
+      if (action === 'approve') {
+        const hook = findHook(service, args.id ?? '')
+        if (typeof service.requestHookApproval !== 'function') {
+          throw new MemoryToolError('HOOKS_UNSUPPORTED', '当前 memory provider 不支持记忆钩子审批')
+        }
+        let outcome: string
+        try {
+          outcome = await service.requestHookApproval(agent, hook.id, {
+            ...(args.description !== undefined ? { description: args.description } : {}),
+            ...((exec as { signal?: AbortSignal } | undefined)?.signal !== undefined
+              ? { signal: (exec as { signal?: AbortSignal }).signal }
+              : {}),
+          })
+        } catch {
+          outcome = 'unavailable'
+        }
+        const fresh = typeof service.getHook === 'function' ? service.getHook(hook.id) : undefined
+        return {
+          action,
+          hooks: fresh !== undefined ? [withApproval(fresh)] : [],
+          note: approvalNote(outcome),
+        }
+      }
+
+      if (action === 'enable' || action === 'disable') {
+        const hook = findHook(service, args.id ?? '')
+        if (typeof service.saveHook !== 'function') {
+          throw new MemoryToolError('HOOKS_UNSUPPORTED', '当前 memory provider 不支持记忆钩子')
+        }
+        const saved = service.saveHook({
+          id: hook.id,
+          name: hook.name,
+          phase: hook.phase,
+          code: hook.code,
+          enabled: action === 'enable',
+          scopes: hook.scopes,
+          kinds: hook.kinds,
+          ...(hook.description !== undefined ? { description: hook.description } : {}),
+          ...(hook.ruleId !== undefined ? { ruleId: hook.ruleId } : {}),
+        })
+        return {
+          action,
+          hooks: [withApproval(saved)],
+          note: action === 'enable' ? `已启用「${hook.name}」。` : `已停用「${hook.name}」（代码保留，随时可再启用）。`,
+        }
+      }
+
+      // run：拿一段正文试跑，不写记忆。这是唯一能"先看效果再上线"的入口。
+      const hook = findHook(service, args.id ?? '')
+      if (typeof service.runHooks !== 'function') {
+        throw new MemoryToolError('HOOKS_UNSUPPORTED', '当前 memory provider 不支持记忆钩子试跑')
+      }
+      const content = typeof args.content === 'string' && args.content.trim() !== ''
+        ? args.content
+        : throwErr(new MemoryToolError('HOOK_CONTENT_REQUIRED', 'run 需要 content：拿一段正文让脚本跑一次'))
+      const outcomes = service.runHooks(hook.phase, {
+        memory: {
+          scope: (args.scopes ?? hook.scopes)[0] ?? 'global',
+          kind: (args.kinds ?? hook.kinds)[0] ?? 'rule',
+          content,
+          tags: [],
+          importance: 0.8,
+        },
+        tool: 'memory_hooks',
+      })
+      const mine = outcomes.filter((outcome) => outcome.hook.id === hook.id)
+      const verdict = mine[0]
+      const note = verdict === undefined
+        ? '脚本没有命中这次输入（作用域/类型过滤把它排除了）。'
+        : verdict.error !== undefined
+          ? `脚本运行失败：${verdict.error}`
+          : verdict.ok
+            ? '脚本判定：通过。'
+            : `脚本判定：不通过 —— ${verdict.message ?? '（脚本没给 message）'}`
+      return { action, hooks: [withApproval(hook)], outcomes: mine, note }
+    },
+  }
+}
+
+/** 抛出一个值（给不能在表达式位置写 throw 的地方用）。 */
+function throwErr(error: Error): never {
+  throw error
+}
+
+/** 审批结局 → 给模型的一句话。 */
+function approvalNote(outcome: string): string {
+  switch (outcome) {
+    case 'approved':
+      return '用户已批准这段代码，从现在起会按这个时机运行。'
+    case 'not-needed':
+      return '这段代码之前已经批准过（同一份代码不会重复打扰用户）。'
+    case 'rejected':
+      return '用户拒绝运行这段代码：钩子已保存但**处于未批准状态，不会运行**。改脚本或让用户批准后才能生效。'
+    case 'timeout':
+      return '等待用户批准超时：钩子已保存但**不会运行**，需要用户批准后才生效。'
+    default:
+      return '当前环境无法发起代码审批：钩子已保存但**不会运行**。'
+  }
+}
+
 export function memoryTools(opts: MemoryToolsOptions) {
   return {
     memory_save: memorySaveTool(opts),
@@ -2136,5 +2570,6 @@ export function memoryTools(opts: MemoryToolsOptions) {
     memory_scopes: memoryScopesTool(opts),
     memory_get: memoryGetTool(opts),
     memory_block: memoryBlockTool(opts),
+    memory_hooks: memoryHooksTool(opts),
   }
 }

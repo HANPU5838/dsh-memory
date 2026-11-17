@@ -13,7 +13,7 @@ import { memoryTools } from '../src/index.ts'
  */
 test('apply registers every memoryTools entry (including memory_get)', () => {
   const names = Object.keys(memoryTools({ getService: () => undefined }))
-  assert.deepEqual(names.sort(), ['memory_block', 'memory_forget', 'memory_get', 'memory_list', 'memory_save', 'memory_scopes', 'memory_search'])
+  assert.deepEqual(names.sort(), ['memory_block', 'memory_forget', 'memory_get', 'memory_hooks', 'memory_list', 'memory_save', 'memory_scopes', 'memory_search'])
   const here = dirname(fileURLToPath(import.meta.url))
   const apply = readFileSync(join(here, '..', 'src', 'apply.ts'), 'utf8')
   for (const name of names) {

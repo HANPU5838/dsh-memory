@@ -20,7 +20,7 @@ import {
                           
                 
 } from './index.js'
-import { renderBlockResult, renderGetResult, renderListResult, renderScopesResult, renderSearchResult } from './render.js'
+import { renderBlockResult, renderGetResult, renderHooksResult, renderListResult, renderScopesResult, renderSearchResult } from './render.js'
 import { resolveCurrentScopes, scopeDisplayName, sessionShortId,               } from '../provider/scope.js'
 
 export const name = 'dsh-tool-memory'
@@ -170,6 +170,11 @@ export function apply(ctx     , config                   = {}) {
   register(tools.memory_block, (value, _args, exec) => {
     const agent = (exec                                   )?.agent
     return renderBlockResult(value, (scope) => renderScope(scope, agent))
+  })
+
+  register(tools.memory_hooks, (value, _args, exec) => {
+    const agent = (exec                                   )?.agent
+    return renderHooksResult(value, (scope) => renderScope(scope, agent))
   })
 }
 

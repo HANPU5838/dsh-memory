@@ -2,6 +2,21 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.35.0 — 规则记忆可附带可执行代码：保存前校验 / 保存后观察 / 注入前解析
+
+- **规则从"写给模型看的话"变成"代码强制"**：`kind=rule` 的记忆此前只是常驻系统提示里的一段文字，模型可能记错、漏做、或压根不看。「记忆内容必须是『概括：正文』格式」这类**能写成检查**的规则，现在可以附带一段脚本，由插件在固定时机替你运行 —— 校验不通过就**直接拒绝这次保存**，不靠模型自觉。
+- **三个运行时机**：`before-save`（落盘前校验，脚本返回 `{ok:false,message}` 拒绝写入并把理由原样回给模型，让它自己改对后重试）、`after-save`（落盘后观察，只附注、不阻断、不改写）、`before-inject`（进入上下文前解析，可返回 `{content}` 改写正文、`{drop:true}` 丢弃整条）。规则段与摘要都走注入前解析，改完真的生效。
+- **代码不进记忆检索**：钩子存在 `<storeDir>/hooks.json`，与 `scopes.json` / `settings.json` 同级 —— 不是记忆记录、不进 JSONL、不进向量索引；`memory_search` / `memory_list` / 摘要 / 自动召回都看不到它，只有 `memory_hooks` 和面板能读。
+- **node:vm 沙箱 + 硬超时**：新上下文、`codeGeneration.strings=false` 关掉 `eval` / `new Function`、没有 `require` / `process` / `fetch` / 定时器，数据以 JSON 文本在沙箱内 parse（宿主对象一个都不进上下文）；模块体与每次调用都套超时（默认 120ms，夹在 20~5000ms），死循环会被中断而不是挂住 DSH。编译按代码指纹缓存。
+- **脚本崩了不等于校验不通过**：抛异常 / 超时只记一次告警并**放行**这次操作 —— 否则一段写坏的校验器会让整个记忆系统无法写入，等于丢数据。想拒绝就必须**正常返回** `{ok:false}`。错误计数进 `errorCount` / `lastOutcome`，面板上一眼可见。
+- **带代码的规则要用户批准一次**：首次保存（或代码改动后）向用户弹一次审批（`mode='hook'`，展示完整代码与时机），批准记的是**代码指纹 sha256** —— 同一段代码不问第二遍，改一个字符就重新变回待批准。没有审批通道（老宿主 / 测试）时**保守拒绝**：代码保持未批准、永远不会执行，也不干等 5 分钟超时。
+- **未批准 = 绝不执行**：审批闸门放在 `HookStore.forRun()` 里而不是各个调用点（调用点有保存前 / 保存后 / 注入前 / 试跑四处，漏一个就是绕过路径）。`requireApproval:false` 时视为自动批准。
+- **两个新入口**：①`memory_save` 增加 `hookCode` / `hookPhase` / `hookName`，随规则一起登记；②第 8 个工具 `memory_hooks`（`list` / `get` / `save` / `delete` / `approve` / `enable` / `disable` / `run`），`run` 可拿一段样例正文试跑而不写记忆。两个工具的 description 都引导 Agent 先加载随包技能 `memory-hook-scripts`。
+- **随包技能 `memory-hook-scripts`**：插件注册 skill provider（rank 600，可被用户技能覆盖），代码与文档同版本发布；`SKILL.md` 讲入口函数、`memory` / `ctx` 字段、返回约定、沙箱边界与上手流程，`references/examples.md` 给 8 个现成脚本（格式校验、指代检测、标签、凭据、注入前脱敏 / 截断 / 丢弃、保存后观察）。代码改完 SKILL.md 下一次加载即生效（注册表只缓存目录）。
+- **面板新增「规则代码」标签页**：列表显示时机 / 适用范围 / 是否待批准 / 运行与拒绝 / 出错统计 / 最近结局，支持逐行编辑、启停、删除、拿样例试跑；设置区可关总开关、调超时、关掉"Agent 提交代码需我批准"。**用户本人保存的代码视为已批准**（否则改完还得再点一次批准），与 Agent 提交的审批路径分开。新增 `GET/POST /memory/api/hooks` 六个动作（save / approve / delete / run / settings / list）。
+- **包装层转发**：新增的 11 个钩子方法全部在 `CordisMemoryService` 上显式转发（面板与工具拿的是包装实例，漏一个就是 undefined —— 0.32.0 的归档 / 屏蔽整体失效过），`service-delegation.test.ts` 锁死。
+- 测试：新增 `source/memory-local/test/hooks.test.ts`（30 例：沙箱隔绝 / 超时 / JSON 边界 / 返回值归一化 / 指纹审批 / 三时机 / 崩溃放行 / 设置持久化）、`source/tool-memory/test/hooks-tool.test.ts`（12 例）。全套 630 tests / 629 pass / 1 skipped。
+
 ## 0.34.1 — 修掉首次安装必撞的 GitHub 匿名限流（issue #5）
 
 - **问题（issue #5）**：第一次装向量后端就失败，提示「安装失败：GitHub API 限流（未认证请求每小时 60 次），请稍后重试」。用户照着「稍后重试」永远重试不好 —— 匿名额度是**按出口 IP** 算的，公司 / 校园网 / CI 里别人的进程随时会把它吃光；而且这条文案把**所有 403** 都当成限流，代理拒绝、区域策略、token 权限不足全被伪装成「等一会儿就好」。旧实现在一次 CUDA 安装里还会把发行版列表查两遍（主包一次、cudart 伴生包一次），多点几次按钮，60 次额度就没了。

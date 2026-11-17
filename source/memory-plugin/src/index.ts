@@ -21,6 +21,7 @@ import type { MemoryLocalConfig } from '../memory-local/src/index.ts'
 import { apply as toolsApply, type ToolMemoryConfig } from '../tool-memory/src/apply.ts'
 import { apply as injectApply, type MemoryInjectConfig } from '../memory-inject/src/apply.ts'
 import { apply as panelApply } from '../memory-panel/lib/index.js'
+import { mountBundledSkills } from './skills.ts'
 
 export const name = 'dsh-memory'
 
@@ -60,7 +61,11 @@ export function apply(ctx: Context, config: MemoryPluginConfig = {}): void {
   // 3) 面板服务端路由:内部 ctx.inject(['webServer']),没有 webServer 就只是没有 UI。
   part(ctx, 'panel', () => panelApply(ctx, config.panel ?? {}))
 
-  // 4) 模型工具:同时需要工具注册表与本插件提供的 memory 服务。
+  // 4) 随包技能:记忆钩子的脚本 API 文档必须和代码同版本(0.35.0)。
+  //    没有 skills 服务时静默跳过 —— 技能是增强,不是记忆功能的前置。
+  part(ctx, 'skills', () => mountBundledSkills(ctx as unknown as Parameters<typeof mountBundledSkills>[0]))
+
+  // 5) 模型工具:同时需要工具注册表与本插件提供的 memory 服务。
   //    用 ctx.inject 而不是模块级 inject —— 缺服务时只是这四个工具不出现,
   //    而不是让整条 entry 挂在 PENDING 上(那会连 provider 一起拖住)。
   ctx.inject(['tools', 'memory'], (c: Context) => {

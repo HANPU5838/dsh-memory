@@ -1253,6 +1253,107 @@ async function handle(ctx, routePath, req, res) {
       writeJson(res, { ok: true, value: memory.updateInjectSettings(body) })
       return
     }
+
+    // 记忆钩子（0.35.0）：规则附带的代码。面板是**唯一**能看/改/批代码的地方 ——
+    // 工具那边只能让模型提交代码，而代码会在 DSH 进程里执行，用户必须能逐行审查。
+    if (method === 'GET' && path === '/hooks') {
+      if (typeof memory.listHooks !== 'function') {
+        throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供记忆钩子接口（请升级 @restregular/dsh-memory）')
+      }
+      const pending = typeof memory.hookPendingApproval === 'function'
+      writeJson(res, {
+        ok: true,
+        value: {
+          hooks: memory.listHooks().map((hook) => ({
+            ...hook,
+            pendingApproval: pending ? memory.hookPendingApproval(hook.id) : false,
+          })),
+          settings: typeof memory.hookSettings === 'function' ? memory.hookSettings() : undefined,
+        },
+      })
+      return
+    }
+
+    // 保存 / 审批 / 开关 / 删除 / 试跑：一个入口，按 body.action 分开。
+    if (method === 'POST' && path === '/hooks') {
+      const body = await readJsonBody(req)
+      const action = typeof body?.action === 'string' ? body.action : 'save'
+      const by = typeof body?.by === 'string' && body.by !== '' ? body.by : 'user'
+
+      if (action === 'approve') {
+        if (typeof memory.approveHook !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供记忆钩子审批接口')
+        const id = typeof body.id === 'string' ? body.id : ''
+        if (id === '') throw new ApiError(400, 'HOOK_ID_REQUIRED', 'id 不能为空')
+        writeJson(res, { ok: true, value: { approved: memory.approveHook(id) } })
+        return
+      }
+
+      if (action === 'delete') {
+        if (typeof memory.deleteHook !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供记忆钩子接口')
+        const id = typeof body.id === 'string' ? body.id : ''
+        if (id === '') throw new ApiError(400, 'HOOK_ID_REQUIRED', 'id 不能为空')
+        writeJson(res, { ok: true, value: { removed: memory.deleteHook(id) ? 1 : 0 } })
+        return
+      }
+
+      if (action === 'run') {
+        if (typeof memory.runHooks !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供记忆钩子试跑接口')
+        const id = typeof body.id === 'string' ? body.id : ''
+        const content = typeof body.content === 'string' ? body.content : ''
+        if (content.trim() === '') throw new ApiError(400, 'HOOK_CONTENT_REQUIRED', 'content 不能为空（试跑要一段样例正文）')
+        const hook = typeof memory.getHook === 'function' ? memory.getHook(id) : undefined
+        if (hook === undefined) throw new ApiError(404, 'HOOK_NOT_FOUND', '没有找到这个钩子')
+        const outcomes = memory.runHooks(hook.phase, {
+          memory: {
+            scope: hook.scopes[0] ?? 'global',
+            kind: hook.kinds[0] ?? 'rule',
+            content,
+            tags: [],
+            importance: 0.8,
+          },
+          tool: 'panel',
+        })
+        writeJson(res, { ok: true, value: { outcomes: outcomes.filter((item) => item.hook.id === hook.id) } })
+        return
+      }
+
+      if (action === 'settings') {
+        if (typeof memory.updateHookSettings !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供记忆钩子设置接口')
+        writeJson(res, { ok: true, value: memory.updateHookSettings(body.settings ?? {}) })
+        return
+      }
+
+      // 默认 = 保存（新建或更新）。面板里的代码是**用户本人**提交的，所以保存即记为
+      // 已批准：否则用户改完还得再点一次批准，纯属添堵。模型提交的代码走的是另一条
+      // 路径（memory_hooks / memory_save），那条必须经过审批。
+      if (typeof memory.saveHook !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供记忆钩子接口')
+      const code = typeof body.code === 'string' ? body.code : ''
+      if (code.trim() === '') throw new ApiError(400, 'HOOK_CODE_REQUIRED', 'code 不能为空')
+      const phase = body.phase === 'after-save' || body.phase === 'before-inject' || body.phase === 'before-save'
+        ? body.phase
+        : 'before-save'
+      let saved
+      try {
+        saved = memory.saveHook({
+          ...(typeof body.id === 'string' && body.id !== '' ? { id: body.id } : {}),
+          ...(typeof body.name === 'string' && body.name.trim() !== '' ? { name: body.name } : {}),
+          phase,
+          code,
+          ...(typeof body.enabled === 'boolean' ? { enabled: body.enabled } : {}),
+          ...(Array.isArray(body.scopes) ? { scopes: body.scopes.map(String) } : {}),
+          ...(Array.isArray(body.kinds) ? { kinds: body.kinds.map(String) } : {}),
+          ...(typeof body.description === 'string' ? { description: body.description } : {}),
+          ...(typeof body.ruleId === 'string' && body.ruleId !== '' ? { ruleId: body.ruleId } : {}),
+          createdBy: by,
+        })
+      } catch (error) {
+        throw new ApiError(400, 'HOOK_INVALID', error instanceof Error ? error.message : String(error))
+      }
+      if (typeof memory.approveHook === 'function') memory.approveHook(saved.id)
+      console.log(`[dsh-memory-panel] 记忆钩子已保存 ${saved.id} (${saved.phase})`)
+      writeJson(res, { ok: true, value: { hook: { ...saved, pendingApproval: false } } })
+      return
+    }
     if (method === 'POST' && path === '/create') {
       if (typeof memory.createRecord !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供新建接口（请升级 @restregular/dsh-memory）')
       const body = await readJsonBody(req)

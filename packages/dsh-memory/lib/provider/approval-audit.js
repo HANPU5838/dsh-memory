@@ -24,7 +24,7 @@ import { dirname, join } from 'node:path'
  *   - `grant`   作用域会话授权；
  *   - `block`   屏蔽（按作用域 / 工作区级 / 规则）。
  */
-                                                        
+                                                                 
 
                                      
             

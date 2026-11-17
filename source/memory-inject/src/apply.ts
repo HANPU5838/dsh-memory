@@ -116,6 +116,15 @@ interface MemoryWithInject extends InjectMemoryService {
   } | undefined
   /** 当前生效的可见策略（0.25.0：授权变更时交代边界）。 */
   visibilityPolicy?(agent: unknown): { level?: string; scopes?: Array<{ scope?: string; kinds?: string[] }> } | undefined
+  /**
+   * 注入前解析钩子（0.35.0）：按 before-inject 脚本改写正文 / 丢弃整条。
+   * 老 provider 没有这个方法时，注入链路原样使用记录（不做任何改写）。
+   */
+  parseForInject?(records: readonly MemoryRecord[], sessionId?: string): {
+    records: MemoryRecord[]
+    changed: Array<{ id: string; hook: string; option: 'rewritten' | 'dropped' }>
+    warnings: string[]
+  }
 }
 
 /** 轮末提醒的文案:短、祈使句,不占预算。 */
@@ -400,19 +409,39 @@ export function apply(ctx: Context, config: MemoryInjectConfig = {}) {
     agent?: unknown,
   ): { ok: true; render: RulesRender } | { ok: false; errorCode: string } => {
     try {
-      return {
-        ok: true,
-        render: renderRules(memory.listSync?.({
-          scopes: [...scopes],
-          kind: 'rule',
-          limit: 100,
-          ...(agent !== undefined ? { agent } : {}),
-          // 0.32.0：规则段也走屏蔽过滤 —— 被屏蔽的规则不再每轮注入。
-          ...(sessionIdOf(agent) !== undefined ? { sessionId: sessionIdOf(agent)! } : {}),
-        }) ?? [], cfg),
-      }
+      const raw = memory.listSync?.({
+        scopes: [...scopes],
+        kind: 'rule',
+        limit: 100,
+        ...(agent !== undefined ? { agent } : {}),
+        // 0.32.0：规则段也走屏蔽过滤 —— 被屏蔽的规则不再每轮注入。
+        ...(sessionIdOf(agent) !== undefined ? { sessionId: sessionIdOf(agent)! } : {}),
+      }) ?? []
+      // 0.35.0：注入前解析钩子 —— 规则段是"模型一定会读到"的地方，
+      // 让规则自带的脚本在这里改写摘要（比如补一句"违规示例"）或整条丢弃。
+      return { ok: true, render: renderRules(withInjectHooks(memory, raw, agent), cfg) }
     } catch {
       return { ok: false, errorCode: 'source_load_failed' }
+    }
+  }
+
+  /**
+   * 把一批记录过一遍 before-inject 钩子（0.35.0）。
+   *
+   * provider 不支持（老版本）或钩子关掉时原样返回 —— 注入链路不能因为钩子不可用
+   * 就少注入记忆。解析失败也只是"没解析"，记录原样进上下文。
+   */
+  const withInjectHooks = (
+    memory: MemoryWithInject,
+    records: readonly MemoryRecord[],
+    agent?: unknown,
+  ): readonly MemoryRecord[] => {
+    if (records.length === 0 || typeof memory.parseForInject !== 'function') return records
+    try {
+      const parsed = memory.parseForInject(records, sessionIdOf(agent))
+      return parsed.records
+    } catch {
+      return records
     }
   }
 
@@ -1121,7 +1150,9 @@ export function apply(ctx: Context, config: MemoryInjectConfig = {}) {
     if (settings.digest.enabled) {
       let digestStats: DigestStats | undefined
       const outcome = await digester.maybeDigestOutcome(sessionId, scopes, (records) => {
-        const rendered = renderDigest(records, settings.digest)
+        // 0.35.0：摘要也走注入前解析 —— 正文可能被规则脚本改写，
+        // 所以渲染的必须是解析后的那一份，否则改了等于没改。
+        const rendered = renderDigest(withInjectHooks(memory, records, agent), settings.digest)
         digestStats = rendered?.stats
         return rendered
       }, agent)

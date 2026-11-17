@@ -13,7 +13,7 @@
  * 0.28.0：范围外清单只给作用域（名字 / 条数 / 用途），**不再给条目摘要**；清单与
  * withheld 说明不再重复讲同一件事（「索引已列在下方」那句直接去掉）。
  */
-                                                                                                                                                             
+                                                                                                                                                                                          
 import { scopeDisplayName } from '../provider/scope.js'
 
 /** 把 scope 键渲染成展示文案（宿主能查到会话标题时用它，否则用短 id）。 */
@@ -335,6 +335,83 @@ export function renderBlockResult(value             , label            )        
   const note = value.note !== undefined ? `\n${value.note}` : ''
   // 屏蔽是「藏起来」而不是删除：这句话必须出现，否则模型容易把屏蔽当成不可逆操作而不敢用。
   return `${head}${records}${note}\n（屏蔽不删除任何记忆，数据原样保留；解除后立刻复原。）`
+}
+
+/**
+ * memory_hooks 的渲染（0.35.0）。
+ *
+ * 三件事必须让模型看懂，否则它会误判「脚本已经生效」：
+ *   1. 代码是否已获用户批准（未批准 = 不会运行）；
+ *   2. 运行时机与适用范围；
+ *   3. 最近的运行结局（校验器坏了 / 一直在拒，都要一眼看见）。
+ *
+ * 代码正文**不在 list 里打印**（那是 get 的事）：一次列十几段脚本会把上下文撑爆。
+ */
+export function renderHooksResult(value             , label            )         {
+  const phaseText                         = {
+    'before-save': '保存前校验（可拒绝保存）',
+    'after-save': '保存后观察（不阻断）',
+    'before-inject': '注入前解析（可改写/丢弃）',
+  }
+  const pending = (hook                )          => hook.pendingApproval === true
+
+  const describe = (hook                )         => {
+    const parts = [`[${shortId(hook.id)}] ${hook.name}`, phaseText[hook.phase] ?? hook.phase]
+    if (!hook.enabled) parts.push('已停用')
+    if (pending(hook)) parts.push('⏳ 待用户批准（不会运行）')
+    if (hook.scopes.length > 0) parts.push(`作用域 ${hook.scopes.map(label).join('/')}`)
+    if (hook.kinds.length > 0) parts.push(`类型 ${hook.kinds.join('/')}`)
+    if (hook.runCount > 0) parts.push(`运行 ${hook.runCount}${hook.rejectCount > 0 ? ` / 拒 ${hook.rejectCount}` : ''}${hook.errorCount > 0 ? ` / 错 ${hook.errorCount}` : ''}`)
+    if (hook.lastOutcome === 'error') parts.push(`最近出错：${hook.lastMessage ?? '（无说明）'}`)
+    else if (hook.lastOutcome === 'rejected') parts.push(`最近拒绝：${hook.lastMessage ?? '（无说明）'}`)
+    return `- ${parts.join(' · ')}`
+  }
+
+  const settingsLine = ()         => {
+    const s = value.settings
+    if (s === undefined) return ''
+    const state = s.enabled ? '开启' : '关闭'
+    return `钩子总开关：${state}；超时 ${s.timeoutMs}ms；带代码的规则${s.requireApproval ? '需要用户批准一次' : '不要求批准（已关闭审批）'}。`
+  }
+
+  if (value.action === 'get') {
+    const hook = value.hooks[0]
+    if (hook === undefined) return '这个钩子不存在。'
+    const head = describe(hook)
+    const body = hook.code.split('\n').map((line, index) => `${String(index + 1).padStart(3, ' ')}| ${line}`).join('\n')
+    const tail = pending(hook) ? '\n\n⚠ 这段代码还没被用户批准，**当前不会运行**。' : ''
+    return `${head}\n\n\`\`\`js\n${body}\n\`\`\`${tail}`
+  }
+
+  if (value.action === 'run') {
+    const hook = value.hooks[0]
+    const head = hook !== undefined ? describe(hook) : ''
+    const outcomes = value.outcomes ?? []
+    const detail = outcomes.length === 0
+      ? '（脚本没有命中这次输入）'
+      : outcomes.map((outcome) => {
+          const lines           = []
+          if (outcome.error !== undefined) lines.push(`运行失败：${outcome.error}`)
+          else lines.push(outcome.ok ? '判定：通过' : `判定：不通过${outcome.message !== undefined ? ` —— ${outcome.message}` : ''}`)
+          if (outcome.content !== undefined) lines.push(`改写后正文：${outcome.content.slice(0, 400)}`)
+          if (outcome.logs !== undefined && outcome.logs.length > 0) lines.push(`日志：${outcome.logs.join(' / ')}`)
+          lines.push(`耗时 ${outcome.durationMs}ms`)
+          return lines.join('\n')
+        }).join('\n')
+    return [head, detail, value.note ?? ''].filter((part) => part !== '').join('\n')
+  }
+
+  const list = value.hooks
+  if (list.length === 0) {
+    return [value.note ?? '', '当前没有任何记忆钩子。']
+      .filter((part) => part !== '')
+      .concat('在 memory_save 里带上 hookCode 就能随规则一起登记一段校验脚本。')
+      .join('\n')
+  }
+  const body = list.map(describe).join('\n')
+  const note = value.note !== undefined ? `${value.note}\n` : ''
+  const settings = settingsLine()
+  return `${body}${settings !== '' ? `\n\n${settings}` : ''}${note !== '' ? `\n${note}` : ''}`
 }
 
 

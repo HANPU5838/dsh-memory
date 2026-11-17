@@ -218,6 +218,11 @@ cpSync(join(panelDir, 'icon.svg'), join(OUT, 'icon.svg'))
 // 目录要原样进包,exports 也要放行。
 cpSync(join(panelDir, 'locale'), join(OUT, 'locale'), { recursive: true })
 
+// 随包技能（0.35.0）：记忆钩子的脚本 API 文档必须与代码同版本发布。
+// 目录结构 `<pkg>/skills/<name>/SKILL.md` + references/，插件用 resourceBase 指过去。
+const skillsDir = join(PKGS, 'memory-plugin', 'skills')
+if (existsSync(skillsDir)) cpSync(skillsDir, join(OUT, 'skills'), { recursive: true })
+
 writeJson(join(OUT, 'package.json'), {
   name: NAME,
   version: VERSION,
@@ -231,7 +236,7 @@ writeJson(join(OUT, 'package.json'), {
     './locale/zh.json': './locale/zh.json',
     './package.json': './package.json',
   },
-  files: ['lib/', 'locale/', 'cordis.patch.yml', 'icon.svg', 'README.md', 'CHANGELOG.md', 'LICENSE'],
+  files: ['lib/', 'locale/', 'skills/', 'cordis.patch.yml', 'icon.svg', 'README.md', 'CHANGELOG.md', 'LICENSE'],
   dsh: {
     bundle: { patch: './cordis.patch.yml' },
     client: { inject: ['@deepseek-ai/dsh-client-ui-slots'], platform: 'web' },

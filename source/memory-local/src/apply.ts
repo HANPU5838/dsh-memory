@@ -380,6 +380,60 @@ export class CordisMemoryService extends Service {
     return this.impl.injectSettings()
   }
 
+  // ---------------------------------------------------------------- 记忆钩子（0.35.0）
+  /**
+   * 钩子能力必须在这里**逐个转发**：面板与工具拿到的都是本包装实例，
+   * 少转一个方法就是 undefined（0.32.0 的归档/屏蔽就整体这样失效过，
+   * 而单测直接 new LocalMemoryService 完全看不见）。
+   */
+  hookSettings(): ReturnType<LocalMemoryService['hookSettings']> {
+    return this.impl.hookSettings()
+  }
+
+  updateHookSettings(patch: unknown): ReturnType<LocalMemoryService['updateHookSettings']> {
+    return this.impl.updateHookSettings(patch)
+  }
+
+  listHooks(): ReturnType<LocalMemoryService['listHooks']> {
+    return this.impl.listHooks()
+  }
+
+  getHook(id: string): ReturnType<LocalMemoryService['getHook']> {
+    return this.impl.getHook(id)
+  }
+
+  saveHook(input: Parameters<LocalMemoryService['saveHook']>[0]): ReturnType<LocalMemoryService['saveHook']> {
+    return this.impl.saveHook(input)
+  }
+
+  deleteHook(id: string): boolean {
+    return this.impl.deleteHook(id)
+  }
+
+  approveHook(id: string): boolean {
+    return this.impl.approveHook(id)
+  }
+
+  hookPendingApproval(id: string): boolean {
+    return this.impl.hookPendingApproval(id)
+  }
+
+  requestHookApproval(
+    agent: unknown,
+    id: string,
+    options?: Parameters<LocalMemoryService['requestHookApproval']>[2],
+  ): ReturnType<LocalMemoryService['requestHookApproval']> {
+    return this.impl.requestHookApproval(agent, id, options)
+  }
+
+  runHooks(phase: Parameters<LocalMemoryService['runHooks']>[0], input: Parameters<LocalMemoryService['runHooks']>[1]): ReturnType<LocalMemoryService['runHooks']> {
+    return this.impl.runHooks(phase, input)
+  }
+
+  parseForInject(records: Parameters<LocalMemoryService['parseForInject']>[0], sessionId?: string): ReturnType<LocalMemoryService['parseForInject']> {
+    return this.impl.parseForInject(records, sessionId)
+  }
+
   /** 面板改设置:落盘后广播,注入半边下一步就能按新设置跑。 */
   updateInjectSettings(patch: unknown): ReturnType<LocalMemoryService['injectSettings']> {
     const next = this.impl.updateInjectSettings(patch)

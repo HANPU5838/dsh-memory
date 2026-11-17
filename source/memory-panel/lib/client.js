@@ -719,6 +719,40 @@ window.__ModuleLoader__.load({
       '.mem-approval-allow:hover:not(:disabled){filter:brightness(1.06)}',
       '.mem-approval-reject:disabled,.mem-approval-allow:disabled{opacity:.5;cursor:default;filter:none}',
       '.mem-approval-allow:disabled{color:var(--dsw-alias-label-primary-foreground)}',
+      // ===== 规则代码（0.35.0） =====
+      '.memp .hooks{display:flex;flex-direction:column;gap:10px;padding:12px 14px 18px}',
+      '.memp .hooks-head{display:flex;align-items:flex-start;gap:14px}',
+      '.memp .hooks-head-text{flex:1;min-width:0}',
+      '.memp .hooks-head-title{font-size:13px;font-weight:600;line-height:1.4}',
+      '.memp .hooks-head-sub{font-size:11.5px;color:var(--dsw-alias-label-secondary);line-height:1.6;margin-top:3px}',
+      '.memp .hooks-head-actions{display:flex;align-items:center;gap:8px;flex:none}',
+      '.memp .hooks-settings{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:9px 11px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1);font-size:12px}',
+      '.memp .hook-list{display:flex;flex-direction:column;gap:10px}',
+      '.memp .hook-card{border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:var(--dsw-alias-bg-layer-1);overflow:hidden}',
+      '.memp .hook-card.off{opacity:.62}',
+      '.memp .hook-card-head{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--dsw-alias-border-l1);flex-wrap:wrap}',
+      '.memp .hook-card-title{display:flex;align-items:center;gap:7px;flex:1;min-width:0;flex-wrap:wrap}',
+      '.memp .hook-name{font-size:12.5px;font-weight:600}',
+      '.memp .hook-pill{font-size:10px;line-height:1.7;padding:0 7px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary);white-space:nowrap}',
+      '.memp .hook-pill.warn{color:var(--dsw-alias-state-warning-primary,#c80);border-color:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#c80) 45%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#c80) 8%,transparent)}',
+      '.memp .hook-card-actions{display:flex;align-items:center;gap:4px;flex:none;flex-wrap:wrap}',
+      '.memp .linkbtn.danger:hover{color:var(--dsw-alias-state-error-primary,#d33)}',
+      '.memp .hook-card-meta{padding:7px 12px;font-size:11px;line-height:1.6;color:var(--dsw-alias-label-secondary);border-bottom:1px solid var(--dsw-alias-border-l1)}',
+      '.memp .hook-code-preview{margin:0;padding:10px 12px;font-family:var(--ds-font-family-code,ui-monospace,monospace);font-size:11px;line-height:1.55;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);max-height:190px;overflow:auto;white-space:pre}',
+      '.memp .hook-edit{padding:10px 12px;display:flex;flex-direction:column;gap:8px}',
+      '.memp .hook-edit-head{display:flex;align-items:baseline;gap:8px}',
+      '.memp .hook-edit-title{font-size:12.5px;font-weight:600}',
+      '.memp .hook-edit-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}',
+      '.memp .hook-edit-hint{font-size:11px;color:var(--dsw-alias-label-secondary);line-height:1.5}',
+      '.memp .hook-edit-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}',
+      '.memp .hook-code{width:100%;box-sizing:border-box;min-height:190px;resize:vertical;padding:10px 11px;border:1px solid var(--dsw-alias-border-l1);border-radius:9px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-family:var(--ds-font-family-code,ui-monospace,monospace);font-size:11.5px;line-height:1.6;tab-size:2}',
+      '.memp .hook-code:focus{border-color:var(--dsw-alias-state-business-primary,#4176e6);outline:none}',
+      '.memp .hook-trial{padding:9px 12px;border-top:1px solid var(--dsw-alias-border-l1);display:flex;flex-direction:column;gap:6px;background:var(--dsw-alias-bg-layer-1)}',
+      '.memp .hook-trial input[type=text]{width:100%;box-sizing:border-box}',
+      '.memp .hook-trial-result{font-size:11.5px;line-height:1.55;padding:5px 8px;border-radius:8px;word-break:break-word}',
+      '.memp .hook-trial-result.ok{background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#1a7f37) 10%,transparent);color:var(--dsw-alias-state-success-primary,#1a7f37)}',
+      '.memp .hook-trial-result.rej{background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#c80) 12%,transparent);color:var(--dsw-alias-state-warning-primary,#c80)}',
+      '.memp .hook-trial-result.err{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d33) 10%,transparent);color:var(--dsw-alias-state-error-primary,#d33)}',
     ].join('')
 
     async function api(method, body) {
@@ -2822,6 +2856,331 @@ window.__ModuleLoader__.load({
       )
     }
 
+    /**
+     * 「规则代码」标签页（0.35.0）：kind=rule 记忆附带的可执行脚本。
+     *
+     * 为什么它自成**一个标签页**而不是塞进「设置」：这里的每个对象都是会在 DSH
+     * 进程里跑的代码，用户需要逐行看清 —— 入口函数名、时机、什么时候跑过、跑出
+     * 过什么结果。塞进设置卡里会被"开关 + 数字"的观感淹没。
+     *
+     * 代码不进记忆检索，所以这个页面是**唯一**能看见它的地方。
+     */
+    function HooksTab() {
+      const [data, setData] = React.useState(null)
+      const [error, setError] = React.useState('')
+      const [notice, setNotice] = React.useState('')
+      const [draft, setDraft] = React.useState(null)
+      const [busy, setBusy] = React.useState(false)
+      const [trial, setTrial] = React.useState(null)
+      const [trialText, setTrialText] = React.useState('记忆内容规范：这段是合规样例')
+
+      const load = async () => {
+        setError('')
+        try {
+          const value = await api('hooks')
+          setData(value)
+        } catch (e) {
+          setError(String(e.message || e))
+        }
+      }
+      React.useEffect(() => { load() }, [])
+
+      const phaseText = {
+        'before-save': '保存前校验',
+        'after-save': '保存后观察',
+        'before-inject': '注入前解析',
+      }
+      const phaseHint = {
+        'before-save': 'memory_save 落盘之前运行；返回 { ok: false } 会拒绝这次保存。',
+        'after-save': '记录落盘之后运行；只能附注，不影响已经完成的结果。',
+        'before-inject': '记忆进入上下文之前运行；返回 { content } 改写正文，{ drop: true } 丢弃整条。',
+      }
+
+      const flash = (text) => {
+        setNotice(text)
+        setTimeout(() => setNotice(''), 2200)
+      }
+
+      const startNew = () => {
+        setTrial(null)
+        setDraft({
+          id: '',
+          name: '',
+          phase: 'before-save',
+          code: [
+            '// 记忆内容规范：必须以「概括句：正文」的格式保存',
+            'function verify(memory) {',
+            '  const text = memory.content',
+            '  const at = text.indexOf(\'：\')',
+            '  if (at < 0) {',
+            '    return { ok: false, message: \'必须以「概括句：正文」格式保存：缺少全角冒号「：」\' }',
+            '  }',
+            '  if (text.slice(0, at).trim() === \'\') {',
+            '    return { ok: false, message: \'冒号前是空的：概括句必须能独立看懂\' }',
+            '  }',
+            '  return { ok: true }',
+            '}',
+          ].join('\n'),
+          scopes: [],
+          kinds: [],
+          enabled: true,
+        })
+      }
+
+      const edit = (hook) => {
+        setTrial(null)
+        setDraft({
+          id: hook.id,
+          name: hook.name,
+          phase: hook.phase,
+          code: hook.code,
+          scopes: Array.isArray(hook.scopes) ? hook.scopes : [],
+          kinds: Array.isArray(hook.kinds) ? hook.kinds : [],
+          enabled: hook.enabled !== false,
+        })
+      }
+
+      const save = async () => {
+        if (draft === null) return
+        setBusy(true)
+        setError('')
+        try {
+          await api('hooks', {
+            action: 'save',
+            ...(draft.id !== '' ? { id: draft.id } : {}),
+            name: draft.name,
+            phase: draft.phase,
+            code: draft.code,
+            scopes: draft.scopes,
+            kinds: draft.kinds,
+            enabled: draft.enabled,
+            by: 'user',
+          })
+          setDraft(null)
+          await load()
+          flash('已保存（你保存的代码视为已批准）')
+        } catch (e) {
+          setError(String(e.message || e))
+        }
+        setBusy(false)
+      }
+
+      const remove = async (hook) => {
+        setBusy(true)
+        setError('')
+        try {
+          await api('hooks', { action: 'delete', id: hook.id })
+          if (draft !== null && draft.id === hook.id) setDraft(null)
+          await load()
+          flash('已删除')
+        } catch (e) {
+          setError(String(e.message || e))
+        }
+        setBusy(false)
+      }
+
+      const toggle = async (hook) => {
+        setBusy(true)
+        try {
+          await api('hooks', {
+            action: 'save',
+            id: hook.id,
+            name: hook.name,
+            phase: hook.phase,
+            code: hook.code,
+            scopes: hook.scopes,
+            kinds: hook.kinds,
+            enabled: !(hook.enabled !== false),
+            by: 'user',
+          })
+          await load()
+        } catch (e) {
+          setError(String(e.message || e))
+        }
+        setBusy(false)
+      }
+
+      /** 拿一段样例正文试跑：验证判断边界最快的办法，且不写任何记忆。 */
+      const run = async (hook) => {
+        setBusy(true)
+        setTrial(null)
+        try {
+          const value = await api('hooks', { action: 'run', id: hook.id, content: trialText })
+          const outcome = Array.isArray(value.outcomes) ? value.outcomes[0] : undefined
+          setTrial({ hookId: hook.id, outcome })
+        } catch (e) {
+          setError(String(e.message || e))
+        }
+        setBusy(false)
+      }
+
+      const updateSettings = async (patch) => {
+        const next = { ...(data && data.settings ? data.settings : {}), ...patch }
+        setData({ ...(data || {}), settings: next })
+        try {
+          await api('hooks', { action: 'settings', settings: next })
+          flash('已保存')
+        } catch (e) {
+          setError(String(e.message || e))
+        }
+      }
+
+      if (data === null) return h('div', { className: 'empty' }, error || '加载规则代码…')
+
+      const hooks = Array.isArray(data.hooks) ? data.hooks : []
+      const settings = data.settings || {}
+      const pendingCount = hooks.filter((hook) => hook.pendingApproval).length
+
+      const renderEditor = () => h('div', { className: 'hook-edit' },
+        h('div', { className: 'hook-edit-head' },
+          h('span', { className: 'hook-edit-title' }, draft.id === '' ? '新建规则代码' : `编辑 ${draft.name || draft.id}`),
+          draft.id === '' ? null : h('span', { className: 'muted' }, draft.id),
+        ),
+        h('div', { className: 'hook-edit-row' },
+          h('label', { className: 'set-field' }, '名称 ',
+            h('input', {
+              type: 'text', style: { width: 220 },
+              placeholder: '例如 记忆内容规范',
+              value: draft.name,
+              onChange: (e) => setDraft({ ...draft, name: e.target.value }),
+            })),
+          h('label', { className: 'set-field' }, '运行时机 ',
+            h(Dropdown, {
+              items: [
+                { value: 'before-save', label: '保存前校验（可拒绝保存）' },
+                { value: 'after-save', label: '保存后观察（不阻断）' },
+                { value: 'before-inject', label: '注入前解析（可改写/丢弃）' },
+              ],
+              value: draft.phase,
+              onChange: (value) => setDraft({ ...draft, phase: value }),
+            })),
+          h('label', { className: 'set-field' }, '适用范围 ',
+            h('input', {
+              type: 'text', style: { width: 210 },
+              placeholder: '作用域 / 类型，逗号分隔；空 = 全部',
+              value: [...draft.scopes, ...draft.kinds].join(', '),
+              onChange: (e) => {
+                const parts = e.target.value.split(',').map((item) => item.trim()).filter((item) => item !== '')
+                // 简单约定：带 : 或等于 global/project/session 的算作用域，其余算类型。
+                const scopes = parts.filter((item) => item === 'global' || item === 'project' || item === 'session' || item.includes(':') || item.includes('*'))
+                const kinds = parts.filter((item) => !scopes.includes(item))
+                setDraft({ ...draft, scopes, kinds })
+              },
+            })),
+        ),
+        h('div', { className: 'hook-edit-hint' }, phaseHint[draft.phase] || ''),
+        h('textarea', {
+          className: 'hook-code',
+          rows: Math.min(26, Math.max(10, draft.code.split('\n').length + 2)),
+          spellCheck: false,
+          value: draft.code,
+          onChange: (e) => setDraft({ ...draft, code: e.target.value }),
+        }),
+        h('div', { className: 'hook-edit-actions' },
+          h('button', { onClick: save, disabled: busy || draft.code.trim() === '' }, busy ? '保存中…' : '保存'),
+          h('button', { className: 'linkbtn', onClick: () => setDraft(null), disabled: busy }, '取消'),
+          h('span', { className: 'muted' }, '保存后会以「已批准」状态生效，因为这是你本人写的代码。'),
+        ),
+        error ? h('div', { className: 'err' }, error) : null,
+      )
+
+      const renderCard = (hook) => {
+        const isOpen = draft !== null && draft.id === hook.id
+        const trialOutcome = trial !== null && trial.hookId === hook.id ? trial.outcome : undefined
+        return h('div', { className: 'hook-card' + (hook.enabled === false ? ' off' : ''), key: hook.id },
+          h('div', { className: 'hook-card-head' },
+            h('div', { className: 'hook-card-title' },
+              h('span', { className: 'hook-name' }, hook.name),
+              h('span', { className: 'hook-pill' }, phaseText[hook.phase] || hook.phase),
+              hook.pendingApproval ? h('span', { className: 'hook-pill warn' }, '待批准 · 不会运行') : null,
+              hook.enabled === false ? h('span', { className: 'hook-pill' }, '已停用') : null,
+              hook.ruleId ? h('span', { className: 'hook-pill' }, `规则 ${String(hook.ruleId).slice(0, 8)}`) : null,
+            ),
+            h('div', { className: 'hook-card-actions' },
+              h('button', { className: 'linkbtn', onClick: () => (isOpen ? setDraft(null) : edit(hook)), disabled: busy }, isOpen ? '收起' : '编辑代码'),
+              h('button', { className: 'linkbtn', onClick: () => run(hook), disabled: busy }, '试跑'),
+              h('button', { className: 'linkbtn', onClick: () => toggle(hook), disabled: busy }, hook.enabled === false ? '启用' : '停用'),
+              h('button', { className: 'linkbtn danger', onClick: () => remove(hook), disabled: busy }, '删除'),
+            ),
+          ),
+          h('div', { className: 'hook-card-meta' },
+            (hook.scopes && hook.scopes.length > 0 ? `作用域 ${hook.scopes.join(' / ')}` : '作用域：全部'),
+            ' · ',
+            (hook.kinds && hook.kinds.length > 0 ? `类型 ${hook.kinds.join(' / ')}` : '类型：全部'),
+            hook.runCount > 0 ? ` · 运行 ${hook.runCount} 次` : ' · 还没运行过',
+            hook.rejectCount > 0 ? ` / 拒绝 ${hook.rejectCount}` : '',
+            hook.errorCount > 0 ? ` / 出错 ${hook.errorCount}` : '',
+            hook.lastOutcome === 'error' ? ` · 最近出错：${hook.lastMessage || '（无说明）'}` : '',
+            hook.lastOutcome === 'rejected' ? ` · 最近拒绝：${hook.lastMessage || '（无说明）'}` : '',
+          ),
+          isOpen
+            ? renderEditor()
+            : h('pre', { className: 'hook-code-preview' }, hook.code),
+          h('div', { className: 'hook-trial' },
+            h('input', {
+              type: 'text',
+              placeholder: '拿一段样例正文试跑（不写记忆）',
+              value: trialText,
+              onChange: (e) => setTrialText(e.target.value),
+            }),
+            trialOutcome !== undefined && trialOutcome !== null
+              ? h('div', { className: 'hook-trial-result ' + (trialOutcome.error ? 'err' : trialOutcome.ok ? 'ok' : 'rej') },
+                  trialOutcome.error
+                    ? `脚本运行失败：${trialOutcome.error}`
+                    : trialOutcome.ok
+                      ? `通过${trialOutcome.message ? ` · ${trialOutcome.message}` : ''}（${trialOutcome.durationMs}ms）`
+                      : `不通过 · ${trialOutcome.message || '（脚本没给 message）'}（${trialOutcome.durationMs}ms）`)
+              : null,
+          ),
+        )
+      }
+
+      return h('div', { className: 'hooks' },
+        h('div', { className: 'hooks-head' },
+          h('div', { className: 'hooks-head-text' },
+            h('div', { className: 'hooks-head-title' }, '规则代码'),
+            h('div', { className: 'hooks-head-sub' },
+              '随规则记忆一起保存的校验脚本。代码存在 hooks.json，不进记忆检索；在 DSH 进程的沙箱里运行（无网络、无文件、同步、超时中断）。'),
+          ),
+          h('div', { className: 'hooks-head-actions' },
+            notice ? h('span', { className: 'sethead-saved' }, notice) : null,
+            h('button', { onClick: startNew, disabled: busy }, '新建代码'),
+          ),
+        ),
+        h('div', { className: 'hooks-settings' },
+          h('label', { className: 'set-field' },
+            h('input', {
+              type: 'checkbox',
+              checked: settings.enabled !== false,
+              onChange: (e) => updateSettings({ enabled: e.target.checked }),
+            }),
+            ' 启用规则代码'),
+          h('label', { className: 'set-field' }, '超时(ms) ',
+            h('input', {
+              type: 'number', min: 20, max: 5000, step: 10, style: { width: 90 },
+              value: settings.timeoutMs,
+              onChange: (e) => updateSettings({ timeoutMs: Number(e.target.value) || 120 }),
+            })),
+          h('label', { className: 'set-field' },
+            h('input', {
+              type: 'checkbox',
+              checked: settings.requireApproval !== false,
+              onChange: (e) => updateSettings({ requireApproval: e.target.checked }),
+            }),
+            ' Agent 提交的新代码需要我批准'),
+          pendingCount > 0
+            ? h('span', { className: 'warn' }, `${pendingCount} 条代码还在等批准，未批准不会运行`)
+            : null,
+        ),
+        draft !== null && draft.id === '' ? renderEditor() : null,
+        error && draft === null ? h('div', { className: 'err' }, error) : null,
+        hooks.length === 0
+          ? h('div', { className: 'empty' },
+              '还没有规则代码。可以让 Agent 在 memory_save 时带 hookCode，或点右上角「新建代码」。')
+          : h('div', { className: 'hook-list' }, hooks.map(renderCard)),
+      )
+    }
+
     function SettingsTab() {
       const [settings, setSettings] = React.useState(null)
       const [error, setError] = React.useState('')
@@ -4894,26 +5253,33 @@ window.__ModuleLoader__.load({
             className: 'tab' + (tab === 'tree' ? ' on' : ''),
             onClick: () => { if (tab !== 'tree') load('', ''); setTab('tree') },
           }, '记忆树'),
+          h('button', {
+            className: 'tab' + (tab === 'hooks' ? ' on' : ''),
+            onClick: () => setTab('hooks'),
+            title: '随规则记忆保存的校验脚本：保存前校验 / 保存后观察 / 注入前解析',
+          }, '规则代码'),
           h('button', { className: 'tab' + (tab === 'settings' ? ' on' : ''), onClick: () => setTab('settings') }, '设置'),
           h('button', { className: 'tab' + (tab === 'audit' ? ' on' : ''), onClick: () => setTab('audit') }, '审计'),
         ),
         tab === 'settings'
           ? h(SettingsTab, {})
-          : tab === 'data'
-            ? dataBody
-            : tab === 'tree'
-              ? treeBody
-              : tab === 'audit'
-                ? h(AuditTab, {
-                    scopes,
-                    records,
-                    openRecord,
-                    openSession,
-                    sessionInfo,
-                    audience,
-                    lockSession,
-                  })
-                : overviewBody,
+          : tab === 'hooks'
+            ? h(HooksTab, {})
+            : tab === 'data'
+              ? dataBody
+              : tab === 'tree'
+                ? treeBody
+                : tab === 'audit'
+                  ? h(AuditTab, {
+                      scopes,
+                      records,
+                      openRecord,
+                      openSession,
+                      sessionInfo,
+                      audience,
+                      lockSession,
+                    })
+                  : overviewBody,
       )
     }
 
