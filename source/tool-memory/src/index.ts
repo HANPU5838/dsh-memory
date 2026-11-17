@@ -325,6 +325,8 @@ export interface MemoryToolService {
   deleteHook?(id: string): boolean
   /** 记一次用户审批（把当前代码指纹记为已批准）。 */
   approveHook?(id: string): boolean
+  /** 撤销代码批准（0.38.0）：代码保留、变回待批准，未批准不会运行。 */
+  revokeHookApproval?(id: string): boolean
   /** 这条钩子是否还需要用户批准。 */
   hookPendingApproval?(id: string): boolean
   /** 向用户申请批准一条钩子的代码（首次保存 / 代码变更后）。 */
@@ -378,6 +380,8 @@ export interface HookOutcomeView {
   drop?: boolean
   error?: string
   logs?: string[]
+  /** 脚本原始返回值（0.38.0）：试跑时展示代码的真实输出。 */
+  raw?: unknown
   durationMs: number
 }
 
@@ -2379,7 +2383,7 @@ export function memoryBlockTool(opts: MemoryToolsOptions): ToolSpec<BlockArgs, B
 }
 
 /** `memory_hooks` 支持的 action。 */
-export type HookAction = 'list' | 'get' | 'save' | 'delete' | 'approve' | 'enable' | 'disable' | 'run'
+export type HookAction = 'list' | 'get' | 'save' | 'delete' | 'approve' | 'revoke-approval' | 'enable' | 'disable' | 'run'
 
 export interface HooksArgs {
   action: HookAction
@@ -2455,12 +2459,11 @@ export function memoryHooksTool(opts: MemoryToolsOptions): ToolSpec<HooksArgs, H
     parameters: {
       action: {
         type: 'string',
-        enum: ['list', 'get', 'save', 'delete', 'approve', 'enable', 'disable', 'run'],
+        enum: ['list', 'get', 'save', 'delete', 'approve', 'revoke-approval', 'enable', 'disable', 'run'],
         required: true,
-        description: 'list=列全部（不含代码）；get=读代码；save=新建/更新；delete=删除（不可逆，**必须二次确认**：先不带 confirm 调用拿预览，再带 confirm="<钩子的 name 或 id>" 重复调用才真删）；approve=请用户批准代码（首次或改代码后）；'
-          + 'enable/disable=开关；run=拿一段正文试跑（不写记忆）。',
+        description: 'list=列全部（不含代码）；get=读代码；save=新建/更新；delete=删除（不可逆，**必须二次确认**：先不带 confirm 调用拿预览，再带 confirm="<钩子的 name 或 id>" 重复调用才真删）；approve=批准代码使其运行；revoke-approval=撤销批准（代码保留、变回待批准、不再运行）；enable/disable=旧别名（等同 approve/revoke-approval）；run=拿一段正文试跑（不写记忆）。',
       },
-      id: { type: 'string', description: '钩子 id（或唯一前缀 / 名字）；get/delete/approve/enable/disable/run 必填' },
+      id: { type: 'string', description: '钩子 id（或唯一前缀 / 名字）；get/delete/approve/revoke-approval/enable/disable/run 必填' },
       confirm: { type: 'string', description: 'delete 专用二次确认：值必须等于目标钩子的 name 或完整 id。删除不可逆（hooks.json 直接覆盖、无回收站），不带或写错只返回待删预览、不会删除。' },
       code: { type: 'string', description: '脚本源码（save 必填）。入口函数名与返回约定见技能 memory-hook-scripts。' },
       phase: {
@@ -2608,26 +2611,47 @@ export function memoryHooksTool(opts: MemoryToolsOptions): ToolSpec<HooksArgs, H
         }
       }
 
-      if (action === 'enable' || action === 'disable') {
+      if (action === 'revoke-approval') {
+        // 0.38.0：撤销批准 = 代码保留、变回待批准；未批准不会运行。与"停用"彻底分开。
         const hook = findHook(service, args.id ?? '')
-        if (typeof service.saveHook !== 'function') {
-          throw new MemoryToolError('HOOKS_UNSUPPORTED', '当前 memory provider 不支持记忆钩子')
+        if (typeof service.revokeHookApproval !== 'function') {
+          throw new MemoryToolError('HOOKS_UNSUPPORTED', '当前 memory provider 不支持撤销批准（请升级 @restregular/dsh-memory）')
         }
-        const saved = service.saveHook({
-          id: hook.id,
-          name: hook.name,
-          phase: hook.phase,
-          code: hook.code,
-          enabled: action === 'enable',
-          scopes: hook.scopes,
-          kinds: hook.kinds,
-          ...(hook.description !== undefined ? { description: hook.description } : {}),
-          ...(hook.ruleId !== undefined ? { ruleId: hook.ruleId } : {}),
-        })
+        const revoked = service.revokeHookApproval(hook.id)
+        const fresh = typeof service.getHook === 'function' ? service.getHook(hook.id) : undefined
         return {
           action,
-          hooks: [withApproval(saved)],
-          note: action === 'enable' ? `已启用「${hook.name}」。` : `已停用「${hook.name}」（代码保留，随时可再启用）。`,
+          hooks: fresh !== undefined ? [withApproval(fresh)] : [],
+          note: revoked
+            ? `已撤销「${hook.name}」的批准：代码保留，但变回待批准，**不会运行**。`
+            : `「${hook.name}」本来就没有批准过。`,
+        }
+      }
+
+      if (action === 'enable' || action === 'disable') {
+        // 0.38.0：保留 action 仅为向后兼容 —— 启用/停用语义已移除，统一映射到批准/撤销批准。
+        const hook = findHook(service, args.id ?? '')
+        if (action === 'disable') {
+          if (typeof service.revokeHookApproval !== 'function') {
+            throw new MemoryToolError('HOOKS_UNSUPPORTED', '当前 memory provider 不支持撤销批准（请升级 @restregular/dsh-memory）')
+          }
+          const revoked = service.revokeHookApproval(hook.id)
+          const fresh = typeof service.getHook === 'function' ? service.getHook(hook.id) : undefined
+          return {
+            action,
+            hooks: fresh !== undefined ? [withApproval(fresh)] : [],
+            note: `「停用」已更名为「撤销批准」：${revoked ? '已撤销批准，代码保留但**不会运行**。' : '本来就未批准。'}`,
+          }
+        }
+        if (typeof service.approveHook !== 'function') {
+          throw new MemoryToolError('HOOKS_UNSUPPORTED', '当前 memory provider 不支持批准')
+        }
+        service.approveHook(hook.id)
+        const fresh = typeof service.getHook === 'function' ? service.getHook(hook.id) : undefined
+        return {
+          action,
+          hooks: fresh !== undefined ? [withApproval(fresh)] : [],
+          note: '「启用」已更名为「批准」：已批准这段代码，从现在起会运行。',
         }
       }
 

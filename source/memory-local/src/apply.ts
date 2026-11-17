@@ -414,6 +414,10 @@ export class CordisMemoryService extends Service {
     return this.impl.approveHook(id)
   }
 
+  revokeHookApproval(id: string): boolean {
+    return this.impl.revokeHookApproval(id)
+  }
+
   hookPendingApproval(id: string): boolean {
     return this.impl.hookPendingApproval(id)
   }

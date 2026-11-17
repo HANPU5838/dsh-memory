@@ -992,6 +992,11 @@ export class LocalMemoryService implements MemoryServiceApi {
     return this.hooks.approve(id, hashHookCode(hook.code))
   }
 
+  /** 撤销审批（0.38.0）：代码保留、变回待批准；未批准不会运行。 */
+  revokeHookApproval(id: string): boolean {
+    return this.hooks.revoke(id)
+  }
+
   /** 这条钩子是否还需要用户批准（代码变过也算需要）。 */
   hookPendingApproval(id: string): boolean {
     const hook = this.hooks.get(id)
@@ -1084,6 +1089,7 @@ export class LocalMemoryService implements MemoryServiceApi {
       ...(result.drop === true ? { drop: true } : {}),
       ...(crashed ? { error: result.error } : {}),
       ...(result.logs.length > 0 ? { logs: result.logs.slice(0, 20) } : {}),
+      ...(result.raw !== undefined ? { raw: result.raw } : {}),
     }]
   }
 

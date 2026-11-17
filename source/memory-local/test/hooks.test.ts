@@ -509,6 +509,31 @@ test('设置:落盘到 settings.json 的 hooks 小节，重启后仍生效', () 
   assert.equal(second.hookSettings().timeoutMs, 200)
 })
 
+test('审批:撤销批准把代码变回待批准，不再运行；代码保留 (0.38.0)', () => {
+  const service = makeService()
+  const hook = service.saveHook({ phase: 'before-save', code: 'function verify(){ return {ok:true} }', name: 'x' })
+  service.approveHook(hook.id)
+  assert.equal(service.hookPendingApproval(hook.id), false)
+  assert.equal(service.revokeHookApproval(hook.id), true)
+  assert.equal(service.hookPendingApproval(hook.id), true, '撤销后变回待批准')
+  assert.equal(service.getHook(hook.id)!.code, hook.code, '代码保留')
+  // 未批准 → forRun 不命中（runHooks 会因待批准跳过它）
+  const hooks = service.runHooks('before-save', { memory: { scope: 'global', kind: 'fact', content: 'x', tags: [], importance: 1 } })
+  assert.equal(hooks.length, 0, '撤销后不再运行')
+  assert.equal(service.revokeHookApproval(hook.id), false, '重复撤销返回 false')
+})
+
+test('试跑:outcome 带回脚本真实输出 raw (0.38.0)', () => {
+  const service = makeService()
+  const hook = service.saveHook({
+    phase: 'before-inject',
+    code: 'function parse(){ log("hi"); return { content: "改写", extra: 42 } }',
+    name: 'raw',
+  })
+  const outcomes = service.runHookTrial(hook.id, { memory: { scope: 'global', kind: 'fact', content: 'x', tags: [], importance: 1 }, tool: 'memory_hooks' })
+  assert.deepEqual(outcomes[0]!.raw, { content: '改写', extra: 42 }, 'raw 是脚本返回的完整对象')
+})
+
 test('设置:代码超过上限时拒绝保存', () => {
   const service = makeService({ hooks: { maxCodeChars: 500 } })
   assert.throws(

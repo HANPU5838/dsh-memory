@@ -9,7 +9,7 @@ import {
   resolveGetFields,
   summarize,
 } from '../src/index.ts'
-import { DEDUPE_NOTE, renderGetResult, renderListResult, renderSearchResult } from '../src/render.ts'
+import { DEDUPE_NOTE, renderGetResult, renderHooksResult, renderListResult, renderSearchResult } from '../src/render.ts'
 
 const LONG = '长'.repeat(300)
 
@@ -575,6 +575,30 @@ test('普通限制:绝对限制 / 无限制下不要求 description', async () =
  * 直接传进来，只会换到一个 SUPERSEDES_UNKNOWN。这条守卫锁住说明里的三件事：
  * 「完整 id」、「不能用 8 位短 id」、「怎么拿到完整 id(memory_get)」。
  */
+test('renderHooksResult:试跑按时机分开展示并回显脚本真实输出 (0.38.0)', () => {
+  const hook = {
+    id: 'hook-12345678', name: '规范校验', phase: 'before-save' as const,
+    code: 'function verify(){}', enabled: true, scopes: [], kinds: [],
+    createdBy: 'user', createdAt: 1, updatedAt: 1, runCount: 0, errorCount: 0, rejectCount: 0,
+  }
+  const text = renderHooksResult({
+    action: 'run', hooks: [hook],
+    outcomes: [{ hook: { id: hook.id, name: hook.name, phase: 'before-save' }, ok: true, raw: { ok: true, note: 'via log' }, durationMs: 2 }],
+  }, label)
+  assert.ok(text.includes('保存前校验'), '带时机标签')
+  assert.ok(text.includes('允许保存'), '校验器显示允许/拒绝，而不是笼统的通过')
+  assert.ok(text.includes('脚本真实输出：'), '回显真实输出')
+  assert.ok(text.includes('"note":"via log"'), '真实输出含脚本原始字段')
+
+  const parseText = renderHooksResult({
+    action: 'run', hooks: [{ ...hook, phase: 'before-inject' as const }],
+    outcomes: [{ hook: { id: hook.id, name: hook.name, phase: 'before-inject' }, ok: true, drop: true, content: '概括句', durationMs: 1 }],
+  }, label)
+  assert.ok(parseText.includes('注入前解析'))
+  assert.ok(parseText.includes('整条丢弃'))
+  assert.ok(parseText.includes('改写后正文：概括句'))
+})
+
 test('memory_save.supersedes 的参数说明要求完整 id，并禁止 8 位短 id', () => {
   const tool = memorySaveTool({ getService: () => service })
   const params = tool.parameters as Record<string, { description?: string }>

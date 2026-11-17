@@ -730,7 +730,13 @@ window.__ModuleLoader__.load({
       '.memp .hooks-settings{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:9px 11px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1);font-size:12px}',
       '.memp .hook-list{display:flex;flex-direction:column;gap:10px}',
       '.memp .hook-card{border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:var(--dsw-alias-bg-layer-1);overflow:hidden}',
-      '.memp .hook-card.off{opacity:.62}',
+      '.memp .hook-card.folded .hook-card-head{border-bottom:none}',
+      '.memp .hook-caret{cursor:pointer;user-select:none;color:var(--dsw-alias-label-secondary);font-size:12px;width:14px;flex:none}',
+      '.memp .hook-pill.ok{color:var(--dsw-alias-state-success-primary,#2a8);border-color:color-mix(in srgb,var(--dsw-alias-state-success-primary,#2a8) 45%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#2a8) 8%,transparent)}',
+      '.memp .hook-filters{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 11px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;font-size:12px}',
+      '.memp .hook-filters label{display:flex;align-items:center;gap:5px;color:var(--dsw-alias-label-secondary)}',
+      '.memp .hook-trial-raw{margin:5px 0 0;padding:6px 8px;border-radius:6px;background:var(--dsw-alias-bg-layer-2);font-family:var(--ds-font-family-code,ui-monospace,monospace);font-size:11px;white-space:pre-wrap;word-break:break-all}',
+      '.memp .hook-trial-close{margin-left:auto}',
       '.memp .hook-card-head{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--dsw-alias-border-l1);flex-wrap:wrap}',
       '.memp .hook-card-title{display:flex;align-items:center;gap:7px;flex:1;min-width:0;flex-wrap:wrap}',
       '.memp .hook-name{font-size:12.5px;font-weight:600}',
@@ -2874,6 +2880,13 @@ window.__ModuleLoader__.load({
       const [busy, setBusy] = React.useState(false)
       const [trial, setTrial] = React.useState(null)
       const [trialText, setTrialText] = React.useState('记忆内容规范：这段是合规样例')
+      // 0.38.0：卡片默认折叠；筛选维度 = 时机 / 生效作用域 / 是否批准。
+      const [expanded, setExpanded] = React.useState(new Set())
+      const [filterPhase, setFilterPhase] = React.useState('')
+      const [filterScope, setFilterScope] = React.useState('')
+      const [filterApproval, setFilterApproval] = React.useState('')
+      // 试跑输出可手动关闭：记录哪些卡片的试跑结果被用户关掉。
+      const [trialClosed, setTrialClosed] = React.useState(new Set())
 
       const load = async () => {
         setError('')
@@ -2969,7 +2982,7 @@ window.__ModuleLoader__.load({
       const remove = async (hook) => {
         // 0.36.1：删除钩子不可逆（hooks.json 直接覆盖、无回收站），面板也加一道二次确认，
         // 与工具层的 confirm 参数对齐 —— 用户误点不再瞬间丢掉写好的规则代码。
-        if (!window.confirm(`确定删除钩子「${hook.name || hook.id}」吗？\n\n这一步不可逆：规则代码会从 hooks.json 直接移除，没有回收站。若只是想让它停下，请改用「停用」。`)) return
+        if (!window.confirm(`确定删除钩子「${hook.name || hook.id}」吗？\n\n这一步不可逆：规则代码会从 hooks.json 直接移除，没有回收站。若只是想让它停下，请点「撤销批准」（代码保留、不再运行）。`)) return
         setBusy(true)
         setError('')
         try {
@@ -2983,21 +2996,25 @@ window.__ModuleLoader__.load({
         setBusy(false)
       }
 
-      const toggle = async (hook) => {
+      // 0.38.0：启用/停用语义移除 —— 批准 = 代码会运行；撤销批准 = 代码保留但不再运行。
+      const approve = async (hook) => {
         setBusy(true)
         try {
-          await api('hooks', {
-            action: 'save',
-            id: hook.id,
-            name: hook.name,
-            phase: hook.phase,
-            code: hook.code,
-            scopes: hook.scopes,
-            kinds: hook.kinds,
-            enabled: !(hook.enabled !== false),
-            by: 'user',
-          })
+          await api('hooks', { action: 'approve', id: hook.id })
           await load()
+          flash('已批准，这段代码从现在起会运行')
+        } catch (e) {
+          setError(String(e.message || e))
+        }
+        setBusy(false)
+      }
+
+      const revokeApproval = async (hook) => {
+        setBusy(true)
+        try {
+          await api('hooks', { action: 'revoke-approval', id: hook.id })
+          await load()
+          flash('已撤销批准，代码保留但不会运行')
         } catch (e) {
           setError(String(e.message || e))
         }
@@ -3008,6 +3025,7 @@ window.__ModuleLoader__.load({
       const run = async (hook) => {
         setBusy(true)
         setTrial(null)
+        setTrialClosed((prev) => { const next = new Set(prev); next.delete(hook.id); return next })
         try {
           const value = await api('hooks', { action: 'run', id: hook.id, content: trialText })
           const outcome = Array.isArray(value.outcomes) ? value.outcomes[0] : undefined
@@ -3034,6 +3052,18 @@ window.__ModuleLoader__.load({
       const hooks = Array.isArray(data.hooks) ? data.hooks : []
       const settings = data.settings || {}
       const pendingCount = hooks.filter((hook) => hook.pendingApproval).length
+
+      // 0.38.0：筛选维度取值（从数据里收集，保证下拉里不会出现空选项）。
+      const allScopes = [...new Set(hooks.flatMap((hook) => (Array.isArray(hook.scopes) ? hook.scopes : [])))]
+      const shownHooks = hooks.filter((hook) => {
+        if (filterPhase && hook.phase !== filterPhase) return false
+        if (filterScope && !(Array.isArray(hook.scopes) && hook.scopes.includes(filterScope))) return false
+        if (filterApproval === 'approved' && hook.pendingApproval) return false
+        if (filterApproval === 'pending' && !hook.pendingApproval) return false
+        return true
+      })
+
+      const phaseTrialLabel = (phase) => phase === 'before-save' ? '保存前校验' : phase === 'after-save' ? '保存后观察' : phase === 'before-inject' ? '注入前解析' : '脚本'
 
       const renderEditor = () => h('div', { className: 'hook-edit' },
         h('div', { className: 'hook-edit-head' },
@@ -3089,52 +3119,84 @@ window.__ModuleLoader__.load({
       )
 
       const renderCard = (hook) => {
-        const isOpen = draft !== null && draft.id === hook.id
+        const editing = draft !== null && draft.id === hook.id
+        const folded = !editing && !expanded.has(hook.id)
+        const toggleFold = () => setExpanded((prev) => {
+          const next = new Set(prev)
+          if (next.has(hook.id)) next.delete(hook.id); else next.add(hook.id)
+          return next
+        })
         const trialOutcome = trial !== null && trial.hookId === hook.id ? trial.outcome : undefined
-        return h('div', { className: 'hook-card' + (hook.enabled === false ? ' off' : ''), key: hook.id },
+        const showTrial = trialOutcome !== undefined && trialOutcome !== null && !trialClosed.has(hook.id)
+        const approved = !hook.pendingApproval
+        let rawText = ''
+        if (trialOutcome && trialOutcome.raw !== undefined) {
+          try { rawText = JSON.stringify(trialOutcome.raw) } catch { rawText = String(trialOutcome.raw) }
+        }
+        return h('div', { className: 'hook-card' + (folded ? ' folded' : ''), key: hook.id },
           h('div', { className: 'hook-card-head' },
-            h('div', { className: 'hook-card-title' },
+            h('span', { className: 'hook-caret', role: 'button', tabIndex: 0, 'aria-expanded': !folded,
+              title: folded ? '展开代码' : '折叠代码', onClick: toggleFold,
+              onKeyDown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleFold() } } }, folded ? '▸' : '▾'),
+            h('div', { className: 'hook-card-title', onClick: toggleFold, style: { cursor: 'pointer' } },
               h('span', { className: 'hook-name' }, hook.name),
               h('span', { className: 'hook-pill' }, phaseText[hook.phase] || hook.phase),
-              hook.pendingApproval ? h('span', { className: 'hook-pill warn' }, '待批准 · 不会运行') : null,
-              hook.enabled === false ? h('span', { className: 'hook-pill' }, '已停用') : null,
+              approved
+                ? h('span', { className: 'hook-pill ok' }, '已批准 · 会运行')
+                : h('span', { className: 'hook-pill warn' }, '未批准 · 不会运行'),
               hook.ruleId ? h('span', { className: 'hook-pill' }, `规则 ${String(hook.ruleId).slice(0, 8)}`) : null,
             ),
             h('div', { className: 'hook-card-actions' },
-              h('button', { className: 'linkbtn', onClick: () => (isOpen ? setDraft(null) : edit(hook)), disabled: busy }, isOpen ? '收起' : '编辑代码'),
+              h('button', { className: 'linkbtn', onClick: () => (editing ? setDraft(null) : edit(hook)), disabled: busy }, editing ? '收起' : '编辑代码'),
               h('button', { className: 'linkbtn', onClick: () => run(hook), disabled: busy }, '试跑'),
-              h('button', { className: 'linkbtn', onClick: () => toggle(hook), disabled: busy }, hook.enabled === false ? '启用' : '停用'),
+              approved
+                ? h('button', { className: 'linkbtn', onClick: () => revokeApproval(hook), disabled: busy }, '撤销批准')
+                : h('button', { className: 'linkbtn', onClick: () => approve(hook), disabled: busy }, '批准'),
               h('button', { className: 'linkbtn danger', onClick: () => remove(hook), disabled: busy }, '删除'),
             ),
           ),
-          h('div', { className: 'hook-card-meta' },
-            (hook.scopes && hook.scopes.length > 0 ? `作用域 ${hook.scopes.join(' / ')}` : '作用域：全部'),
-            ' · ',
-            (hook.kinds && hook.kinds.length > 0 ? `类型 ${hook.kinds.join(' / ')}` : '类型：全部'),
-            hook.runCount > 0 ? ` · 运行 ${hook.runCount} 次` : ' · 还没运行过',
-            hook.rejectCount > 0 ? ` / 拒绝 ${hook.rejectCount}` : '',
-            hook.errorCount > 0 ? ` / 出错 ${hook.errorCount}` : '',
-            hook.lastOutcome === 'error' ? ` · 最近出错：${hook.lastMessage || '（无说明）'}` : '',
-            hook.lastOutcome === 'rejected' ? ` · 最近拒绝：${hook.lastMessage || '（无说明）'}` : '',
-          ),
-          isOpen
-            ? renderEditor()
-            : h('pre', { className: 'hook-code-preview' }, hook.code),
-          h('div', { className: 'hook-trial' },
-            h('input', {
-              type: 'text',
-              placeholder: '拿一段样例正文试跑（不写记忆）',
-              value: trialText,
-              onChange: (e) => setTrialText(e.target.value),
-            }),
-            trialOutcome !== undefined && trialOutcome !== null
-              ? h('div', { className: 'hook-trial-result ' + (trialOutcome.error ? 'err' : trialOutcome.ok ? 'ok' : 'rej') },
-                  trialOutcome.error
-                    ? `脚本运行失败：${trialOutcome.error}`
-                    : trialOutcome.ok
-                      ? `通过${trialOutcome.message ? ` · ${trialOutcome.message}` : ''}（${trialOutcome.durationMs}ms）`
-                      : `不通过 · ${trialOutcome.message || '（脚本没给 message）'}（${trialOutcome.durationMs}ms）`)
-              : null,
+          folded ? null : h('div', null,
+            h('div', { className: 'hook-card-meta' },
+              (hook.scopes && hook.scopes.length > 0 ? `作用域 ${hook.scopes.join(' / ')}` : '作用域：全部'),
+              ' · ',
+              (hook.kinds && hook.kinds.length > 0 ? `类型 ${hook.kinds.join(' / ')}` : '类型：全部'),
+              hook.runCount > 0 ? ` · 运行 ${hook.runCount} 次` : ' · 还没运行过',
+              hook.rejectCount > 0 ? ` / 拒绝 ${hook.rejectCount}` : '',
+              hook.errorCount > 0 ? ` / 出错 ${hook.errorCount}` : '',
+              hook.lastOutcome === 'error' ? ` · 最近出错：${hook.lastMessage || '（无说明）'}` : '',
+              hook.lastOutcome === 'rejected' ? ` · 最近拒绝：${hook.lastMessage || '（无说明）'}` : '',
+            ),
+            editing ? renderEditor() : h('pre', { className: 'hook-code-preview' }, hook.code),
+            h('div', { className: 'hook-trial' },
+              h('input', {
+                type: 'text',
+                placeholder: '拿一段样例正文试跑（不写记忆）',
+                value: trialText,
+                onChange: (e) => setTrialText(e.target.value),
+              }),
+              showTrial
+                ? h('div', { className: 'hook-trial-result ' + (trialOutcome.error ? 'err' : trialOutcome.ok ? 'ok' : 'rej') },
+                    h('div', { style: { display: 'flex', alignItems: 'center' } },
+                      h('span', null,
+                        `${phaseTrialLabel(hook.phase)} · `,
+                        trialOutcome.error
+                          ? `运行失败：${trialOutcome.error}`
+                          : hook.phase === 'before-save'
+                            ? (trialOutcome.ok ? '允许保存（通过）' : `拒绝保存 · ${trialOutcome.message || '（无理由）'}`)
+                            : hook.phase === 'after-save'
+                              ? (trialOutcome.ok ? '观察通过（不阻断）' : `附注 · ${trialOutcome.message || '（无说明）'}`)
+                              : (trialOutcome.ok ? '保留并记录（通过）' : `不通过 · ${trialOutcome.message || '（无理由）'}`),
+                        ` （${trialOutcome.durationMs}ms）`,
+                        trialOutcome.drop === true ? ' · 整条丢弃' : '',
+                      ),
+                      h('button', { className: 'linkbtn hook-trial-close', onClick: () => setTrialClosed((prev) => new Set(prev).add(hook.id)), title: '关闭试跑输出' }, '×'),
+                    ),
+                    trialOutcome.content !== undefined ? h('div', null, `改写后正文：${trialOutcome.content}`) : null,
+                    trialOutcome.logs && trialOutcome.logs.length > 0 ? h('div', null, `日志：${trialOutcome.logs.join(' / ')}`) : null,
+                    rawText !== '' ? h('pre', { className: 'hook-trial-raw' }, `脚本真实输出：${rawText}`) : null,
+                  )
+                : null,
+            ),
           ),
         )
       }
@@ -3176,12 +3238,30 @@ window.__ModuleLoader__.load({
             ? h('span', { className: 'warn' }, `${pendingCount} 条代码还在等批准，未批准不会运行`)
             : null,
         ),
+        h('div', { className: 'hook-filters' },
+          h('span', null, '筛选：'),
+          h('label', null, '时机 ', h(Dropdown, {
+            items: [{ value: '', label: '全部' }, { value: 'before-save', label: '保存前校验' }, { value: 'after-save', label: '保存后观察' }, { value: 'before-inject', label: '注入前解析' }],
+            value: filterPhase, onChange: setFilterPhase,
+          })),
+          h('label', null, '作用域 ', h(Dropdown, {
+            items: [{ value: '', label: '全部' }, ...allScopes.map((scope) => ({ value: scope, label: scope }))],
+            value: filterScope, onChange: setFilterScope,
+          })),
+          h('label', null, '批准状态 ', h(Dropdown, {
+            items: [{ value: '', label: '全部' }, { value: 'approved', label: '已批准' }, { value: 'pending', label: '未批准' }],
+            value: filterApproval, onChange: setFilterApproval,
+          })),
+          h('span', { className: 'muted' }, `${shownHooks.length} / ${hooks.length} 条`),
+        ),
         draft !== null && draft.id === '' ? renderEditor() : null,
         error && draft === null ? h('div', { className: 'err' }, error) : null,
-        hooks.length === 0
+        shownHooks.length === 0
           ? h('div', { className: 'empty' },
-              '还没有规则代码。可以让 Agent 在 memory_save 时带 hookCode，或点右上角「新建代码」。')
-          : h('div', { className: 'hook-list' }, hooks.map(renderCard)),
+              hooks.length === 0
+                ? '还没有规则代码。可以让 Agent 在 memory_save 时带 hookCode，或点右上角「新建代码」。'
+                : '没有符合筛选条件的规则代码。')
+          : h('div', { className: 'hook-list' }, shownHooks.map(renderCard)),
       )
     }
 

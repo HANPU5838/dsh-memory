@@ -58,6 +58,7 @@ function stubHooks(overrides: Partial<MemoryToolService> = {}): MemoryToolServic
     },
     deleteHook(id) { return hooks.delete(id) },
     approveHook(id) { approvals.push(id); return hooks.has(id) },
+    revokeHookApproval(id) { const h = hooks.get(id) as { approvedHash?: string } | undefined; if (!h || h.approvedHash === undefined) return false; delete h.approvedHash; return true },
     hookPendingApproval() { return false },
     async requestHookApproval(_agent, id) { approvals.push(id); return 'approved' },
     runHookTrial(id, input) {
@@ -189,12 +190,22 @@ test('memory_hooks.get:按 id 或唯一前缀取到代码', async () => {
   assert.equal(full.hooks[0]!.code, CODE)
 })
 
-test('memory_hooks.enable/disable:只翻开关，代码原样保留', async () => {
+test('memory_hooks.revoke-approval:撤销批准（代码保留、变回待批准），enable/disable 为其旧别名 (0.38.0)', async () => {
   const service = stubHooks()
-  const saved = service.saveHook!({ code: CODE, name: 'x', phase: 'before-save' })
+  // stub 的 saveHook 不写 approvedHash；手动置一个表示"已批准"。
+  const saved = service.saveHook!({ code: CODE, name: 'x', phase: 'before-save' }) as { id: string; approvedHash?: string }
+  saved.approvedHash = 'approved-hash'
   const tool = memoryHooksTool({ getService: getService(service) })
-  await tool.execute({ action: 'disable', id: saved.id }, exec)
-  assert.equal(service.getHook!(saved.id)!.enabled, false, 'stub 按 enabled 字段存储；真实 provider 会保留代码')
+
+  const result = await tool.execute({ action: 'revoke-approval', id: saved.id }, exec)
+  assert.match(result.note ?? '', /撤销批准|不会运行/)
+  assert.equal((service.getHook!(saved.id) as { approvedHash?: string }).approvedHash, undefined, '指纹被清掉 = 待批准')
+
+  // disable 是旧别名，同样撤销批准
+  saved.approvedHash = 'approved-hash'
+  const legacy = await tool.execute({ action: 'disable', id: saved.id }, exec)
+  assert.match(legacy.note ?? '', /撤销批准/)
+  assert.equal((service.getHook!(saved.id) as { approvedHash?: string }).approvedHash, undefined)
 })
 
 test('memory_hooks.delete:二次确认——第一次只给预览不删，confirm 匹配才真删', async () => {

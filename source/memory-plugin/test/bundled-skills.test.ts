@@ -86,6 +86,24 @@ test('删除钩子有二次确认：工具层 confirm 参数 + 面板 confirm �
   assert.match(skill, /删除钩子要二次确认/, '技能文档要写清删除的两步流程')
 })
 
+test('面板规则代码卡片：批准/撤销、默认折叠、筛选、试跑输出可关 (0.38.0)', () => {
+  const client = readFileSync(join(root, 'source', 'memory-panel', 'lib', 'client.js'), 'utf8')
+  assert.match(client, /action: 'revoke-approval'/, '有撤销批准按钮')
+  assert.match(client, /action: 'approve'/, '有批准按钮')
+  assert.equal(/hook\.enabled === false \? '启用' : '停用'/.test(client), false, '不能再有启用/停用按钮')
+  assert.match(client, /useState\(new Set\(\)\)/, '折叠状态默认空 = 全部折叠')
+  assert.match(client, /filterPhase/, '按时机筛选')
+  assert.match(client, /filterScope/, '按作用域筛选')
+  assert.match(client, /filterApproval/, '按批准状态筛选')
+  assert.match(client, /hook-trial-close/, '试跑输出有关闭按钮')
+  assert.match(client, /脚本真实输出/, '试跑回显真实输出')
+  // provider / API 有撤销批准入口
+  const panel = readFileSync(join(root, 'source', 'memory-panel', 'lib', 'index.js'), 'utf8')
+  assert.match(panel, /action === 'revoke-approval'/, '面板 API 支持撤销批准')
+  const provider = readFileSync(join(root, 'source', 'memory-local', 'src', 'index.ts'), 'utf8')
+  assert.match(provider, /revokeHookApproval/, 'provider 实现 revokeHookApproval')
+})
+
 test('hook 审批卡有专属文案与代码展示，不套用普通写入审批', () => {
   const client = readFileSync(join(root, 'source', 'memory-panel', 'lib', 'client.js'), 'utf8')
   // 必须具备 hookMode 变量与专属文案。

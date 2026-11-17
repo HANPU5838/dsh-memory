@@ -150,6 +150,8 @@ export interface HookOutcome {
   error?: string
   /** 脚本里 log() 的内容。 */
   logs?: string[]
+  /** 脚本返回值原文（0.38.0）：试跑时给用户看"真实输出"，不只是规范化后的结论。 */
+  raw?: unknown
   durationMs: number
 }
 
@@ -294,7 +296,7 @@ export function runHookCode(
   phase: HookPhase,
   input: HookRunInput,
   settings: HookSettings,
-): { ok: boolean; message?: string; content?: string; drop?: boolean; error?: string; logs: string[] } {
+): { ok: boolean; message?: string; content?: string; drop?: boolean; error?: string; logs: string[]; raw?: unknown } {
   const timeout = Math.max(20, Math.min(5000, settings.timeoutMs))
   const key = `${phase}:${hashHookCode(code)}`
   let compiled = compileCache.get(key)
@@ -333,7 +335,10 @@ export function runHookCode(
     if (raw !== null && typeof raw === 'object' && typeof (raw as { then?: unknown }).then === 'function') {
       return { ok: true, error: '脚本返回了 Promise：钩子必须是同步函数（不允许 await）', logs }
     }
-    return { ...normalizeHookResult(raw), logs }
+    // 0.38.0：raw 只保留可 JSON 序列化的部分，避免宿主对象/循环引用流到外面。
+    let safeRaw: unknown
+    try { safeRaw = JSON.parse(JSON.stringify(raw ?? null)) } catch { safeRaw = String(raw) }
+    return { ...normalizeHookResult(raw), logs, raw: safeRaw }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     const timedOut = /timed out|Script execution timed out/i.test(message)
@@ -392,15 +397,21 @@ export class HookStore {
       this.hooks = list.filter((hook): hook is HookRecord =>
         hook !== null && typeof hook === 'object' && typeof hook.id === 'string' && typeof hook.code === 'string')
         // 老文件可能缺统计字段：补齐，避免调用方到处判空。
-        .map((hook) => ({
-          ...hook,
-          enabled: hook.enabled !== false,
-          scopes: Array.isArray(hook.scopes) ? hook.scopes : [],
-          kinds: Array.isArray(hook.kinds) ? hook.kinds : [],
-          runCount: Number(hook.runCount) || 0,
-          errorCount: Number(hook.errorCount) || 0,
-          rejectCount: Number(hook.rejectCount) || 0,
-        }))
+        .map((hook) => {
+          // 0.38.0：移除启用/停用语义，审批成为唯一闸门。老数据里 enabled:false
+          // 的钩子等同于"用户不想让它跑" → 迁成"未批准"（清掉指纹），避免它突然生效。
+          const migrated: HookRecord = {
+            ...hook,
+            enabled: true,
+            scopes: Array.isArray(hook.scopes) ? hook.scopes : [],
+            kinds: Array.isArray(hook.kinds) ? hook.kinds : [],
+            runCount: Number(hook.runCount) || 0,
+            errorCount: Number(hook.errorCount) || 0,
+            rejectCount: Number(hook.rejectCount) || 0,
+          }
+          if (hook.enabled === false) delete migrated.approvedHash
+          return migrated
+        })
     } catch (error) {
       // 坏文件不能让记忆整体不可用：退化成"没有钩子"，并在日志里说清楚。
       this.onWarn(`hooks.json 读取失败（按无钩子继续）：${error instanceof Error ? error.message : String(error)}`)
@@ -439,9 +450,9 @@ export class HookStore {
    */
   forRun(phase: HookPhase, target: { scope: string; kind: string }, settings: HookSettings, ignoreApproval = false): HookRecord[] {
     this.load()
+    // 0.38.0：不再看 enabled（启用/停用语义已移除）—— 唯一闸门是"是否被批准"。
     return this.hooks.filter((hook) =>
-      hook.enabled
-      && hook.phase === phase
+      hook.phase === phase
       && hookApplies(hook, target)
       && (ignoreApproval || !hookNeedsApproval(hook, settings)))
   }
@@ -462,7 +473,8 @@ export class HookStore {
       existing.name = (input.name ?? existing.name).trim() || existing.name
       existing.phase = input.phase
       existing.code = code
-      existing.enabled = input.enabled ?? existing.enabled
+      // 0.38.0：enabled 不再是开关，统一保持 true；"不让跑"请用撤销批准。
+      existing.enabled = true
       if (Array.isArray(input.scopes)) existing.scopes = input.scopes.map(String)
       if (Array.isArray(input.kinds)) existing.kinds = input.kinds.map(String)
       if (input.description !== undefined) existing.description = input.description
@@ -489,7 +501,7 @@ export class HookStore {
       name: (input.name ?? '').trim() || `${input.phase} 规则`,
       phase: input.phase,
       code,
-      enabled: input.enabled ?? true,
+      enabled: true, // 0.38.0：审批是唯一闸门，enabled 恒 true（保留字段只为兼容旧数据）。
       scopes: Array.isArray(input.scopes) ? input.scopes.map(String) : [],
       kinds: Array.isArray(input.kinds) ? input.kinds.map(String) : [],
       ...(input.description !== undefined ? { description: input.description } : {}),
@@ -548,6 +560,21 @@ export class HookStore {
     return true
   }
 
+  /**
+   * 撤销批准（0.38.0）：清掉已批准的指纹 → 代码变回"待批准、不会运行"。
+   * 代码本身保留，用户可随时再批准回来；不改变 enabled（批准语义与启用彻底分开）。
+   */
+  revoke(id: string): boolean {
+    this.load()
+    const hook = this.hooks.find((item) => item.id === id)
+    if (hook === undefined) return false
+    if (hook.approvedHash === undefined) return false
+    delete hook.approvedHash
+    hook.updatedAt = Date.now()
+    this.persist()
+    return true
+  }
+
   /** 测试用：绕过缓存重新读盘。 */
   reload(): void {
     this.loaded = false
@@ -596,6 +623,7 @@ export function runHooks(
       ...(result.drop === true ? { drop: true } : {}),
       ...(crashed ? { error: result.error } : {}),
       ...(result.logs.length > 0 ? { logs: result.logs.slice(0, 20) } : {}),
+      ...(result.raw !== undefined ? { raw: result.raw } : {}),
     }
     try {
       store.recordRun(hook.id, {

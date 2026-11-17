@@ -1288,6 +1288,15 @@ async function handle(ctx, routePath, req, res) {
         return
       }
 
+      if (action === 'revoke-approval') {
+        // 0.38.0：撤销批准 ≠ 停用 —— 代码保留、变回待批准；未批准不会运行。
+        if (typeof memory.revokeHookApproval !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供撤销批准接口（请升级 @restregular/dsh-memory）')
+        const id = typeof body.id === 'string' ? body.id : ''
+        if (id === '') throw new ApiError(400, 'HOOK_ID_REQUIRED', 'id 不能为空')
+        writeJson(res, { ok: true, value: { revoked: memory.revokeHookApproval(id) } })
+        return
+      }
+
       if (action === 'delete') {
         if (typeof memory.deleteHook !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供记忆钩子接口')
         const id = typeof body.id === 'string' ? body.id : ''

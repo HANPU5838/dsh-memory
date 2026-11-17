@@ -389,15 +389,31 @@ export function renderHooksResult(value: HooksResult, label: ScopeLabel): string
 
   if (value.action === 'run') {
     const hook = value.hooks[0]
-    const head = hook !== undefined ? describe(hook) : ''
+    const phase = hook?.phase
+    // 0.38.0：不同时机试跑结果侧重不同 —— 校验看通过/拒绝，观察看附注，解析看改写/丢弃。
+    const phaseLabel = phase === 'before-save' ? '保存前校验' : phase === 'after-save' ? '保存后观察' : phase === 'before-inject' ? '注入前解析' : '脚本'
+    const head = hook !== undefined ? `${describe(hook)} · 试跑（${phaseLabel}）` : `试跑（${phaseLabel}）`
     const outcomes = value.outcomes ?? []
     const detail = outcomes.length === 0
       ? '（脚本没有命中这次输入）'
       : outcomes.map((outcome) => {
           const lines: string[] = []
           if (outcome.error !== undefined) lines.push(`运行失败：${outcome.error}`)
-          else lines.push(outcome.ok ? '判定：通过' : `判定：不通过${outcome.message !== undefined ? ` —— ${outcome.message}` : ''}`)
-          if (outcome.content !== undefined) lines.push(`改写后正文：${outcome.content.slice(0, 400)}`)
+          else {
+            // 判定文案按时机区分。
+            if (phase === 'before-save') lines.push(outcome.ok ? '判定：允许保存（通过）' : `判定：拒绝保存 —— ${outcome.message ?? '（脚本没给理由）'}`)
+            else if (phase === 'after-save') lines.push(outcome.ok ? '判定：观察通过（不阻断）' : `判定：附注 —— ${outcome.message ?? '（无说明）'}`)
+            else lines.push(outcome.ok ? '判定：保留并记录（通过）' : `判定：不通过 —— ${outcome.message ?? '（脚本没给理由）'}`)
+            if (outcome.content !== undefined) lines.push(`改写后正文：${outcome.content.slice(0, 400)}`)
+            if (outcome.drop === true) lines.push('整条丢弃（drop:true）')
+            if (outcome.message !== undefined && phase !== 'before-save') lines.push(`脚本说明：${outcome.message}`)
+            // 真实输出：把脚本原始返回值原样回显，而不是只给规范化结论。
+            if (outcome.raw !== undefined) {
+              let rawText: string
+              try { rawText = JSON.stringify(outcome.raw) } catch { rawText = String(outcome.raw) }
+              lines.push(`脚本真实输出：${rawText}`)
+            }
+          }
           if (outcome.logs !== undefined && outcome.logs.length > 0) lines.push(`日志：${outcome.logs.join(' / ')}`)
           lines.push(`耗时 ${outcome.durationMs}ms`)
           return lines.join('\n')

@@ -2,6 +2,13 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.38.0 — 规则代码卡片重做：批准即开关、折叠、筛选、真实试跑输出
+
+- **批准成为唯一开关，移除启用/停用**：provider 新增 `revokeHookApproval()`（清 `approvedHash`，代码保留、变回待批准），面板 API 加 `action:'revoke-approval'`，`memory_hooks` 加同名 action（`enable`/`disable` 降级为旧别名）。`HookStore.forRun` 不再看 `enabled`；老数据里 `enabled:false` 一次性迁成"未批准"（清指纹），不会突然开始运行。未批准不运行、批准后运行。
+- **试跑结果按运行时机分开展示**：保存前校验显示"允许保存 / 拒绝保存"、保存后观察显示"观察 / 附注"、注入前解析显示"改写后正文 / 整条丢弃"；并新增 `HookOutcome.raw` 回显脚本**真实返回值**（连同 `log()` 输出），不再只给规范化结论。
+- **面板规则代码卡片**：批准 / 撤销批准按钮替代启用停用；卡片**默认折叠**（点标题或箭头展开）；顶部按**时机 / 生效作用域 / 是否批准**筛选；试跑输出可点「×」手动关闭。试验新输出再次点试跑会重新打开。
+- 回归守卫：`hooks.test.ts` 加撤销批准与 raw 两例，`hooks-tool.test.ts` 加 revoke 用例，`tools.test.ts` 加分时机渲染用例，`bundled-skills.test.ts` 静态守卫面板卡片四项交互。全套 62 个测试文件 0 失败，`client.js` 通过 node --check。
+
 ## 0.37.0 — 钩子可读设置数据 + memory_list 完整时间戳 + 去掉冗余 key
 
 - **钩子沙箱可读设置（ctx.settings）**：`HookRunInput` 新增可选 `settings`（只读快照：`digestChars` / `impressionChars` / `recallChars`），经 `runHookCode` 序列化进沙箱 `ctx.settings`；`parseForInject` 从实时 `injectSettings()` 取值（摘要 160 字、印象字数面板可改、召回 300 字）传入，`memory_hooks run` 试跑也带默认快照。before-inject 规则代码从此能按"当前摘要字数限制"截断，不写死数字。
