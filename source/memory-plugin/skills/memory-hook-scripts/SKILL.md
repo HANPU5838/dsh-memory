@@ -19,7 +19,18 @@ description: "Use when writing or editing the executable script that rides along
 | `after-save` | 记录已经落盘**之后** | ❌ 只能附注 | 否 |
 | `before-inject` | 记忆即将进入上下文**之前** | ✅（`drop:true` 丢弃整条） | ✅ 返回 `{content}` 改写 |
 
+`before-inject` 覆盖**三条注入通道**：系统提示的规则段、会话第一步的摘要、以及每轮按用户问题触发的自动召回。所以"改写/丢弃"对模型实际读到的所有记忆都生效。
+
 默认是 `before-save`。绝大多数"规范类"规则都用它。
+
+## 钩子一定要挂到记忆上吗？
+
+**不用**。两种创建方式：
+
+- **随规则保存**（`memory_save` 带 `hookCode`）：钩子关联到那条规则记忆（记下 `ruleId`），校验失败时报错会自动带上规则 id，可用 `memory_get` 取全文。
+- **独立通用钩子**（`memory_hooks` 的 `action:"save"`，**不传 `ruleId`**）：不挂任何记忆，靠 `scopes` / `kinds` / `phase` 与脚本里的 `ctx` 决定何时自动执行。例：`scopes:[]` + `kinds:[]` = 对所有记忆生效的通用校验器。
+
+代码实际是按 `scopes`（作用域）+ `kinds`（记忆类型）匹配来触发的，`ruleId` 只是关联标注、不参与匹配。所以同一段代码可以只管某个项目、只管 `rule`、或管全部。
 
 ## 写一个脚本
 
