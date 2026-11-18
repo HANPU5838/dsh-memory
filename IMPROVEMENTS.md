@@ -5,6 +5,10 @@
 > 以下为自维护以来的完整改进清单（每一项都有源码改动 + 回归测试，不是临时补丁），
 > 安装、发布、更新**只以本仓库为准**。
 
+## 0.94.0（工具输出标记联想）
+
+- graphExpanded 从 provider 透传到 memory_search 输出；元信息追加「· 联想」标记，直接命中不变。
+
 ## 0.93.0（UI 无障碍：焦点可见）
 
 - input/select/textarea/summary/a 补 :focus-visible 轮廓；CSS 契约测试防回退。

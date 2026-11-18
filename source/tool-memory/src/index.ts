@@ -1312,6 +1312,11 @@ export interface SearchHit {
    * 渲染只给 id（0.21.0 上下文去重）。
    */
   deduped?: boolean
+  /**
+   * 0.94.0：这条是图增强（PPR 多跳）补召回进来的联想结果。provider 早就带了这个
+   * 标记，但工具层此前把它丢了 —— 模型无法区分"直接命中"与"联想补召回"。
+   */
+  graphExpanded?: boolean
 }
 
 /**
@@ -1461,6 +1466,7 @@ export function memorySearchTool(opts: MemoryToolsOptions): ToolSpec<SearchArgs,
             tags: Array.isArray(h.record.tags) ? h.record.tags : [],
             updatedAt: h.record.updatedAt,
             summary: summarize(h.record.content, chars),
+            ...((h as { graphExpanded?: boolean }).graphExpanded === true ? { graphExpanded: true } : {}),
           })),
         }
         // 0.23:被挡住时告诉模型真实原因(绝对限制 / 不可读 / 审批拒绝…),不再假装不存在。

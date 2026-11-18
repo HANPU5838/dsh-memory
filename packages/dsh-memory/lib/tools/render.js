@@ -121,7 +121,8 @@ export function renderSearchResult(value              , label            )      
       continue
     }
     const tags = joinList(hit.tags)
-    const meta = `${label(hit.scope)}/${hit.kind}${tags === '' ? '' : ` · ${tags}`}`
+    // 0.94.0：图增强补召回的结果显式标「联想」，模型据此知道它来自多跳联想而不是直接命中。
+    const meta = `${label(hit.scope)}/${hit.kind}${tags === '' ? '' : ` · ${tags}`}${hit.graphExpanded === true ? ' · 联想' : ''}`
     shown.push(`[${hit.score.toFixed(3)}] ${shortId(hit.id)} (${meta}) ${hit.summary}`)
   }
   const body = [shown.join('\n'), bare.join('\n')].filter((part) => part !== '').join('\n\n')

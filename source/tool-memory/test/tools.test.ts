@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   GET_FIELDS,
   memoryGetTool,
+  type SearchResult,
   memoryListTool,
   memorySaveTool,
   memorySearchTool,
@@ -127,6 +128,19 @@ test('memory_get 找不到的 id 进 missing', async () => {
   const result = await tool.execute({ ids: ['deadbeef'] })
   assert.equal(result.records.length, 0)
   assert.deepEqual(result.missing, ['deadbeef'])
+})
+
+test('0.94.0：图增强补召回在工具输出里标记「联想」', () => {
+  const value: SearchResult = {
+    records: [
+      { id: 'aaaaaaa1', score: 0.5, scope: 'global', kind: 'fact', tags: [], updatedAt: 1, summary: '直接命中' },
+      { id: 'bbbbbbb2', score: 0.4, scope: 'global', kind: 'fact', tags: [], updatedAt: 1, summary: '多跳联想', graphExpanded: true },
+    ],
+  }
+  const text = renderSearchResult(value, label)
+  const lines = text.split('\n')
+  assert.ok(!lines[0]!.includes('联想'), '直接命中不标记')
+  assert.ok(lines[1]!.includes('联想'), '联想结果要标记')
 })
 
 test('renderSearchResult：一行一条，含分数/短 id/标签/摘要，不含全文', () => {

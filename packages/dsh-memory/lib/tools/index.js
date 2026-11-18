@@ -1312,6 +1312,11 @@ function applySummaryDedupe(opts                    , exec         , records    
                            
      
                    
+     
+                                                    
+                                           
+     
+                         
  
 
 /**
@@ -1461,6 +1466,7 @@ export function memorySearchTool(opts                    )                      
             tags: Array.isArray(h.record.tags) ? h.record.tags : [],
             updatedAt: h.record.updatedAt,
             summary: summarize(h.record.content, chars),
+            ...((h                               ).graphExpanded === true ? { graphExpanded: true } : {}),
           })),
         }
         // 0.23:被挡住时告诉模型真实原因(绝对限制 / 不可读 / 审批拒绝…),不再假装不存在。

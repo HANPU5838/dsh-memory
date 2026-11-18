@@ -2,6 +2,15 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.94.0 — 跨层一致性：工具输出标记「联想」补召回（2026-11-18）
+
+- **问题**：provider 从 0.67.0 起就给命中打了 `graphExpanded`（图增强 PPR 多跳补召回），
+  但 `memory_search` 工具映射 `SearchHit` 时把这个字段丢了 —— 模型无法区分「直接匹配」与「多跳联想」。
+- **修复**：`SearchHit` 增加 `graphExpanded` 并透传；`renderSearchResult` 对这类结果的元信息
+  追加「 · 联想」标记（直接命中不受影响）。
+- **测试**：新增渲染单测（直接命中不标记 / 联想结果标记）；全套 **1285 例 / 1284 pass / 1 skip / 0 fail**；
+  `npm run verify:all` PASS。
+
 ## 0.93.0 — UI 无障碍补全：键盘焦点可见（2026-11-18）
 
 - **问题**：`input` / `select` / `textarea` / `summary` 全局 `outline:none`，但只有 `button`
