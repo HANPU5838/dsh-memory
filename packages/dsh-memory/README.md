@@ -4,7 +4,7 @@
 
 **给 DeepSeek Harness 的本地优先长期记忆插件：多路检索 + 多跳图增强 + 上下文摘要 + 冲突消解**
 
-[![version](https://img.shields.io/badge/version-v0.98.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![version](https://img.shields.io/badge/version-v0.99.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
 [![license](https://img.shields.io/badge/license-MIT-3DA639.svg)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A522.13-3C873A.svg)](package.json)
 
@@ -12,7 +12,7 @@
 
 </div>
 
-**当前版本：v0.98.0** · [Release](https://github.com/HANPU5838/dsh-memory/releases) · [更新日志](CHANGELOG.md)
+**当前版本：v0.99.0** · [Release](https://github.com/HANPU5838/dsh-memory/releases) · [更新日志](CHANGELOG.md)
 
 ---
 
@@ -266,7 +266,7 @@ npm run verify:all
 | 脚本 | 测什么 | 参考结果 |
 | --- | --- | --- |
 | `npm run eval:graph` | 图增强多跳：合成「实体桥接」语料对比开关 | 桥接召回 **0% → 100%**，平均无关记录 0.00 |
-| `npm run eval:tune` | 参数扫描：图权重/种子数/门槛/语义层 boost/PRF，单因子扫描；含 18 条小库场景 | 默认值区间内桥接/精确/巩固/PRF 均 100%，无关命中率 42.9%；小库：图关 0% → 开 100%，平均补 1 条 |
+| `npm run eval:tune` | 参数扫描：图权重/种子数/门槛/语义层 boost/PRF，单因子扫描；含 18 条小库场景 + **设置开关对比** | 默认值区间内桥接/精确/巩固/PRF 均 100%，无关命中率 42.9%；小库图关 0%→开 100%；设置：图增强关闭桥接 100%→0%，动态预算最高行 156 字 vs 固定 130 |
 | `npm run eval:summarize` | 召回摘要：关键结论都在正文后半段，对比前缀截断 vs TextRank | 关键结论保留 **0% → 100%**，平均输出字数 80 → 67.5 |
 
 三个脚本都是纯本地、确定性、秒级、退出码恒 0（用于观察与回归），CI 每次 push 都会跑。

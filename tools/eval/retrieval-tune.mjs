@@ -21,6 +21,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { LocalMemoryService } from '../../source/memory-local/src/index.ts'
+import { renderRecallBlock, defaultInjectConfig } from '../../source/memory-inject/src/inject.ts'
 
 const TOP_K = 5
 const TOPICS = 12
@@ -237,6 +238,57 @@ console.log('### 建议值（综合分最高且无关命中率不明显变差）
 console.log('| 参数 | 建议值 | 综合分 |')
 console.log('| --- | --- | --- |')
 for (const item of recommendations) console.log(`| ${item.name} | ${item.value} | ${item.score.toFixed(3)} |`)
+// 设置生效性：graph.enabled 关闭后桥接召回应明显下降（设置不是摆设，数据可复现）。
+const graphOff = await evaluate({ graphExpansion: { enabled: false } })
+console.log(`### 设置开关：图增强 ${'开'} vs ${'关'}（同一合成语料）\n`)
+console.log('| 指标 | 图增强开（默认） | 图增强关 |')
+console.log('| --- | --- | --- |')
+console.log(`| 桥接召回 | ${pct(base.bridgeRecall)} | ${pct(graphOff.bridgeRecall)} |`)
+console.log(`| 无关命中率 | ${pct(base.noiseRate)} | ${pct(graphOff.noiseRate)} |`)
+console.log(`| 综合分 | ${composite(base).toFixed(3)} | ${composite(graphOff).toFixed(3)} |`)
+console.log('')
+
+// 印象动态预算：同一批命中在 dynamic=true / false 下的平均每条字数。
+async function evaluateImpression(dynamic) {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-eval-impression-'))
+  const svc = new LocalMemoryService({
+    storeDir: dir,
+    scopes: { global: true },
+    retrieval: { vector: { enabled: false }, lexicalPrf: { enabled: false }, graphExpansion: { enabled: false } },
+  })
+  try {
+    // 每条记忆由多条**词面差异足够大**的句子组成（否则近重复去重会把它们并掉），
+    // 这样 TextRank 摘要长度才会随字数上限变化，动态预算（1.30× / 0.55×）的差异才能被观测。
+    const verbs = ['备份', '迁移', '重启', '回滚', '扩容', '巡检', '压测', '清理', '签名', '发布', '归档', '告警']
+    const nouns = ['数据库', '缓存', '网关', '队列', '证书', '镜像', '配置', '索引', '日志', '端口', '脚本', '快照']
+    for (let i = 0; i < 8; i++) {
+      const points = Array.from({ length: 24 }, (_, j) =>
+        `${verbs[(i + j) % verbs.length]}${nouns[(i * 3 + j) % nouns.length]}并把结果写入 report-${i}-${j}.md。`,
+      ).join('')
+      await svc.save({ scope: 'global', kind: 'note', content: `服务 kw${i} 的部署说明：${points}` })
+    }
+    const hits = await svc.search({ text: 'kw0 部署', topK: 5 })
+    const block = renderRecallBlock(hits, defaultInjectConfig, { impression: true, chars: 120, dynamic, queryText: 'kw0 部署' })
+    const lines = (block?.text ?? '').split('\n').filter((line) => line.startsWith('- '))
+    const lengths = lines.map((line) => line.length).sort((a, b) => b - a)
+    const avg = lengths.length === 0 ? 0 : lengths.reduce((sum, n) => sum + n, 0) / lengths.length
+    return { avg, max: lengths[0] ?? 0, min: lengths[lengths.length - 1] ?? 0, lines: lines.length }
+  } finally {
+    svc.flushSync()
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+const impressionDynamic = await evaluateImpression(true)
+const impressionFixed = await evaluateImpression(false)
+console.log(`### 设置开关：印象动态预算 vs 固定字数（avg = 每条行字数均值）\n`)
+console.log('| 指标 | 动态预算（默认） | 固定字数 |')
+console.log('| --- | --- | --- |')
+console.log(`| 最高分行字数 | ${impressionDynamic.max} | ${impressionFixed.max} |`)
+console.log(`| 最低分行字数 | ${impressionDynamic.min} | ${impressionFixed.min} |`)
+console.log(`| 平均每条字数 | ${impressionDynamic.avg.toFixed(1)} | ${impressionFixed.avg.toFixed(1)} |`)
+console.log(`| 行数 | ${impressionDynamic.lines} | ${impressionFixed.lines} |`)
+console.log('')
+
 // 小库场景：验证 0.86 的自适应预算（记录数 < 24 时最多补 3 条）没有牺牲桥接召回。
 const smallOff = await evaluateSmallLibrary(false)
 const smallOn = await evaluateSmallLibrary(true)
