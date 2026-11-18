@@ -2,7 +2,7 @@
   <img src="https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/preview/icon-128.png" width="84" alt="记忆系统">
 </p>
 
-> ### 📦 本仓库是 DSH 记忆系统的独立维护版（v0.75.0）
+> ### 📦 本仓库是 DSH 记忆系统的独立维护版（v0.76.0）
 >
 > 本项目是 **DSH 记忆系统**（`@restregular/dsh-memory`，MIT）的独立维护版本：
 > 以原作者代码为起点（完整历史见 CHANGELOG），**后续全部开发、发布、安装与更新只以本仓库为准**。
@@ -12,7 +12,7 @@
 > | 原作者 | **RestRegular**（原始项目 [RestRegular/dsh-memory](https://github.com/RestRegular/dsh-memory)，MIT）；MIT 版权声明与署名完整保留，见 [LICENSE](LICENSE) |
 > | **唯一维护源** | **[HANPU5838/dsh-memory](https://github.com/HANPU5838/dsh-memory)** —— 代码、Release、Issue、更新通道全部在这里 |
 > | 安装 / 更新 | `dsh plugin --profile web add "github:HANPU5838/dsh-memory#main"`；更新同样只从本仓库拉取 |
-> | 当前版本 | **v0.75.0**：**语义层偏好**（巩固产物 `consolidated` 在同分/近分时优先于原始记录）；星图死代码清理完毕；v0.73.0 移除 2D/3D 星图只留知识树；图增强面板开关；记忆巩固显式语义层；注入预算动态分配（面板可开关）；图增强自适应权重与多跳评测；作用域归档、主动屏蔽、规则代码钩子、跨作用域修正；八个模型工具 |
+> | 当前版本 | **v0.76.0**：**实体消歧/规范化**（路径/标签/版本不同写法归并成同一图节点）+ 语义层偏好（巩固产物优先）；星图死代码清理完毕；v0.73.0 移除 2D/3D 星图只留知识树；图增强面板开关；记忆巩固显式语义层；注入预算动态分配（面板可开关）；图增强自适应权重与多跳评测；作用域归档、主动屏蔽、规则代码钩子、跨作用域修正；八个模型工具 |
 > | 许可 | **MIT**，版权归原作者所有；转载、分发请保留原始版权声明 |
 > | 更新与反馈 | Issue / PR / 反馈：[本仓库 Issues](https://github.com/HANPU5838/dsh-memory/issues) |
 >
@@ -27,7 +27,7 @@
 
 JSONL 落盘 · 本机向量检索 · 八个模型工具 · 自动召回 · 硬性规则 · 作用域归档 · 主动屏蔽 · 可视化管理面板
 
-[![version](https://img.shields.io/badge/version-v0.75.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![version](https://img.shields.io/badge/version-v0.76.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/HANPU5838/dsh-memory/blob/main/LICENSE)
 [![ci](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.13-5FA04E.svg)](https://nodejs.org/)
@@ -647,6 +647,9 @@ memory_save({
   **语义层偏好（0.75.0）**：记忆巩固产物（`consolidated` 标签）是 episodic 提炼出的 semantic
   记录，检索终态分乘 `1 + retrieval.semanticLayerBoost`（默认 0.04、0 = 关闭、上限 0.2），
   让「提炼过的知识」在与原始记录相关度接近时优先。
+  **实体消歧（0.76.0）**：抽取层现在能识别反斜杠路径（`\srv\app`）并把 `/srv//app`、`/srv/app/`、
+  `\srv\app\` 归一成同一个 `path:/srv/app`；图节点键再做一层防御性规范化（tag/版本大小写不敏感、
+  `v1.2.3` = `1.2.3`、URL 去 fragment/默认端口/尾斜杠），不同写法共享同一实体节点与多跳边。
   **自适应权重（0.68.0）**：按查询画像自动调 RRF 通道权重——代码/标识符型查询降权（字面精确优先）、
   自然语言型查询提权；系数 0.5–1.05，见 `graphWeightFactor()`。
   **效果评测**：`npm run eval:graph` —— 合成「实体桥接」语料对比开关，桥接召回率 0% → 100%、
@@ -876,7 +879,7 @@ npm run verify:all
 ```
 
 ```
-✓ 单元 / 集成测试：1255 例 / 1254 pass / 1 skip / 0 fail（约 22s）
+✓ 单元 / 集成测试：1257 例 / 1256 pass / 1 skip / 0 fail（约 22s）
 ✓ 单包构建：85 文件 / 5035.0 KiB
 ✓ 面板 API 冒烟：16/16 接口通过
 ✓ 向量后端实测：http://127.0.0.1:8078/health · 1024 维
@@ -941,6 +944,7 @@ npm run verify  # 构建到 .verify/，不落 packages/
 
 ## 更新日志
 
+- **0.76.0** —— 实体消歧/规范化：路径抽取支持反斜杠与重复分隔符（`\\srv\\app` / `/srv//app` → 同一 `path`）；图节点键统一 tag/版本大小写与 URL 规范化，不同写法共享实体节点与多跳边（多跳质量提升）。
 - **0.75.0** —— 语义层偏好：巩固产物（`consolidated`）终态分乘 `1+semanticLayerBoost`（默认 0.04，可配 0 关闭），相关度接近时 semantic 记录优先于 episodic；新增两条对比测试（关闭/加大 boost）。
 - **0.74.0** —— 星图死代码彻底清理：删除 `graph-layout.js` / `graph-2d.js` / `graph-layout-storage.js` / `graph-3d.js` 四个分片与面板内全部星图状态/监听/JSX/CSS，`CLIENT_FRAGMENTS` 清空（不再装配渲染分片），并移除 `tools/vendor-three.mjs` 与星图预览图；知识树功能与测试全部保留，包体 2628.2 → 2514.1 KiB。
 - **0.73.0** —— 移除 2D / 3D 星图：记忆图只保留知识树一种视图，`client.three.js` 不再打包（包体减少约 2.5MB），面板更轻、交互更少歧义。设置页确认：图增强开关/权重（0.72.0）、动态预算开关（0.70.0）均在「设置」里可用。

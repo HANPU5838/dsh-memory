@@ -142,3 +142,16 @@ test('非法 / 超长输入安全：null/数字/空串/超长正文都不抛异�
   assert.equal(DEFAULT_MAX_CONTENT_CHARS, 8000)
   assert.doesNotThrow(() => extractEntities('中文'.repeat(50_000)))
 })
+
+test('0.76.0：路径写法消歧 —— 双斜杠 / 反斜杠 / 尾斜杠归一成同一个 path 实体', () => {
+  const norm = (text: string) => extractEntities(text)
+    .filter((entity) => entity.type === 'path')
+    .map((entity) => entity.normalized)
+  assert.deepEqual(norm('/srv/app 部署'), ['/srv/app'])
+  assert.deepEqual(norm('/srv//app 部署'), ['/srv/app'], '重复分隔符要折叠')
+  assert.deepEqual(norm('\\srv\\app 配置'), ['/srv/app'], '反斜杠路径要归一成 POSIX 形式')
+  assert.deepEqual(norm('\\srv\\app\\ 配置'), ['/srv/app'], '尾部反斜杠要去掉')
+  assert.deepEqual(norm('C:\\srv\\app'), ['c:\\srv\\app'], '盘符路径统一小写 + 反斜杠')
+  // 代码里的转义序列不能被当成路径。
+  assert.deepEqual(norm('转义 \\n\\t 不是路径'), [])
+})

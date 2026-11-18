@@ -10,6 +10,7 @@ import {
   pickGraphExpansion,
   queryEntitySeeds,
   graphWeightFactor,
+  canonicalEntityKey,
 } from '../src/retrieval/graph-expansion.ts'
 
 /**
@@ -194,4 +195,28 @@ test('0.72.0：面板关闭图增强后不再多跳补召回（settings 实时�
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test('0.76.0：实体消歧 —— 路径/标签的不同写法落到同一个图节点并合并边', () => {
+  // path：反斜杠、双斜杠、尾斜杠都归一
+  assert.equal(canonicalEntityKey({ type: 'path', normalized: '/srv//app/' }), canonicalEntityKey({ type: 'path', normalized: '/srv/app' }))
+  assert.equal(canonicalEntityKey({ type: 'path', normalized: '\\srv\\app' }), canonicalEntityKey({ type: 'path', normalized: '/srv/app' }))
+  // tag / version：大小写不敏感
+  assert.equal(canonicalEntityKey({ type: 'tag', normalized: 'Deploy' }), canonicalEntityKey({ type: 'tag', normalized: 'deploy' }))
+  assert.equal(canonicalEntityKey({ type: 'version', normalized: 'V1.2.3' }), canonicalEntityKey({ type: 'version', normalized: '1.2.3' }))
+
+  // 图：两条记录用不同写法引用同一路径/标签 → 同一条边，能互相桥接
+  const graph = buildAssociationGraph([
+    { id: 'a', content: '/srv//app 部署服务', tags: ['Deploy'] },
+    { id: 'b', content: '\\srv\\app 的 nginx 配置', tags: ['deploy'] },
+    { id: 'c', content: '无关内容：周末买菜' },
+  ])
+  assert.deepEqual([...graph.entityDf.keys()].sort(), ['path:/srv/app', 'tag:deploy'], '不同写法应合并成两个实体')
+  assert.equal(graph.entityDf.get('path:/srv/app'), 2)
+  assert.equal(graph.entityDf.get('tag:deploy'), 2)
+
+  // 查询用任一写法都能同时命中两条记录
+  const seeds = queryEntitySeeds('/srv/app 怎么部署', graph).map(([id]) => id)
+  assert.ok(seeds.includes('a') && seeds.includes('b'), `查询实体种子应覆盖两种写法（实际 ${JSON.stringify(seeds)}）`)
+  assert.ok(!seeds.includes('c'))
 })

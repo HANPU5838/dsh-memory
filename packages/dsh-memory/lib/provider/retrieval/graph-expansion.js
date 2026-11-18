@@ -178,9 +178,41 @@ export function buildAssociationGraph(
   }
 }
 
-/** 实体的归一化图节点键（type + normalized，与 analysis/entities 的节点 id 同构）。 */
+/**
+ * 实体归一化图节点键（0.76.0：实体消歧）。
+ *
+ * 抽取层已做一轮归一化，这里再做一层**防御性规范化**，保证同一实体的不同写法
+ * 落到同一个图节点上，从而合并边与种子：
+ *   - path：反斜杠→斜杠、折叠重复分隔符、去尾部斜杠（`\srv\app\` = `/srv//app` = `/srv/app`）；
+ *   - url：解析后去 fragment、去默认端口、去尾部斜杠；
+ *   - tag / version / os / arch：大小写不敏感（`Deploy` = `deploy`）。
+ */
+export function canonicalEntityKey(entity                                      )         {
+  const type = String(entity.type)
+  let value = String(entity.normalized)
+  if (type === 'path') {
+    value = value.replace(/\\/g, '/').replace(/\/{2,}/g, '/')
+    if (value.length > 1) value = value.replace(/\/+$/, '')
+  } else if (type === 'url') {
+    try {
+      const url = new URL(value)
+      url.hash = ''
+      let out = url.toString()
+      if (out.length > 1 && out.endsWith('/')) out = out.slice(0, -1)
+      value = out
+    } catch { /* 非标准 URL：保留原值 */ }
+  } else if (type === 'version') {
+    // `v1.2.3` / `V1.2.3` / `1.2.3` 是同一个版本（抽取层通常已去 v，这里防御性再处理）。
+    value = value.toLowerCase().replace(/^v(?=\d)/, '')
+  } else if (type === 'tag' || type === 'os' || type === 'arch') {
+    value = value.toLowerCase()
+  }
+  return `${type}:${value}`
+}
+
+/** 实体的归一化图节点键（与 analysis/entities 的节点 id 同构）。 */
 function entityNodeKey(entity                                      )         {
-  return `${entity.type}:${entity.normalized}`
+  return canonicalEntityKey(entity)
 }
 
 // ---------------------------------------------------------------- PPR

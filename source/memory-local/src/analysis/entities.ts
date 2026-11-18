@@ -319,9 +319,12 @@ interface Span {
 // URL 在中文标点处结束：否则「https://x/a，还有」会把后面的中文吞进 path
 const URL_RE = /https?:\/\/[^\s<>"'`，。；：！？、（）【】《》「」『』…]+/gi
 const IPV4_RE = /(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?![\d.])/g
-const POSIX_PATH_RE = /(?<![\w:.\/~-])\/(?:[A-Za-z0-9_.@+-]+\/?)+/g
+const POSIX_PATH_RE = /(?<![\w:.\/~-])\/(?:[A-Za-z0-9_.@+-]+\/*)+/g
 const HOME_PATH_RE = /(?<![\w:.\/~-])~\/[A-Za-z0-9_.@+/-]*/g
 const WINDOWS_PATH_RE = /(?<![\w])[A-Za-z]:[\\/][^\s"'`<>|]*/g
+// 0.76.0：反斜杠路径（`\srv\app`、`C:\srv\app`）。要求 ≥2 段且每段 ≥2 字符，
+// 避免把代码里的转义序列（`\n\t`）误认成路径。
+const BACKSLASH_PATH_RE = /(?<![\w])(?:[A-Za-z]:)?(?:\\[A-Za-z0-9_.@+-]+){2,}\\?/g
 const DATE_RE = /(?<![\d])(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})(?![\d])/g
 const CN_DATE_RE = /(20\d{2})年(\d{1,2})月(\d{1,2})日/g
 const VERSION_RE = /(?<![\w.])v?\d+\.\d+(?:\.\d+)*(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?(?![\w.])/gi
@@ -369,6 +372,12 @@ function normalizePath(raw: string): string {
     path = path.replace(/\//g, '\\').replace(/\\{2,}/g, '\\')
     if (!/^[A-Za-z]:\\$/.test(path)) path = path.replace(/\\+$/, '')
     return path.toLowerCase()
+  }
+  // 0.76.0：非盘符的反斜杠路径（`\srv\app`）统一成 POSIX 形式，与 `/srv/app` 合并。
+  if (path.startsWith('\\')) {
+    path = path.replace(/\\+/g, '/').replace(/\/{2,}/g, '/')
+    if (path.length > 1) path = path.replace(/\/+$/, '')
+    return path
   }
   path = path.replace(/\/{2,}/g, '/')
   if (path.length > 1) path = path.replace(/\/+$/, '')
@@ -494,6 +503,14 @@ export function extractEntities(content: string, options: ExtractOptions = {}): 
       const raw = trimTail(match[0])
       const body = raw.slice(2)
       if (body.replace(/^[\\/]+/, '').length === 0) continue
+      add('path', raw, normalizePath(raw), raw, { start, end: start + raw.length })
+    }
+    for (const match of text.matchAll(BACKSLASH_PATH_RE)) {
+      const start = match.index ?? 0
+      const raw = trimTail(match[0])
+      const body = raw.replace(/^[A-Za-z]:/, '')
+      const segments = body.split(/\\+/).filter((segment) => segment !== '')
+      if (segments.length < 2 || segments.some((segment) => segment.length < 2)) continue
       add('path', raw, normalizePath(raw), raw, { start, end: start + raw.length })
     }
 
