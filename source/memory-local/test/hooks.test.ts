@@ -88,7 +88,7 @@ test('沙箱:死循环被超时中断，且不阻断', () => {
     { ...DEFAULT_HOOK_SETTINGS, timeoutMs: 30 },
   )
   assert.equal(typeof result.error, 'string')
-  assert.match(result.error!, /超时/)
+  assert.match(result.error!, /超时|timed out/, 'vm 超时在不同阶段暴露的消息不同（加载期 vs 执行期），两种都算中断')
   assert.equal(result.ok, true, '脚本崩了不能被当成"校验不通过"')
 })
 

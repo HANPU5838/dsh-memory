@@ -1875,6 +1875,39 @@ export class LocalMemoryService                             {
   }
 
   /**
+   * 0.111.0：历史视角下的退役集合 —— 只算「在 at 时刻已存在」的修正版，
+   * 这样 asOf 早于修正版创建时间时，旧版本仍然可见（当时它还没有被取代）。
+   */
+  supersededIdsAt(at        )           {
+    const ids = new Set        ()
+    for (const store of this.store.allScopes()) {
+      for (const record of store.records.values()) {
+        if (typeof record.supersedes === 'string' && record.supersedes.length > 0 && record.createdAt <= at) {
+          ids.add(record.supersedes)
+        }
+      }
+    }
+    return [...ids]
+  }
+
+  /**
+   * 0.111.0：record 在 at 时刻是否「存在且成立」（双时态可见性）。
+   * 软删时间戳按 tombstonedAt / deletedAt 兼容读取。
+   */
+          recordValidAtImpl(record              , at        )          {
+    if (record.createdAt > at) return false
+    if (record.expiredAt !== undefined && record.expiredAt <= at) return false
+    const extra = record                                                                                                         
+    if (extra.validFrom !== undefined && extra.validFrom > at) return false
+    if (extra.validUntil !== undefined && extra.validUntil <= at) return false
+    const tombstonedAt = extra.tombstonedAt ?? extra.deletedAt
+    if (tombstonedAt !== undefined && tombstonedAt <= at) return false
+    const dormantAt = (record                                         ).dormantAt
+    if (dormantAt !== undefined && dormantAt <= at) return false
+    return true
+  }
+
+  /**
    * 同步列记录(只读、不触发磁盘发现)。系统提示里的「硬性规则」段每步都要
    * 渲染,必须是同步的;这里直接读已加载 scope 的内存快照。
    *
@@ -5087,7 +5120,13 @@ export class LocalMemoryService                             {
     if (query.scope === undefined && queryScopes !== undefined && queryScopes.length === 0) return []
     const topK = query.topK ?? this.cfg.topK
     const recallN = query.recallN ?? this.cfg.recallN
-    const now = Date.now()
+    // 0.111.0：双时态检索（asOf）。给时间点 T 时只返回「T 时刻存在且成立」的记忆：
+    // createdAt ≤ T、未过期（expiredAt/validUntil > T）、validFrom ≤ T、未被 T 时刻之前
+    // 的修正版取代、未被 T 时刻之前软删。用于回答「当时我相信什么」。
+    const asOfRaw = (query                                    ).asOf
+    const asOf = typeof asOfRaw === 'number' && Number.isFinite(asOfRaw) ? asOfRaw : undefined
+    if (asOf !== undefined) this.discoverScopes()
+    const now = asOf ?? Date.now()
     const queryTokens = [...new Set(tokenize(query.text))]
     // 面板的语义检索复用这条流水线,但它是"看一眼"的浏览:不写访问计数,也不在
     // 没有任何向量时白跑一次嵌入请求。这两个开关只给面板的 searchForPanel 用,
@@ -5104,8 +5143,10 @@ export class LocalMemoryService                             {
     const includeSuperseded = internal.includeSuperseded === true
     const includeExpired = internal.includeExpired === true
     // 0.32.0：休眠/墓碑记录默认不参与召回（面板历史浏览显式打开时才显示）。
-    const includeDormant = internal.includeDormant === true
-    const includeTombstoned = internal.includeTombstoned === true
+    // 0.111.0：历史视角下，休眠/软删是「之后发生」的状态 —— 先放进来，再由
+    // recordValidAtImpl 按时间点剔除（否则 asOf 早于软删时永远查不到）。
+    const includeDormant = internal.includeDormant === true || asOf !== undefined
+    const includeTombstoned = internal.includeTombstoned === true || asOf !== undefined
     // 面板/历史浏览不做结果整形（不去噪/不合并/不做 MMR）：用户要看到全部命中。
     // includeExpired 通常意味着"查历史版本"，这时同义去重会把新旧版本合并掉，必须跳过。
     const shapingEnabled = internal.shaping !== false && !includeExpired
@@ -5153,7 +5194,7 @@ export class LocalMemoryService                             {
     // 继续返回会让模型拿旧结论当现行事实。memory_get(id)/面板历史仍可直接取。
     // 0.36.0：跨作用域修正后，修正版可能不在本次搜索的 scopes 里（例如修正版落
     // global、旧记录在 project），所以退役 id 必须扫全部 scope，不能只看 stores。
-    const retired = new Set        (this.supersededIds())
+    const retired = new Set        (asOf === undefined ? this.supersededIds() : this.supersededIdsAt(asOf))
 
     // --- channel 1: lexical recall, scored per scope with local IDF ---
                                                                                                                                                                                                   
@@ -5686,6 +5727,9 @@ export class LocalMemoryService                             {
     // 注意：整形函数（finalFloor/semanticDedupe/mmrSelect）按 **item.id** 去重，
     // 候选里没有 id 字段时它们会把所有条目当成同一个 `undefined` 合并掉。
     let shaped               = ranked.map((c) => ({ ...c, id: c.record.id, score: shape(c) }))
+    // 0.111.0：历史视角过滤。放在所有召回通道之后统一做，避免漏掉 BM25/PRF/图增强
+    // 补进来的候选（它们没有各自传 asOf）。
+    if (asOf !== undefined) shaped = shaped.filter((c) => this.recordValidAtImpl(c.record, asOf))
     const mergedIds           = []
     if (shapingEnabled) {
       // 地板分作用在**匹配强度**(recallScore: 词法校准分/余弦)上，而不是衰减后的

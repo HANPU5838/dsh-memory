@@ -1244,7 +1244,20 @@ async function registerHookForSave(
 export const DEFAULT_SUMMARY_CHARS = 160
 
 /** 摘要字数上限：默认 160，允许调用方在 20~2000 之间调整。 */
-export function resolveSummaryChars(value         )         {
+export /**
+ * 0.111.0：把 memory_search 的 asOf 参数规范成毫秒时间戳。
+ * 接受毫秒数字、秒级数字（<1e12 视为秒）、ISO 字符串；无法解析返回 undefined（按当前检索）。
+ */
+function parseAsOf(value         )                     {
+  if (typeof value === 'number' && Number.isFinite(value)) return value < 1e12 ? value * 1000 : value
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Date.parse(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return undefined
+}
+
+function resolveSummaryChars(value         )         {
   const n = typeof value === 'number' ? value : Number(value)
   if (!Number.isFinite(n)) return DEFAULT_SUMMARY_CHARS
   return Math.min(2000, Math.max(20, Math.round(n)))
@@ -1378,6 +1391,7 @@ export function memorySearchTool(opts                    )                      
       topK: { type: 'number', description: '1~20' },
       includeSuperseded: { type: 'boolean', description: '默认 false；true 时把已被 supersede 的旧版本也返回（历史核对）' },
       summaryChars: { type: 'number', description: `每条摘要的字数上限（默认 ${DEFAULT_SUMMARY_CHARS}，20~2000）` },
+      asOf: { type: 'string', description: '双时态检索时间点（ISO 时间或毫秒时间戳）：只返回该时刻存在且成立的记忆，例如「当时我相信什么」。省略 = 当前。已物理清理的墓碑无法恢复。' },
       description: { type: 'string', description: DESCRIPTION_PARAM_DESCRIPTION },
       requestApproval: { type: 'boolean', description: '默认 false：范围外命中只返回作用域清单（scope + 条数 + 用途，不含任何记忆内容），不自动弹审批；true = 立即向用户发起审批，允许的条目并入 records。确认这些作用域的用途确实与本次任务相关后再传 true。' },
     },
@@ -1416,8 +1430,10 @@ export function memorySearchTool(opts                    )                      
       const chars = resolveSummaryChars(args.summaryChars)
       try {
         const wantedTopK = args.topK !== undefined ? Math.min(20, Math.max(1, args.topK)) : undefined
+        const asOf = parseAsOf(args.asOf)
         const hits = await service.search({
           text: args.query,
+          ...(asOf !== undefined ? { asOf } : {}),
           // 0.106.0：必须把 agent 传下去，provider 才能按会话/工作区解析 memory_block。
           // 之前只传文本与作用域，导致 memory_block 对显式检索完全无效（只影响注入侧）。
           ...(agent !== undefined ? { agent } : {}),

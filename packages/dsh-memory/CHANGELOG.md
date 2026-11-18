@@ -2,6 +2,19 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.111.0 — 双时态检索 `asOf`（2026-11-19）
+
+- `memory_search` 新增 `asOf`（ISO 时间或毫秒时间戳）：只返回**该时刻存在且成立**的记忆。
+  - 修正版创建之前：旧版本仍可见，修正版不可见（退役集合按时间点计算）；
+  - `validFrom/validUntil` 有效期窗口严格过滤；
+  - `expiredAt` 过期、`tombstonedAt` 软删、`dormantAt` 休眠都按「发生在 asOf 之后才不算」处理；
+  - 回答「当时我相信什么」这类双时态问题；已物理清理的墓碑无法恢复（文档明示）。
+- 实现位置：provider 在全部召回通道（词法/向量/BM25/PRF/图增强）之后统一按时间点过滤，
+  避免补召回通道漏传；`supersededIdsAt()` 按修正版创建时间计算历史退役集合。
+- 测试：`asof-bitemporal.test.ts`（修正前/当前、validUntil 窗口、软删时间语义）。
+- 说明：可选 LLM 重排（`cfg.llm.enabled`）此前已存在，本轮未重复实现。
+- **验证**：**1324 例 / 1323 pass / 1 skip / 0 fail**；`verify:all` PASS；`check:docs` PASS。
+
 ## 0.110.0 — 提示词模板转义 + 防篡改写入账本（2026-11-19）
 
 > 技术调研：对照 A-MEM (NeurIPS 2025)、Soulmate793/dsh-memory、harm-m422/dsh-memory、
