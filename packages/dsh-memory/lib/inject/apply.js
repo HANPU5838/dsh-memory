@@ -1364,7 +1364,14 @@ export function apply(ctx         , config                     = {}) {
           ...(queryField !== undefined ? { query: queryField } : {}),
           candidates: recall.candidates,
           ...(recall.graphExpanded !== undefined && recall.graphExpanded > 0
-            ? { graph: { expanded: recall.graphExpanded } }
+            ? {
+                graph: {
+                  expanded: recall.graphExpanded,
+                  ...(recall.graphExpandedIds !== undefined && recall.graphExpandedIds.length > 0
+                    ? { ids: recall.graphExpandedIds }
+                    : {}),
+                },
+              }
             : {}),
           filter: {
             rawHits: recall.rawHits ?? recall.retrieval.count,

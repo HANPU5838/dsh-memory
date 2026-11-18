@@ -10,6 +10,7 @@ import { join } from 'node:path'
 import { LocalMemoryService } from '../../memory-local/src/index.ts'
 import { renderRecallBlock } from '../src/inject.ts'
 import { defaultInjectSettings } from '../../memory-local/src/inject-settings.ts'
+import { MemoryInjector, defaultInjectConfig } from '../src/inject.ts'
 
 test('0.96.0：真实服务召回的联想记录，在注入正文里带「（联想）」标记', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-inject-marker-'))
@@ -30,6 +31,19 @@ test('0.96.0：真实服务召回的联想记录，在注入正文里带「（�
     // 直接命中的那条不带标记。
     const firstLine = block!.text.split('\n').find((line) => line.startsWith('- '))!
     assert.ok(!firstLine.includes('（联想）'))
+
+    // 同一份数据过 MemoryInjector：RecallResult 要带上具体的联想 ID（供审计/面板标注）。
+    const injector = new MemoryInjector(
+      (query) => svc.search({ text: query, topK: 5 }),
+      defaultInjectConfig,
+    )
+    const detailed = await injector.maybeInjectDetailed(
+      { messages: [{ role: 'user', content: [{ type: 'text', text: 'kw0 部署' }] }] } as never,
+      { messages: [] } as never,
+    )
+    assert.ok(detailed !== undefined)
+    assert.ok((detailed!.graphExpandedIds ?? []).length > 0, 'RecallResult 必须带 graphExpandedIds')
+    assert.ok((detailed!.graphExpandedIds ?? []).every((id) => hits.some((hit) => hit.record.id === id)))
   } finally {
     svc.flushSync()
     rmSync(dir, { recursive: true, force: true })

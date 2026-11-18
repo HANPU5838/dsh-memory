@@ -382,6 +382,8 @@ export interface RecallResult {
   retrieval: { ok: boolean; count: number; error?: string; errorCode?: string }
   /** 0.67.0：本次候选中由图增强（PPR 多跳）补召回进来的条数。 */
   graphExpanded?: number
+  /** 0.97.0：这些候选里具体哪些是联想补召回的（最多 20 个，供审计/面板精确标注）。 */
+  graphExpandedIds?: string[]
 }
 
 /**
@@ -475,10 +477,13 @@ export class MemoryInjector {
     const optionsForRender = typeof this.renderOptions === 'function' ? this.renderOptions() : this.renderOptions
     // 0.35.4：把会话 id 传给 transform（before-inject 钩子按会话判断时用）。
     const block = renderRecallBlock(freshHits, cfg, { ...optionsForRender, sessionId, queryText: query })
-    const graphExpanded = candidates.filter((hit) => (hit as { graphExpanded?: boolean }).graphExpanded === true).length
+    const graphExpandHits = candidates.filter((hit) => (hit as { graphExpanded?: boolean }).graphExpanded === true)
+    const graphExpanded = graphExpandHits.length
+    const graphExpandedIds = graphExpandHits.slice(0, 20).map((hit) => hit.record.id)
     const base: RecallResult = {
       ids: [], candidates: candidates.length, dedupSkipped: deduplicated.length, updated, omitted: [], query,
       ...(graphExpanded > 0 ? { graphExpanded } : {}),
+      ...(graphExpandedIds.length > 0 ? { graphExpandedIds } : {}),
       // 全部候选都被去重时 block 为 null；把 id 留在结果里，审计才能解释"跳过了哪条"。
       dedupIds: deduplicated,
       tokens: 0, rawHits: hits.length, tagFiltered, supersededExcluded, expiredExcluded,

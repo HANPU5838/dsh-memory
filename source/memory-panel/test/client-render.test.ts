@@ -454,7 +454,7 @@ test('审计标签页:真实事件渲染为事件流与详情,评估不等于投
       schemaVersion: 2, id: 's1:1', seq: 1, at: Date.now(), sessionId: 's1', step: 1,
       kind: 'evaluation', channel: 'recall', stage: 'searched', outcome: 'success', reasonCode: 'injected',
       trigger: 'before_high_risk_tool', phase: 'release', scopes: ['session:s1', 'project:D:/repo', 'global'],
-      limits: { topK: 5 }, candidates: 12, graph: { expanded: 2 },
+      limits: { topK: 5 }, candidates: 12, graph: { expanded: 2, ids: ['mem-1'] },
       filter: { rawHits: 15, tagFiltered: 2, supersededExcluded: 1, candidates: 12 },
       selected: { contentIds: ['mem-1'], hintIds: [], newlyAddedIds: ['mem-1'], count: 1 },
       omitted: [{ id: 'mem-2', reason: 'top_k', tags: ['release'] }],
@@ -510,6 +510,7 @@ test('审计标签页:真实事件渲染为事件流与详情,评估不等于投
   assert.ok(detail.includes('原始命中'))
   assert.ok(detail.includes('省略 · 条数上限'))
   assert.ok(detail.includes('选中正文'))
+  assert.ok(detail.includes('图增强联想'), '0.97.0：审计详情单独列出联想补召回的具体 ID')
   assert.ok(detail.includes('候选中的可枚举 ID'))
   assert.ok(detail.includes('fnv1a:def'), '详情展示已脱敏 query 的 hash')
 

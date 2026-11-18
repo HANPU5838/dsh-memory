@@ -4480,8 +4480,13 @@ window.__ModuleLoader__.load({
               kv('省略', omitted.length),
               kv('去重跳过', selected.dedup ? selected.dedup.skipped : '—'),
             ),
-            h('div', { className: 'audit-id-sub' }, '候选中的可枚举 ID = 选中 + 省略；标签过滤 / 退役排除只在上方计数里。'),
             idGroup(selected.channel === 'rules' ? '选中规则' : '选中正文', selectedIds, '', '没有选中 ID'),
+            // 0.97.0：单独列出「图增强联想补召回」的具体 ID（此前只有 count，看不出是哪几条）。
+            (() => {
+              const graphIds = selected.graph && Array.isArray(selected.graph.ids) ? selected.graph.ids : []
+              return graphIds.length > 0 ? idGroup('图增强联想（补召回）', graphIds, '', '无') : null
+            })(),
+            h('div', { className: 'audit-id-sub' }, '候选中的可枚举 ID = 选中 + 省略；标签过滤 / 退役排除只在上方计数里。'),
             newlyAddedIds.length > 0 && !sameIdSet(newlyAddedIds, selectedIds)
               ? idGroup('本次新增到消息', newlyAddedIds, '', '无')
               : null,
