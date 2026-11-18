@@ -1,4 +1,4 @@
-# 架构说明（本仓库独立维护版 0.99.0）
+# 架构说明（本仓库独立维护版 0.100.0）
 
 > 本文说明这套记忆插件「为什么是插件」：哪些属于宿主、哪些属于插件、平台差异放在哪里。
 > 本仓库 **[HANPU5838/dsh-memory](https://github.com/HANPU5838/dsh-memory)** 是 DSH 记忆系统的独立维护版
@@ -193,6 +193,7 @@ Personalized PageRank（带重启随机游走，alpha=0.85，最多 24 次幂迭
   （重要度→更新时间→id 确定性），败者保留不删、审计 reason=conflict。
 - **图边权与社区（0.82.0）**：边权乘实体类型因子（具体对象 > 泛标签）；`detectCommunities()`
   标签传播划分主题社区，补充候选按社区限流（`maxPerCommunity`，默认 3）。
+- **真实库验收（0.100.0）**：`npm run e2e:real` 复制真实库跑检索/注入/doctor，不碰线上数据。
 - **评测覆盖设置（0.99.0）**：eval:tune 增加图增强开/关、印象动态/固定对比场景。
 - **设置生效性（0.98.0）**：行为级测试覆盖 graph.enabled / impression.dynamic / 设置持久化。
 - **审计联想 ID（0.97.0）**：`graphExpandedIds` 写入审计 `graph.ids`，面板单列联想补召回 ID。

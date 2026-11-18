@@ -68,6 +68,17 @@ npm run check:docs    # 版本 / badge / CHANGELOG / IMPROVEMENTS / architecture
 - 0.91.0 起检索层按记录缓存分词/实体提取，1200 条库图关 75→31ms、图开 181→121ms（见 CHANGELOG）。
 - 0.98.0 起设置生效性有行为级回归（graph.enabled 实时生效、impression.dynamic 影响字数、设置持久化）。
 
+## 1.7 真实库全链路验收
+
+```bash
+npm run e2e:real                  # 复制 ~/.dsh-memory 到临时目录
+npm run e2e:real -- --store /path # 指定其它库
+```
+
+只读验收，不改线上数据：复制真实库 → 加载真实作用域 → 抽样真实内容检索 → 渲染注入块并跑
+`MemoryInjector` → 对副本跑 `doctor`。硬失败（检索/doctor）退出码 1，其余 0。
+本机实测（0.100.0）：2 个作用域 / 71 条记录 / 5 条查询 25 条命中 / 注入块 4 行 / doctor PASS。
+
 ## 2. 真机功能清单
 
 `npm run verify:all` 覆盖「代码没坏」，这一节覆盖「你面前这台机器上能用」。逐项打勾即可：

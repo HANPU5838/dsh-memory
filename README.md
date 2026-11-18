@@ -4,7 +4,7 @@
 
 **给 DeepSeek Harness 的本地优先长期记忆插件：多路检索 + 多跳图增强 + 上下文摘要 + 冲突消解**
 
-[![version](https://img.shields.io/badge/version-v0.99.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![version](https://img.shields.io/badge/version-v0.100.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
 [![license](https://img.shields.io/badge/license-MIT-3DA639.svg)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A522.13-3C873A.svg)](package.json)
 
@@ -12,7 +12,7 @@
 
 </div>
 
-**当前版本：v0.99.0** · [Release](https://github.com/HANPU5838/dsh-memory/releases) · [更新日志](CHANGELOG.md)
+**当前版本：v0.100.0** · [Release](https://github.com/HANPU5838/dsh-memory/releases) · [更新日志](CHANGELOG.md)
 
 ---
 
@@ -228,6 +228,17 @@ config:
 里的对应小节即回到配置值。
 
 ## 评测与验收
+
+### 真实库全链路验收
+
+```bash
+npm run e2e:real                  # 复制 ~/.dsh-memory 到临时目录，跑检索/注入/doctor 后删除副本
+npm run e2e:real -- --store /path # 指定其它库
+```
+
+证明「代码通过」与「这台机器的真实数据能用」是同一件事：复制真实库 → 加载真实作用域 →
+抽样真实内容检索 → 渲染注入块并跑一次 MemoryInjector → 对副本跑 doctor；**不修改线上数据**。
+本机实测：**71 条记录 / 5 条查询 25 条命中 / 注入 4 行 / doctor PASS**。
 
 ### 一键体检真实记忆库
 
