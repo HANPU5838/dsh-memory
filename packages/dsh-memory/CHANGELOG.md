@@ -2,6 +2,15 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.78.0 — 文档与验收收尾（2026-11-18）
+
+- **验收文档**：`docs/verification.md` 补「评测回归（§1.5）」——`eval:graph` / `eval:tune` 的
+  测什么/通过口径/耗时说明；同步更新过期的测试数与包体数字。
+- **文档一致性**：删除已过时的 `docs/memory-graph-update.md`（设计要求新增 2D/3D 星图，
+  与 0.73/0.74 的移除决策相反且无引用）；architecture §9 补实体消歧、语义层偏好、评测调参说明。
+- **README**：验收示例数字与实际一致（1257 例 / 85 文件 / 2522.9 KiB）。
+- **验证**：全套 **1257 例 / 1256 pass / 1 skip / 0 fail**；`npm run verify:all` PASS。
+
 ## 0.77.0 — 检索参数扫描 / 自适应调参（2026-11-18）
 
 - **工具**：新增 `tools/eval/retrieval-tune.mjs`（`npm run eval:tune`）—— 合成「桥接 / 精确 /
