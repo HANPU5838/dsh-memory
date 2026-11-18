@@ -120,7 +120,7 @@ window.__ModuleLoader__.load({
       '.memp .footer a:hover{text-decoration:underline}',
       '.memp .pending{flex:none}',
       '.memp .time{margin-left:auto;flex:none;white-space:nowrap}',
-      '.memp .preview{margin-top:7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--dsw-alias-label-secondary);line-height:1.5}',
+      '.memp .preview{margin-top:7px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:var(--dsw-alias-label-secondary);line-height:1.5;word-break:break-word}',
       '.memp .content{margin-top:7px;white-space:pre-wrap;word-break:break-word;line-height:1.55}',
       '.memp .rec-body{margin-top:6px}',
       '.memp .acts{display:flex;gap:6px;margin-top:8px}',

@@ -2,7 +2,7 @@
   <img src="https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/preview/icon-128.png" width="84" alt="记忆系统">
 </p>
 
-> ### 📦 本仓库是 DSH 记忆系统的独立维护版（v0.83.0）
+> ### 📦 本仓库是 DSH 记忆系统的独立维护版（v0.84.0）
 >
 > 本项目是 **DSH 记忆系统**（`@restregular/dsh-memory`，MIT）的独立维护版本：
 > 以原作者代码为起点（完整历史见 CHANGELOG），**后续全部开发、发布、安装与更新只以本仓库为准**。
@@ -27,7 +27,7 @@
 
 JSONL 落盘 · 本机向量检索 · 八个模型工具 · 自动召回 · 硬性规则 · 作用域归档 · 主动屏蔽 · 可视化管理面板
 
-[![version](https://img.shields.io/badge/version-v0.83.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![version](https://img.shields.io/badge/version-v0.84.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/HANPU5838/dsh-memory/blob/main/LICENSE)
 [![ci](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.13-5FA04E.svg)](https://nodejs.org/)
@@ -892,8 +892,8 @@ npm run verify:all
 ```
 
 ```
-✓ 单元 / 集成测试：1273 例 / 1272 pass / 1 skip / 0 fail（约 22s）
-✓ 单包构建：87 文件 / 2554.7 KiB
+✓ 单元 / 集成测试：1274 例 / 1273 pass / 1 skip / 0 fail（约 22s）
+✓ 单包构建：87 文件 / 2555.4 KiB
 ✓ 面板 API 冒烟：16/16 接口通过
 ✓ 向量后端实测：http://127.0.0.1:8078/health · 1024 维
 结论：PASS（4 通过 / 0 失败 / 0 跳过）
@@ -957,6 +957,7 @@ npm run verify  # 构建到 .verify/，不落 packages/
 
 ## 更新日志
 
+- **0.84.0** —— UI 细节收尾：记录卡内容预览从单行截断改为两行 clamp，窄屏可读性与信息密度更好；新增 CSS 回归断言。
 - **0.83.0** —— 注入前冲突消解：同一次召回里互相矛盾的记忆只注入胜者（重要度 → 更新时间 → id 确定性裁决），败者保留但不进上下文，审计 reason=conflict；新增单测 + 召回集成测试。
 - **0.82.0** —— 图增强升级：实体类型边权（path/url/version > 泛 tag）+ 确定性社区检测（标签传播）与社区限流（同社区最多 3 条）；bridge 召回 100%、无关命中率 42.9% 无回归；新增 3 组单测。
 - **0.81.0** —— 召回正文抽取式摘要（TextRank）：长记忆超过字数预算时选信息量最高的句子（近重复句去重 + 查询相关句强加权），不再只截前缀；eval:summarize 实测关键结论保留 0%→100%、平均输出字数 80→67.5；进 CI。

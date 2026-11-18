@@ -1512,6 +1512,15 @@ test('0.79.0：超长项目作用域在卡片头显示紧凑标签，title 仍�
   assert.match(css, /\.memp \.rec-head\{[^}]*flex-wrap:wrap/, 'rec-head 必须可换行')
 })
 
+test('0.84.0：记录卡预览两行 clamp（窄屏信息密度）', async () => {
+  const { exports } = await loadBundle()
+  const css = (exports.__test as { CSS: string }).CSS
+  const rule = /\.memp \.preview\{([^}]*)\}/.exec(css)?.[1] ?? ''
+  assert.match(rule, /-webkit-line-clamp:2/, `预览应两行截断（实际 ${rule}）`)
+  assert.match(rule, /overflow:hidden/, 'clamp 需要 overflow:hidden')
+  assert.doesNotMatch(rule, /white-space:nowrap/, '不再是单行）')
+})
+
 test('记录页「是否被修正」筛选:默认隐藏旧版本,可切到全部 / 只看已修正', async () => {
   const { hooks } = await loadBundle()
   hooks.resetAll()

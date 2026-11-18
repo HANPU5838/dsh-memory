@@ -2,6 +2,13 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.84.0 — 记录卡预览两行 clamp（2026-11-18）
+
+- **UI**：记录列表卡片内容预览从「单行 ellipsis」改为「两行 -webkit-line-clamp + word-break」，
+  窄屏下能多看到一行正文，信息密度更好；仍不撑高卡片、不破坏列表节奏。
+- **测试**：新增 CSS 回归断言（两行 clamp + overflow hidden，不再 nowrap）；
+  全套 **1274 例 / 1273 pass / 1 skip / 0 fail**；`npm run verify:all` PASS。
+
 ## 0.83.0 — 注入前冲突消解（2026-11-18）
 
 - **问题**：认知层会给矛盾记忆对打 `conflictWith` 标记，但检索时两条仍可能同时命中并一起注入；
