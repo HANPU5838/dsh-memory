@@ -30,6 +30,15 @@
   architecture 工具与事件清单、analysis 模块引用、README `revoke-approval` 等全部对齐。
 - `check:docs` 新增「README 当前最新 vX」校验。
 
+## 0.110.0 技术调研后的两项增强
+
+- 注入渲染出口 `{{` 转义（防止宿主模板扫描导致整轮提示词组装失败）；
+- `<storeDir>/ledger.jsonl` 前向哈希链（save/forget/consolidate/restore），doctor 校验；
+- 调研结论：A-MEM（Zettelkasten 动态链接/记忆演化）、Graphiti（双时态边）、
+  HippoRAG（KG-PPR）与现有「实体图 + PPR + 巩固 + 冲突消解」高度重叠，未重复造轮子；
+  Soulmate793 的哈希链、harm-m422 的 `{{` 转义已吸收；情绪衰减/分区/人物画像属产品化
+  取舍，暂不引入。
+
 ## 0.109.0 已处理（原 backlog 前 3 项）
 
 - 多进程配置缓存 fail-open → `freshness.ts`（mtime stamp + 1s 节流），可见域/屏蔽/归档三处 + 测试；

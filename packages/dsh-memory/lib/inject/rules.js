@@ -17,6 +17,7 @@
  * 渲染、从系统提示/历史消息里抽取规则行、判断哪些行已经出现过。
  */
                                               
+import { escapeTemplateBraces } from './braces.js'
 import { estimateTokens } from '../provider/rerank.js'
                                                                               
 import { supersededIds } from './digest.js'
@@ -187,7 +188,7 @@ function renderLines(
   const extraTokens = notes.reduce((sum, note) => sum + estimateTokens(note) + 1, 0)
 
   return {
-    text,
+    text: escapeTemplateBraces(text),
     tokens: tokens + extraTokens,
     count: lines.length,
     stats: {

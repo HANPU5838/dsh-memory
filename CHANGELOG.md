@@ -2,6 +2,24 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.110.0 — 提示词模板转义 + 防篡改写入账本（2026-11-19）
+
+> 技术调研：对照 A-MEM (NeurIPS 2025)、Soulmate793/dsh-memory、harm-m422/dsh-memory、
+> FSRS/ACT-R 等同类方案后，选择两项「低风险、真实缺陷/差异化」的增强落地。
+
+- **提示词模板转义**：宿主按 `{{变量}}` 扫描提示词文本（PromptContext 没有关闭开关）。
+  记忆正文是任意文本，一条含 `{{` 的记录会让整轮提示词组装抛错。现在规则段、会话摘要、
+  召回正文、流程索引在**渲染出口**统一把 `{{` 拆成 `{ {`（存储原文不动）；
+  新增 `braces.test.ts`。
+- **防篡改写入账本**：`<storeDir>/ledger.jsonl` 为 save / forget / consolidate / restore
+  追加 sha256 前向哈希链（prev + seq + ts + event + id + scope）。只做证据不做权限：
+  doctor 校验断链并提示「记忆文件可能在外部被改过」；写失败不影响记忆主流程。
+  新增 `ledger.test.ts`（追加→验证→篡改断链 / 服务级 save+forget）。
+- **验证**：**1321 例 / 1320 pass / 1 skip / 0 fail**；`verify:all` PASS；`check:docs` PASS；
+  `doctor` 新增「写入账本」检查项。
+- 说明：A-MEM 的 Zettelkasten 动态链接/记忆演化、Graphiti 的双时态边、HippoRAG 的
+  KG-PPR 都与本仓库现有「实体图 + PPR + 巩固/冲突」高度重叠，未重复造轮子（见 docs/audit-0.108.md）。
+
 ## 0.109.0 — 多进程配置一致性 + 面板原子写入 + 测试补齐（2026-11-18）
 
 - **多进程配置缓存 fail-open（审计 P2）**：可见域 / 屏蔽 / 归档三份配置此前进程内缓存永不刷新 ——

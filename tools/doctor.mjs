@@ -21,6 +21,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { LocalMemoryService } from '../source/memory-local/src/index.ts'
+import { verifyLedger } from '../source/memory-local/src/ledger.ts'
 
 const args = process.argv.slice(2)
 const storeIndex = args.indexOf('--store')
@@ -83,7 +84,18 @@ if (!existsSync(storeDir)) {
     backups.length <= 20 ? undefined : '备份超过 20 份：备份为纯手动策略，插件不会自动创建/删除；可手动清理 backups/ 或显式调用 pruneBackups。')
   // ⑦b 审批旁路日志大小（0.107.0 起自动轮转，这里只做可见性检查）
   try {
-    const approvalsLog = join(storeDir, 'approvals.jsonl')
+    // ⑤b 写入账本（0.110.0）：每次 save/forget/consolidate 追加前向哈希链。
+  // 只读校验：不修复、不阻断；断链 = 记忆文件可能在外部被改过。
+  try {
+    const ledger = verifyLedger(join(storeDir, 'ledger.jsonl'))
+    if (ledger.entries === 0) add('ok', '写入账本', '尚无账本（0.110.0 起自动生成）')
+    else if (ledger.ok) add('ok', '写入账本', `${ledger.entries} 条，哈希链完整`)
+    else add('warn', '写入账本', `哈希链不完整：${ledger.error}`, '记忆文件可能在外部被改动过；如确认无误可删除 ledger.jsonl 重新开始。')
+  } catch (error) {
+    add('warn', '写入账本', `无法校验：${error instanceof Error ? error.message : String(error)}`)
+  }
+
+  const approvalsLog = join(storeDir, 'approvals.jsonl')
     if (existsSync(approvalsLog)) {
       const bytes = statSync(approvalsLog).size
       add(bytes <= 5 * 1024 * 1024 ? 'ok' : 'warn', '审批日志',

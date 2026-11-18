@@ -6,6 +6,7 @@
  * messages that enter the step via the agent/pre-step waterfall.
  */
                                                          
+import { escapeTemplateBraces } from './braces.js'
 import { estimateTokens } from '../provider/rerank.js'
 import { normalizeScopeInput } from '../provider/scope.js'
 import { textHasTag } from './signals.js'
@@ -333,7 +334,7 @@ export function renderRecallBlock(
     // 所有候选都超预算时也要保留 omitted 原因：审计需要解释“为什么什么都没注入”。
     return { text: '', tokens: 0, ids: [], omitted }
   }
-  return { text: `${header}\n${lines.join('\n')}`, tokens, ids, omitted }
+  return { text: escapeTemplateBraces(`${header}\n${lines.join('\n')}`), tokens, ids, omitted }
 }
 
 /** The context block we prepend (matches the documented ContextForm 'recall'). */

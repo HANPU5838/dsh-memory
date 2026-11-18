@@ -12,6 +12,7 @@
  *   - kind=rule 的记录不进摘要:硬性规则已经常驻系统提示,再列一遍是跨通道重复。
  */
 import type { MemoryRecord } from 'dsh-memory'
+import { escapeTemplateBraces } from './braces.ts'
 import { estimateTokens } from '../../memory-local/src/rerank.ts'
 import { digestForRecall } from './summarize.ts'
 import type { DigestSettings } from '../../memory-local/src/inject-settings.ts'
@@ -319,7 +320,7 @@ export function renderDigest(records: readonly MemoryRecord[], cfg: DigestSettin
       .map((record) => ({ id: record.id, updatedAt: record.updatedAt })),
   }
 
-  return { text, tokens, count: selected.length, stats }
+  return { text: escapeTemplateBraces(text), tokens, count: selected.length, stats }
 }
 
 /** 兼容旧调用:只要文本。新代码应使用 renderDigest 以取得截断统计与 hintIds。 */

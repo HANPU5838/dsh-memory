@@ -86,6 +86,7 @@ import { initialStrength, updateAfterUse } from './retrieval/retention.js'
 import { temporalBoost } from './cognitive/temporal.js'
 import { assessContradiction } from './cognitive/contradiction.js'
 import { applyConsolidationPlan, clusterRecords, planConsolidation } from './cognitive/consolidate.js'
+import { MemoryLedger } from './ledger.js'
 import { computeHealth,                   } from './cognitive/health.js'
 import { AnalysisRepository } from './analysis/store.js'
 import { analyzeMemories } from './analysis/engine.js'
@@ -1462,6 +1463,8 @@ export class LocalMemoryService                             {
                                                                    
                     
            = null
+  /** 0.110.0：防篡改写入账本（旁路，写失败不影响记忆）。 */
+                   ledger              
 
   constructor(config                    = {}) {
     this.cfg = resolveConfig(config)
@@ -1489,6 +1492,7 @@ export class LocalMemoryService                             {
     this.rerankBudget = new DailyBudget(this.cfg.llm.dailyBudgetTokens)
     this.queryTimeoutMs = this.cfg.vector.timeoutMs
     this.store = new MemoryStore(this.cfg.storeDir, { onWarn: (m) => console.warn(`[dsh-memory-local] ${m}`) })
+    this.ledger = new MemoryLedger(this.cfg.storeDir)
     // Identity BEFORE the eager load (issue #1): ScopeStore skips its sidecar
     // validation entirely while the identity is unset (`if (this.vecIdentity && …)`),
     // so loading first would accept vectors from a previous embedding model
@@ -2961,6 +2965,7 @@ export class LocalMemoryService                             {
           const applied = applyConsolidationPlan(this.store, plan)
           if (applied.record !== undefined) {
             created.push(applied.record.id)
+            this.ledger.append('consolidate', applied.record.id, plan.scope)
             // applied.superseded 是基底 id（string）；本簇被合并掉的条数 = 簇大小 - 1。
             const mergedCount = Math.max(0, plan.supersedes.length - 1)
             merged += mergedCount
@@ -4788,6 +4793,7 @@ export class LocalMemoryService                             {
       )
       record = saved.record
       deduped = saved.deduped
+      this.ledger.append('save', record.id, record.scope)
       // 初始规则：只有初始化流程（新作用域 / 半途重试）才写；普通写入带 scopeRule 不生效。
       if (initialized && ruleText !== '') {
         const ruleSaved = this.store.save(
@@ -5866,6 +5872,7 @@ export class LocalMemoryService                             {
         if (t.ok && t.reason !== 'already-tombstoned') {
           ids.push(input.id)
           removedByScope.push({ scope: located.store.scope, ids: [input.id] })
+          this.ledger.append('forget', input.id, located.store.scope)
         }
       }
       if (ids.length === 0) throw memoryError('RECORD_NOT_FOUND', `id ${input.id} not found`)
@@ -5892,7 +5899,10 @@ export class LocalMemoryService                             {
           // 也让 RECORD_NOT_FOUND 的语义失效。
           if (rec === undefined || isTombstonedRecord(rec)) continue
           const t = tombstone(this.store, id, { days: this.cfg.cognitive.tombstoneDays, reason: 'forget' })
-          if (t.ok) removedHere.push(id)
+          if (t.ok) {
+            removedHere.push(id)
+            this.ledger.append('forget', id, scope)
+          }
         }
         if (removedHere.length > 0) {
           ids.push(...removedHere)
@@ -5914,7 +5924,10 @@ export class LocalMemoryService                             {
    */
   restoreRecord(id        , opts                      = {})                                         {
     const result = restoreTombstoned(this.store, id, opts.force === true ? { force: true } : {})
-    if (result.ok) this.store.scheduleFlush()
+    if (result.ok) {
+      this.ledger.append('restore', id)
+      this.store.scheduleFlush()
+    }
     return { restored: result.ok, ...(result.reason !== undefined ? { reason: result.reason } : {}) }
   }
 

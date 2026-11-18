@@ -1,3 +1,4 @@
+import { escapeTemplateBraces } from './braces.js'
 /**
  * 流程索引:系统提示里的「相关流程」目录。
  *
@@ -169,7 +170,7 @@ export function renderProcedureIndex(
 
   if (lines.length === 0) return null
   return {
-    text: `${PROCEDURES_HEADER}\n${lines.join('\n')}`,
+    text: escapeTemplateBraces(`${PROCEDURES_HEADER}\n${lines.join('\n')}`),
     tokens,
     count: lines.length,
     ids,
