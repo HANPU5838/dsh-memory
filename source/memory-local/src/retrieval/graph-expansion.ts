@@ -416,6 +416,58 @@ export function graphWeightFactor(profile: { codeSignal?: number; naturalSignal?
   return clampNumber(factor, 0.5, 1.05)
 }
 
+// ---------------------------------------------------------------- 自适应预算
+
+export interface ExpansionBudgetInput {
+  /** 本次建图的记录数（≈ 当前作用域可见记录数）。 */
+  recordCount: number
+  /** 建图最小记录数配置。 */
+  minRecords: number
+  /** topK 缺口（结果不足 topK 时触发更宽的预算）。 */
+  deficit: number
+  limit: number
+  seedCount: number
+  minRelative: number
+}
+
+export interface ExpansionBudget {
+  seedCount: number
+  limit: number
+  minRelative: number
+  /** 是否小库（记录数 < 4×minRecords）。 */
+  smallGraph: boolean
+}
+
+/**
+ * 图增强预算自适应（0.86.0）。
+ *
+ * 小库的问题：默认「最多补 8 条」在大库是合理的，但库里只有几十条时，补 8 条会让
+ * 联想噪声占比过高，稀释真正匹配的记录。所以：
+ *
+ *   - 记录数 < `4 × minRecords`（默认 minRecords=6 → <24 条）视为小库：
+ *     最多补 3 条、相对门槛提高 50%、种子最多 4 个；
+ *   - 结果不足 topK（deficit>0）时仍放宽：种子 +2、上限 +4、门槛 ×0.75；
+ *   - 两条规则叠加后取交集（小库仍然比大库保守）。
+ *
+ * 纯函数，无 I/O。
+ */
+export function adaptiveExpansionBudget(input: ExpansionBudgetInput): ExpansionBudget {
+  const seedBase = Math.min(12, Math.max(2, Math.floor(input.seedCount) + (input.deficit > 0 ? 2 : 0)))
+  let limit = Math.min(20, Math.max(0, Math.floor(input.limit) + (input.deficit > 0 ? 4 : 0)))
+  let minRelative = Math.min(1, Math.max(0, input.deficit > 0 ? input.minRelative * 0.75 : input.minRelative))
+  const smallGraph = input.recordCount < Math.max(1, Math.floor(input.minRecords)) * 4
+  let seedCount = seedBase
+  if (smallGraph) {
+    seedCount = Math.min(seedBase, 4)
+    limit = Math.min(limit, 3)
+    minRelative = Math.min(1, minRelative * 1.5)
+  }
+  // 0.86.0：结果已经装满 topK（无缺口）时，多跳补召回只给 2 条上限 —— 这时扩召回
+  // 最容易变成"稀释"；图增强的主战场是结果不足/字面够不着的稀疏查询。
+  if (input.deficit <= 0) limit = Math.min(limit, 2)
+  return { seedCount, limit, minRelative, smallGraph }
+}
+
 // ---------------------------------------------------------------- 候选筛选
 
 /**

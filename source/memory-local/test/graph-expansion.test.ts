@@ -13,6 +13,7 @@ import {
   canonicalEntityKey,
   detectCommunities,
   ENTITY_EDGE_PRIORITY,
+  adaptiveExpansionBudget,
 } from '../src/retrieval/graph-expansion.ts'
 
 /**
@@ -277,4 +278,26 @@ test('0.82.0：pickGraphExpansion 社区上限 —— 单一社区不刷屏，�
   // 不传 community 时按分数取满 limit。
   const all = pickGraphExpansion({ ppr, limit: 8, minRelative: 0 })
   assert.equal(all.length, 6)
+})
+
+test('0.86.0：自适应预算 —— 小库最多补 3 条、门槛提高；大库保持默认', () => {
+  const base = { minRecords: 6, deficit: 0, limit: 8, seedCount: 6, minRelative: 0.08 }
+  const small = adaptiveExpansionBudget({ ...base, recordCount: 12 })
+  assert.equal(small.smallGraph, true)
+  assert.ok(small.limit <= 3, `小库补召回上限应 ≤3（实际 ${small.limit}）`)
+  assert.ok(small.seedCount <= 4, '小库种子应 ≤4')
+  assert.ok(small.minRelative > base.minRelative, '小库门槛应更高')
+
+  const large = adaptiveExpansionBudget({ ...base, recordCount: 120 })
+  assert.equal(large.smallGraph, false)
+  assert.equal(large.limit, 2, '无缺口时最多补 2 条（防稀释）')
+  assert.equal(large.seedCount, 6)
+  assert.equal(large.minRelative, base.minRelative)
+
+  // 结果不足 topK 时仍放宽（但小库依旧更保守）。
+  const deficitSmall = adaptiveExpansionBudget({ ...base, recordCount: 12, deficit: 3 })
+  assert.ok(deficitSmall.limit <= 3)
+  assert.ok(deficitSmall.seedCount >= 4)
+  const deficitLarge = adaptiveExpansionBudget({ ...base, recordCount: 120, deficit: 3 })
+  assert.ok(deficitLarge.limit > large.limit, '大库 deficit 时上限放宽（8→12）')
 })

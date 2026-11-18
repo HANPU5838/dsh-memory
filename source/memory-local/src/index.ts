@@ -79,7 +79,7 @@ import { buildStats, lexicalScore, recordScore, tokenize, cosine, normalizeInPla
 import { adaptiveScopeThreshold, calibrateScore } from './retrieval/adapt.ts'
 import { blendHybrid, expandQuery, expandQueries, hybridWeights, prfTokens, queryProfile } from './retrieval/expand.ts'
 import { buildBm25Docs, bm25Score, rankByBm25 } from './retrieval/bm25.ts'
-import { buildAssociationGraph, detectCommunities, graphWeightFactor, personalizedPageRank, pickGraphExpansion, queryEntitySeeds } from './retrieval/graph-expansion.ts'
+import { adaptiveExpansionBudget, buildAssociationGraph, detectCommunities, graphWeightFactor, personalizedPageRank, pickGraphExpansion, queryEntitySeeds } from './retrieval/graph-expansion.ts'
 import { reciprocalRankFusion, normalizeScores } from './retrieval/fusion.ts'
 import { explainCandidate } from './retrieval/rank.ts'
 import { initialStrength, updateAfterUse } from './retrieval/retention.ts'
@@ -5307,13 +5307,21 @@ export class LocalMemoryService implements MemoryServiceApi {
         const graph = buildAssociationGraph(eligible)
         // 0.82.0：社区约束 —— 同社区最多补 maxPerCommunity 条，避免单一主题刷屏。
         const communities = detectCommunities(graph)
-        // 候选种子：按相关度取 top-N；结果不足 topK 时自适应多取 2 个。
+        // 0.86.0：小库保守预算（记录数 < 4×minRecords 时最多补 3 条、门槛 +50%）。
         const deficit = Math.max(0, topK - candidates.size)
-        const seedCount = Math.min(12, this.cfg.graphExpansion.seedCount + (deficit > 0 ? 2 : 0))
+        const budget = adaptiveExpansionBudget({
+          recordCount: eligible.length,
+          minRecords: this.cfg.graphExpansion.minRecords,
+          deficit,
+          limit: this.cfg.graphExpansion.limit,
+          seedCount: this.cfg.graphExpansion.seedCount,
+          minRelative: this.cfg.graphExpansion.minRelative,
+        })
+        // 候选种子：按相关度取 top-N；不足 topK / 小库时由预算统一约束。
         const seeds: Array<readonly [string, number]> = [...candidates.values()]
           .filter((cand) => cand.recallScore > 0)
           .sort((a, b) => b.recallScore - a.recallScore || a.record.id.localeCompare(b.record.id))
-          .slice(0, seedCount)
+          .slice(0, budget.seedCount)
           .map((cand) => [cand.record.id, cand.recallScore] as const)
         // 查询实体种子：查询里出现的实体直接映射到记录（不依赖词法/向量是否命中）。
         for (const [id, weight] of queryEntitySeeds(query.text, graph)) {
@@ -5325,15 +5333,11 @@ export class LocalMemoryService implements MemoryServiceApi {
             alpha: this.cfg.graphExpansion.alpha,
             maxIterations: this.cfg.graphExpansion.iterations,
           })
-          const limit = Math.min(20, this.cfg.graphExpansion.limit + (deficit > 0 ? 4 : 0))
-          const minRelative = deficit > 0
-            ? this.cfg.graphExpansion.minRelative * 0.75
-            : this.cfg.graphExpansion.minRelative
           const picks = pickGraphExpansion({
             ppr,
             avoid: new Set(candidates.keys()),
-            limit,
-            minRelative,
+            limit: budget.limit,
+            minRelative: budget.minRelative,
             community: { labels: communities, maxPerCommunity: this.cfg.graphExpansion.maxPerCommunity },
           })
           for (const hit of picks) {
