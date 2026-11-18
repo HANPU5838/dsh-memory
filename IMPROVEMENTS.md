@@ -1,12 +1,13 @@
-# 本仓库相对上游的改进
+# 本仓库的改进清单
 
-> 原作者：**RestRegular**（上游原项目 [RestRegular/dsh-memory](https://github.com/RestRegular/dsh-memory)，MIT）。
-> 本项目 [HANPU5838/dsh-memory](https://github.com/HANPU5838/dsh-memory) 在其 **v0.30.1** 基础上持续维护，
-> 以下是相对上游的完整改进清单（有源码改动 + 回归测试，不是临时补丁）。
+> 原作者：**RestRegular**（原始项目 [RestRegular/dsh-memory](https://github.com/RestRegular/dsh-memory)，MIT，版权与署名保留）。
+> 本项目 **[HANPU5838/dsh-memory](https://github.com/HANPU5838/dsh-memory)** 是独立维护版：
+> 以下为自维护以来的完整改进清单（每一项都有源码改动 + 回归测试，不是临时补丁），
+> 安装、发布、更新**只以本仓库为准**。
 
 ## 0.57–0.61（本仓库自维护版相对 0.56 的变更）
 
-> 这一段不是「相对上游」，而是本仓库在 0.56 之后的六个版本的变更总览；逐版本的细节、
+> 这一段是本仓库 0.56 之后的六个版本变更总览；逐版本的细节、
 > 测试数字与验证方式见 [CHANGELOG.md](CHANGELOG.md) 与 [docs/verification.md](verification.md)。
 
 - **0.57 移除知识图谱**：删除实体共现图（建图/序列化/`/graph` 路由/面板视图/`graph.json`）；
@@ -356,17 +357,19 @@ cognitive:
 | G34 | **死代码/UI 审计（0.55.0）** | 删除未接线 rerank-local 与过时审计文档；标签页横向滚动、分析卡自适应、搜索提示、文件全部展开/收起 |
 | G35 | **图谱矢量缩放 + 垃圾清理（0.56.0）** | SVG 按 zoom 重绘（不糊）、语义标签缩放；备份后清理 12 条 agent 日志/自检记录、`.build`/eval out/工作区临时文件，健康分回到 100 |
 | G36 | **文档版本对齐（0.56.1）** | README 边界/安装到 0.56.0 + 明确“闭环本地记忆系统”判断；docs 标题同步；清理 .build |
-## 三、如何从上游同步
+## 三、版本与发布（本仓库）
+
+本仓库是唯一维护源（代码 / Release / Issue / 安装 / 更新）：
+**https://github.com/HANPU5838/dsh-memory**
 
 ```bash
-git remote add upstream https://github.com/RestRegular/dsh-memory
-git fetch upstream && git rebase upstream/main
-node tools/build-single-package.mjs --scope @restregular --version <新版本> \
-  --repo https://github.com/HANPU5838/dsh-memory
-node --test source/*/test/*.test.ts
+# 版本号：package.json 的 version + build/verify scripts 三处 + CHANGELOG 新条目
+npm run build && npm test && npm run verify:all
+git commit -am "release: v<新版本>" && git tag -a v<新版本> -m "v<新版本>" && git push origin main --tags
 ```
 
-上游若已收录其中某条，从本清单删掉对应行，避免重复改动。
+安装与更新只使用 `github:HANPU5838/dsh-memory`；升级走「先移除再安装」的热更新路径，
+记忆数据不受影响。
 
 ## 四、已知但本次未做
 

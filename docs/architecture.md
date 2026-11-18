@@ -1,9 +1,11 @@
-# 架构说明（本仓库维护版 0.63.0）
+# 架构说明（本仓库独立维护版 0.64.0）
 
 > 本文说明这套记忆插件「为什么是插件」：哪些属于宿主、哪些属于插件、平台差异放在哪里。
-> 上游 `@restregular/dsh-memory@0.30.1` 的原始设计见其 README；本仓库在上游之上做了
-> 平台适配层、可插拔嵌入后端、事件总线与可靠性收尾；0.32–0.41 又加入了语义认知层、
-> 检索整形（BM25/RRF/MMR）、记忆强度算法、健康度/冲突中心、可疑写入隔离与**智能关系分析**（清单见 [IMPROVEMENTS.md](../IMPROVEMENTS.md)，分析架构见 [analysis.md](analysis.md)）。
+> 本仓库 **[HANPU5838/dsh-memory](https://github.com/HANPU5838/dsh-memory)** 是 DSH 记忆系统的独立维护版
+> （基于原作者 RestRegular 的 MIT 代码，版权与署名保留）：平台适配层、可插拔嵌入后端、事件总线、
+> 语义认知层、检索整形（BM25/RRF/MMR）、记忆强度算法、健康度/冲突中心、可疑写入隔离与**智能关系分析**
+> 都在本仓库持续演进（清单见 [IMPROVEMENTS.md](../IMPROVEMENTS.md)，分析架构见 [analysis.md](analysis.md)）。
+> 安装、发布、更新**只以本仓库为准**，不依赖 npm 或第三方仓库。
 
 ## 1. 三层结构
 
@@ -137,14 +139,23 @@ memory/record-forgotten  { scope, ids }
 3. 状态字段：`lastError`、`restarts`、`unavailable`、`wrapped`（是否 glibc 包装）。
 4. 测试：`node --test source/*/test/*.test.ts`（CI 在 ubuntu + Node 24 上跑同一命令）。
 
-## 8. 从上游同步
+## 8. 版本与发布（本仓库为唯一源头）
+
+本仓库是唯一维护源：代码、Release、Issue、安装与更新都在
+**[HANPU5838/dsh-memory](https://github.com/HANPU5838/dsh-memory)**。
+发布流程（不依赖 npm / 任何第三方仓库）：
 
 ```bash
-git remote add upstream https://github.com/RestRegular/dsh-memory
-git fetch upstream && git rebase upstream/main
-node tools/build-single-package.mjs --scope @restregular --version <新版本> \
-  --repo https://github.com/HANPU5838/dsh-memory
-node --test source/*/test/*.test.ts
+# 1) 改版本号：package.json 的 version + build/verify scripts 三处 + CHANGELOG 新条目
+# 2) 构建与验收
+npm run build
+npm test
+npm run verify:all
+# 3) 提交、打 tag、推送；在 GitHub Releases 写说明
+git commit -am "release: v<新版本>"
+git tag -a v<新版本> -m "v<新版本>"
+git push origin main --tags
 ```
 
-上游若已收录某条改进，从 [IMPROVEMENTS.md](../IMPROVEMENTS.md) 删掉对应行，避免重复。
+安装 / 更新端只认本仓库 spec（`github:HANPU5838/dsh-memory`）；升级走「先移除再安装」的
+热更新路径（见 README「更新到最新版」），记忆数据不受影响。

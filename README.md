@@ -2,19 +2,21 @@
   <img src="https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/preview/icon-128.png" width="84" alt="记忆系统">
 </p>
 
-> ### 📦 本仓库在上游基础上持续维护（v0.64.0）
+> ### 📦 本仓库是 DSH 记忆系统的独立维护版（v0.64.0）
 >
-> 本项目是 **DSH 记忆系统**（npm 包 `@restregular/dsh-memory`，MIT）的分支维护版：
-> 在上游 v0.30.1 之上做了平台适配、插件化、可靠性加固、语义认知层与嵌入性能优化，并在 **0.40/0.41 补上 BM25+RRF、记忆健康度、冲突自动裁决、可疑写入隔离、本地备份与离线评测**。
+> 本项目是 **DSH 记忆系统**（`@restregular/dsh-memory`，MIT）的独立维护版本：
+> 以原作者代码为起点（完整历史见 CHANGELOG），**后续全部开发、发布、安装与更新只以本仓库为准**。
 >
 > | 项目 | 说明 |
 > | --- | --- |
-> | 原作者 | **RestRegular**（上游原项目 [RestRegular/dsh-memory](https://github.com/RestRegular/dsh-memory)，MIT）；本项目在其 v0.30.1 基础上维护 |
-> | 本仓库 | **v0.63.0** = 上游 v0.30.1 + 平台/可靠性改进 + 语义认知层 + 检索整形（BM25/RRF/MMR）+ 嵌入性能 + 记忆强度算法 + **智能关系分析（关系发现/冲突/聚类/演化/推理）** + **0.57–0.61：移除知识图谱、跨平台自动适配与零配置自举、本机端点发现、端口回退、全功能验收** + **0.62.3：总命中为空时的保底召回（recallFallback）** + **0.62.4：向量后端默认手动安装（autoBootstrap 默认 off）** + **0.62.5：空会话作用域自动回收** + **0.62.6：保底召回地板收紧到 0.48** + **0.62.7：词法准入只认内容词** + **0.62.8：无实义查询短路** + **0.62.9：修复非中文语种误伤** + **0.63.0：恢复自动检测/自动安装，修复 Termux 装错运行时**。完整清单见 [IMPROVEMENTS.md](IMPROVEMENTS.md)，架构见 [docs/architecture.md](docs/architecture.md) |
-> | 许可 | **MIT**，版权归原作者所有，见 [LICENSE](LICENSE)；转载、分发请保留原始版权声明 |
-> | 更新与反馈 | Issue / PR / 反馈请到 **[本仓库 Issues](https://github.com/HANPU5838/dsh-memory/issues)**；与上游的差异集中在 `IMPROVEMENTS.md` |
+> | 原作者 | **RestRegular**（原始项目 [RestRegular/dsh-memory](https://github.com/RestRegular/dsh-memory)，MIT）；MIT 版权声明与署名完整保留，见 [LICENSE](LICENSE) |
+> | **唯一维护源** | **[HANPU5838/dsh-memory](https://github.com/HANPU5838/dsh-memory)** —— 代码、Release、Issue、更新通道全部在这里 |
+> | 安装 / 更新 | `dsh plugin --profile web add "github:HANPU5838/dsh-memory#main"`；更新同样只从本仓库拉取 |
+> | 当前版本 | **v0.64.0**：记忆图三视图（树 / 2D / 3D 星图）、作用域归档、主动屏蔽、规则代码钩子、跨作用域修正；八个模型工具 |
+> | 许可 | **MIT**，版权归原作者所有；转载、分发请保留原始版权声明 |
+> | 更新与反馈 | Issue / PR / 反馈：[本仓库 Issues](https://github.com/HANPU5838/dsh-memory/issues) |
 >
-> 它解决什么问题：把「长期记忆」落到本机——JSONL 存储 + 本地向量检索（BGE-M3）+ 六个记忆工具
+> 它解决什么问题：把「长期记忆」落到本机——JSONL 存储 + 本地向量检索（BGE-M3）+ 八个记忆工具
 > + 自动召回注入 + 硬性规则 + **语义整理与生命周期** + 可视化管理面板，让模型在该记的时候记住、
 > 该用的时候用上、该忘的时候忘掉，默认不联网。
 
@@ -251,7 +253,7 @@ bge-m3 1024 维，llama-server CPU 6 线程，2026-11-10）：
 每个作用域是一颗星，它下面的记忆按**黄金角螺旋**（2.39996 rad）铺成同心环 —— 无随机量，
 同样的数据永远得到同一张图。
 
-![星图](https://raw.githubusercontent.com/RestRegular/dsh-memory/main/preview/memory-graph.png)
+![星图](https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/preview/memory-graph.png)
 
 - **远近**：环越外层的点越小、越暗、带一点点模糊（`z` 值驱动 `--z-op` / `--z-blur` /
   `z-index`），因此看起来有纵深，而不是一屏等大的散点。整张图按椭圆铺开以吃满宽画布，
@@ -327,8 +329,8 @@ bge-m3 1024 维，llama-server CPU 6 线程，2026-11-10）：
 
 ## 安装
 
-> **安装来源提醒**：npm 上的 `@restregular/dsh-memory` 是**上游 0.30.1**（本项目基于它改进，
-> 但尚未发布到 npm）。要使用本仓库的 0.63.0，请从本仓库安装：
+> **唯一安装/更新来源：本仓库。** `@restregular/dsh-memory` 只是保留的包名（兼容既有 Loader entry 与插件 id），
+> **代码一律从本仓库拉取**；本仓库的 [Releases](https://github.com/HANPU5838/dsh-memory/releases) 与 `main` 分支就是更新通道，不依赖 npm。
 
 ```bash
 # 方式一：直接从本仓库装（仓库内已包含构建产物 packages/）
@@ -347,6 +349,21 @@ pnpm add "github:HANPU5838/dsh-memory#main"
 # 或本地路径
 pnpm add "file:/path/to/dsh-memory"
 ```
+
+### 更新到最新版（只走本仓库）
+
+代码与更新通道都只认 `github:HANPU5838/dsh-memory`。DSH 插件管理器的升级路径是
+**先移除、再用本仓库 spec 重新安装**（两步都是热更新，不用重启）：
+
+```bash
+# CLI 等价命令（profile 换成 desktop / web 等）
+dsh plugin --profile web remove @restregular/dsh-memory
+dsh plugin --profile web add "github:HANPU5838/dsh-memory#main"
+```
+
+- 升级**不会**改动记忆数据（`<storeDir>`，默认 `~/.dsh-memory`）；
+- 面板 UI 有更新时，浏览器刷新一次页面即可看到新界面；
+- 版本差异以本仓库 [Releases](https://github.com/HANPU5838/dsh-memory/releases) / [CHANGELOG](CHANGELOG.md) 为准。
 
 装进任意 DSH profile（桌面端 `~/.dsh/profiles/desktop`，Web 端 `~/.dsh/profiles/web`）。
 包自带 `cordis.patch.yml`，注册**唯一一条** entry：
@@ -872,8 +889,8 @@ npm run verify:all
 ```
 
 ```
-✓ 单元 / 集成测试：1097 例 / 1096 pass / 0 fail（20s）
-✓ 单包构建：78 文件 / 2143.5 KiB
+✓ 单元 / 集成测试：1243 例 / 1242 pass / 1 skip / 0 fail（约 21s）
+✓ 单包构建：85 文件 / 5035.0 KiB
 ✓ 面板 API 冒烟：16/16 接口通过
 ✓ 向量后端实测：http://127.0.0.1:8078/health · 1024 维
 结论：PASS（4 通过 / 0 失败 / 0 跳过）
@@ -895,9 +912,11 @@ npm run verify  # 构建到 .verify/，不落 packages/
 产物契约检查覆盖会**静默失败**的几处：patch 恰好一行、`exports` 放行 `./client` 与 locale、
 `__ModuleLoader__.load({ id })` 等于包名、四个半边的相对 import 都在、`icon.svg` 体积在宿主上限内。
 
-> 发布：`node tools/publish-npm-packages.mjs --scope @restregular --version x.y.z`。
-> npm token 不经过命令行，默认从 DevCred 读取，由 `devcred inject` 写进临时 `.npmrc`，发布后连目录删除。
-> npm 的暂存发布会短暂出现版本不可下载、`latest` 未更新；先轮询确认，不要重复发布或 bump 版本。
+> **发布流程（本仓库，唯一发布通道）**：
+> ① 改版本号（`package.json` 的 version 与 build/verify scripts 三处 + CHANGELOG 新条目）→
+> ② `npm run build` → ③ `npm test` 与 `npm run verify:all` → ④ 提交并推送 `main` →
+> ⑤ 打 tag `vX.Y.Z` 并推送 → ⑥ 在 GitHub Releases 写发布说明。
+> 本仓库**不再向 npm 或任何第三方仓库发版**；安装与更新只从本仓库 GitHub 拉取。
 
 ## 常见问题
 
@@ -935,6 +954,8 @@ npm run verify  # 构建到 .verify/，不落 packages/
 
 ## 更新日志
 
+- **0.64.0** —— 合并原项目 0.31.0–0.39.0：记忆图三视图（树 / 2D 星图 / 3D 星图）、作用域归档、`memory_block` 主动屏蔽、`memory_hooks` 规则代码钩子、`supersedes` 跨作用域修正、GitHub API 限流修复；工具六个 → 八个。项目定位明确为**本仓库独立维护**，安装/更新只走本仓库。
+- **0.63.0** —— 恢复自动检测/自动安装，并修复 Termux 装错运行时（bionic 原生运行时而非 glibc 托管包）。
 - **0.32.0** —— 作用域归档（会话 / 项目）+ Agent 主动屏蔽：项目作用域归档持久化在 `archive/project.json`，工作区被移除时转 `dormant`（记忆保留、不参与检索）、重新加入时**自动解除归档**；`global` / 自定义作用域拒绝归档。新增第 7 个工具 `memory_block`（`block` / `unblock` / `list`），可按作用域或记录 id / 前缀屏蔽，层级分会话级与工作区级；**审批矩阵**：按作用域 / 工作区级 / 目标是规则一律弹审批，只有「会话级 + 按记录 id + 非规则」静默生效。屏蔽在检索、注入、规则段、过程段与目录里全部生效，被屏蔽作用域拒绝 Agent 写入（`SCOPE_BLOCKED`）。面板新增 `/memory/api/archive`、`/memory/api/blocks` 与 `archived` / `blocked` 透传，记录页默认折叠这两类并给计数开关、行内「解除归档 / 解除屏蔽」。
 - **0.30.1** —— 修复 CUDA 运行时安装误选伴生包（issue #4）：`runtimeAssetPattern` 的主包正则补上开头锚定 `^llama-`（此前只锚结尾，release 资产顺序一变就会把共享后缀的 `cudart-llama-…` 当成运行时，解压后找不到 `llama-server.exe`）；伴生包仍只认 `^cudart-`，只有 cudart 的发行版会退回 CPU 包而不是装出缺 exe 的目录；已误下 cudart 的用户重试时该文件会直接复用为伴生包。
 - **0.30.0** —— 会话作用域绑定会话生命周期：会话创建时系统自动建立会话作用域（`ensureSessionScope`，只写 `scope-meta`，`createdBy: system`，幂等且不写记忆）；会话归档后该作用域与记忆**冻结**——`search` / `list` / `listSync` / `getByIds` 全部跳过，授权统一返回 `SCOPE_ARCHIVED`（不可申请、无审批路径），目录与面板标「已归档」，归档期间小时级过期清理与容量淘汰也跳过它；取消归档后自动复原（实时读宿主 `workspaceRegistry.archivedSessionIds`，不复制、不缓存，数据文件一个字节不动）。`memory_scopes` 目录项新增 `archived` 与 `accessStatus='archived'`；面板作用域行显示「已归档」徽标；`session/created` 监听失败绝不回滚会话创建，启动时给已存在的会话补建。
