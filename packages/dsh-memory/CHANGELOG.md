@@ -2,6 +2,18 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.88.0 — 生命周期补齐：无向量也能巩固（2026-11-18）
+
+- **问题**：`consolidateNow()` 之前直接跳过没有向量的作用域；而保存路径本来就去重完全相同正文，
+  等于「纯词法部署永不巩固」——生命周期在无嵌入后端时是断的。
+- **算法**：`clusterRecords` 新增词法兜底 `lexicalFallback`（默认 true）——向量缺失时用
+  **token Dice 系数**（阈值 0.8）保守聚类，`hasCriticalDetailConflict` 仍然拒绝合并互斥事实；
+  `lexicalFallback: false` 回到旧的精确聚类。
+- **配置**：`cognitive.consolidation.lexicalFallback`（默认 true）/ `lexicalThreshold`（默认 0.8）。
+- **测试**：新增 Dice 相似度单测（高重叠 ≥0.8、无关 <0.2、关键细节冲突=0、空文本=0）、
+  无向量巩固集成测试（2 条相似合并、无关不并、原记录保留）、关闭兜底不合并；
+  全套 **1279 例 / 1278 pass / 1 skip / 0 fail**；`npm run verify:all` PASS。
+
 ## 0.87.0 — 上下文摘要内核统一 + 小库回归评测（2026-11-18）
 
 - **一致性**：逐轮召回早就用 TextRank 选句，但 L1 会话摘要（新会话概览）仍在截前 160 字——

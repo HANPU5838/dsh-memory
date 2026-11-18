@@ -91,7 +91,9 @@ DSH 记忆系统是一个**完全本地**的长期记忆插件：Agent 用八个
 - **语义合并**：写入时近重复（余弦 ≥0.92 且关键细节一致）自动合并，旧版本经 `supersedes` 保留可溯源；
 - **冲突裁决**：0.75–0.92 或数字/路径/标识符不一致先打冲突标记，再按矛盾度 + 证据 + 来源 + 时间自动裁决；
 - **周期巩固**：同作用域、高相似的活跃记忆做抽取式合并（基底 + 簇内独有要点），产物带 `consolidated`
-  语义标记并发 `memory/consolidated` 事件；冲突/退役/休眠/失效记录不参与；
+  语义标记并发 `memory/consolidated` 事件；冲突/退役/休眠/失效记录不参与。**0.88.0 起没有向量也能巩固**：
+  向量缺失时用 token Dice 相似度保守聚类（`cognitive.consolidation.lexicalFallback`，默认开、
+  阈值 0.8）——纯词法部署不再"永不巩固"；
 - **语义层偏好**：巩固产物在相关度接近时优先于原始记录（`retrieval.semanticLayerBoost`，默认 0.04）；
 - **休眠 / 软删 / 恢复**：低重要度长期不用会休眠；删除走软删（可恢复），30 天后才物理清理。
 
@@ -208,6 +210,7 @@ config:
 | `retrieval.semanticLayerBoost` | `0.04` | 巩固产物优先系数（0–0.2） |
 | `retrieval.strengthRanking` | `true` | FSRS 强度排序（false 回退旧公式） |
 | `retrieval.temporalWeighting` | `true` | 事实时间权重 |
+| `cognitive.consolidation.lexicalFallback` | `true` | 无向量时的词法巩固兜底（Dice 阈值 0.8） |
 | `cognitive.lifecycle` | 30 天 | 休眠/软删周期 |
 | `inject.recall.tokenBudget` | 500 | 每轮召回注入 token 预算 |
 | `inject.impression.chars` / `dynamic` | 120 / true | 每条印象字数 / 按相关度动态分配 |

@@ -32,11 +32,15 @@ import {
 import { unionTags } from './merge.ts'
 import { hasCriticalDetailConflict } from './conflict.ts'
 import { validFromOf, validUntilOf } from './temporal.ts'
+import { tokenize } from '../scoring.ts'
 
 /** 聚类阈值：余弦相似度 ≥ 0.90 视为同一簇（略低于语义合并的 0.92：巩固允许"角度相近"）。 */
 export const CONSOLIDATION_THRESHOLD = 0.9
 /** 0.71.0：巩固产物统一携带的语义标记（面板/检索/事件都能识别"提炼过的记忆"）。 */
 export const CONSOLIDATED_TAG = 'consolidated'
+/** 0.88.0：无向量时用 token Jaccard 做巩固聚类，默认阈值（保守）。 */
+export const LEXICAL_CONSOLIDATION_THRESHOLD = 0.8
+
 /** 合并正文默认上限（字符数）。 */
 export const DEFAULT_MAX_CHARS = 2000
 /** 单 scope 参与两两比较的记录数上限（O(n²) 保护，与 store.nearDuplicates 同口径）。 */
@@ -55,6 +59,13 @@ export interface ClusterOptions {
   vectors?: ReadonlyMap<string, Float32Array> | Readonly<Record<string, Float32Array>>
   /** 自定义相似度（给了它就不用 vectors；测试/离线算法用）。 */
   similarity?: (a: MemoryRecord, b: MemoryRecord) => number
+  /**
+   * 0.88.0：没有 vectors / similarity 时，用词法相似度（token Jaccard）代替
+   * "只合并完全相同的正文"。默认 true；设 false 回到旧的精确聚类。
+   */
+  lexicalFallback?: boolean
+  /** 词法聚类的 Dice 阈值（默认 0.8）。 */
+  lexicalThreshold?: number
   /** 单 scope 比较上限，默认 2000。 */
   maxRecords?: number
   /** 是否把 tombstone 软删记录也算进簇，默认 false。 */
@@ -128,6 +139,25 @@ class UnionFind {
 }
 
 /** 一趟聚类：按 scope 分组（跨 scope 不合并，作用域边界优先），组内并查集聚类。 */
+/**
+ * 0.88.0：无向量时的词法相似度（token 集合 Dice 系数）。
+ *
+ * 为什么需要：巩固此前在「没有向量」的作用域里只剩"归一化正文完全相同"这一条路，
+ * 而保存路径本来就会去重完全相同的正文 —— 等于无向量库**永远不巩固**。用 Jaccard
+ * 做保守兜底，让纯词法部署也能完成 episodic → semantic 的消化。
+ */
+export function lexicalContentSimilarity(a: MemoryRecord, b: MemoryRecord): number {
+  if (hasCriticalDetailConflict(a.content, b.content)) return 0
+  const left = new Set(tokenize(a.content))
+  const right = new Set(tokenize(b.content))
+  if (left.size === 0 || right.size === 0) return 0
+  let inter = 0
+  for (const token of left) if (right.has(token)) inter += 1
+  // Dice 比 Jaccard 宽容一点："长一句补充说明"不该让相似度掉到阈值以下；
+  // 同时比「包含系数」安全：短句完全包含于长句时 Dice 会随长度差下降，不会 1:1 合并。
+  return (2 * inter) / (left.size + right.size)
+}
+
 function clusterScope(
   scope: MemoryScope,
   records: MemoryRecord[],
@@ -135,8 +165,11 @@ function clusterScope(
   result: ClusterResult,
 ): void {
   if (records.length < 2) return
-  const threshold = clamp01(options.threshold ?? CONSOLIDATION_THRESHOLD)
-  const exactOnly = options.vectors === undefined && options.similarity === undefined
+  const lexicalMode = options.vectors === undefined && options.similarity === undefined && options.lexicalFallback !== false
+  const exactOnly = options.vectors === undefined && options.similarity === undefined && !lexicalMode
+  const threshold = clamp01(lexicalMode
+    ? (options.lexicalThreshold ?? LEXICAL_CONSOLIDATION_THRESHOLD)
+    : (options.threshold ?? CONSOLIDATION_THRESHOLD))
   const custom = options.similarity
 
   const uf = new UnionFind()
@@ -161,6 +194,7 @@ function clusterScope(
       // 即使冲突检测因时序漏判，也不能把互斥事实揉成一条。
       if (hasCriticalDetailConflict(a.content, b.content)) return 0
       if (custom !== undefined) return clamp01(custom(a, b))
+      if (lexicalMode) return lexicalContentSimilarity(a, b)
       const va = vectorOf(options.vectors, a.id)
       const vb = vectorOf(options.vectors, b.id)
       if (va === undefined || vb === undefined) return 0
@@ -192,6 +226,7 @@ function clusterScope(
         pairs++
         if (exactOnly && normalizeContent(group[i]!.content) === normalizeContent(group[j]!.content)) sum += 1
         else if (custom !== undefined) sum += clamp01(custom(group[i]!, group[j]!))
+        else if (lexicalMode) sum += lexicalContentSimilarity(group[i]!, group[j]!)
         else {
           const va = vectorOf(options.vectors, group[i]!.id)
           const vb = vectorOf(options.vectors, group[j]!.id)

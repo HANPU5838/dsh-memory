@@ -371,7 +371,15 @@ function isInside(parent        , child        )          {
                                                             
                                                                                                     
                                                          
-                                                                                   
+                     
+                       
+                        
+                          
+                                             
+                               
+                                          
+                               
+     
    
                                                                            
                                                              
@@ -513,6 +521,8 @@ function isInside(parent        , child        )          {
                                  
                                   
                                     
+                                         
+                                         
    
  
 
@@ -1055,6 +1065,8 @@ export function resolveConfig(config                    = {})                 {
       consolidationEnabled: config.cognitive?.consolidation?.enabled ?? true,
       consolidationThreshold: config.cognitive?.consolidation?.threshold ?? 0.9,
       consolidationMaxClusters: config.cognitive?.consolidation?.maxClusters ?? 2,
+      consolidationLexicalFallback: config.cognitive?.consolidation?.lexicalFallback ?? true,
+      consolidationLexicalThreshold: config.cognitive?.consolidation?.lexicalThreshold ?? 0.8,
     },
   }
 }
@@ -2894,7 +2906,8 @@ export class LocalMemoryService                             {
     this.discoverScopes()
     const now = Date.now()
     for (const scopeStore of this.store.allScopes()) {
-      if (scopeStore.vectors.size === 0) continue
+      // 0.88.0：没有向量也要巩固 —— 词法 Jaccard 兜底（纯词法部署同样能 episodic→semantic）。
+      const scopeHasVectors = scopeStore.vectors.size > 0
       // 只巩固"活着且不冲突"的记录：
       //  - 退役（superseded）、休眠、软删、过期/失效的都不参与；
       //  - 带 conflictWith 标记的记录**绝不合并** —— 它们是"措辞像但事实矛盾"的对，
@@ -2916,7 +2929,12 @@ export class LocalMemoryService                             {
       try {
         clusters = clusterRecords(candidates, {
           threshold: this.cfg.cognitive.consolidationThreshold,
-          vectors: scopeStore.vectors,
+          ...(scopeHasVectors
+            ? { vectors: scopeStore.vectors }
+            : {
+                lexicalFallback: this.cfg.cognitive.consolidationLexicalFallback,
+                lexicalThreshold: this.cfg.cognitive.consolidationLexicalThreshold,
+              }),
         }).clusters.slice(0, this.cfg.cognitive.consolidationMaxClusters)
       } catch {
         continue
