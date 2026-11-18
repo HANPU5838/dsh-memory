@@ -2,6 +2,16 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.102.0 — 发布链路检查与打包契约补强（2026-11-18）
+
+- **新工具**：`tools/check-release.mjs`（`npm run release:check`）逐段核对发布链路：
+  产物版本 = 仓库版本；`npm pack --dry-run` 清单含运行必需文件；本地/远端 tag；GitHub Release；
+  本地 web profile 已安装插件版本。网络/gh 不可用时降级为警告，`--strict` 把警告当失败。
+- **打包契约测试补强**：`files` 清单每个路径真实存在；`locale` 中英键位一致且非空壳；
+  产物 `package.json` 版本与仓库一致（防止「tag 发了、产物还是旧版」）。
+- **本机实测**：0.101.0 → PASS（6 ok / 0 warn / 0 fail）。
+- **全量**：**1294 例 / 1293 pass / 1 skip / 0 fail**；`npm run verify:all` PASS。
+
 ## 0.101.0 — 验收文档与最新能力对齐（2026-11-18）
 
 - **修正过期表述**：`docs/verification.md` §1.5 还写着「两个评测脚本」，实际 CI 跑三个

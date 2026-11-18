@@ -4,7 +4,7 @@
 
 **给 DeepSeek Harness 的本地优先长期记忆插件：多路检索 + 多跳图增强 + 上下文摘要 + 冲突消解**
 
-[![version](https://img.shields.io/badge/version-v0.101.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![version](https://img.shields.io/badge/version-v0.102.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
 [![license](https://img.shields.io/badge/license-MIT-3DA639.svg)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A522.13-3C873A.svg)](package.json)
 
@@ -12,7 +12,7 @@
 
 </div>
 
-**当前版本：v0.101.0** · [Release](https://github.com/HANPU5838/dsh-memory/releases) · [更新日志](CHANGELOG.md)
+**当前版本：v0.102.0** · [Release](https://github.com/HANPU5838/dsh-memory/releases) · [更新日志](CHANGELOG.md)
 
 ---
 
@@ -250,6 +250,15 @@ npm run doctor -- --store /path # 指定其它库
 只读检查，逐项报告：目录/JSONL 完整性（坏行会 FAIL）、settings.json 可解析与新键齐全、
 健康度分数、冲突中心、规则代码（含待审批钩子）、向量服务可达性、备份数量；退出码在有数据损坏时为 1。
 本机实测：**10 ok / 0 warn / 0 fail（PASS）**。
+
+### 发布链路检查
+
+```bash
+npm run release:check   # 产物版本 = 仓库版本；npm pack 清单齐全；tag/Release/本地插件已同步
+```
+
+发布前最后一道：确认「这次发布能被用户装到」——而不是 tag 打了、Release 却缺失，或
+本地插件还停在旧版本。网络/gh 不可用时降级为警告，`--strict` 可把警告当失败。
 
 ### 文档一致性守门
 

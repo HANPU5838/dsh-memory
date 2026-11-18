@@ -137,6 +137,19 @@ npm run e2e:real -- --store /path # 指定其它库
 
 ---
 
+## 3.5 发布链路检查（发版前最后一道）
+
+```bash
+npm run release:check              # 全检查；网络/gh 不可用时降级为警告
+npm run release:check -- --strict  # 警告也当失败（正式发版用）
+npm run release:check -- --offline # 跳过远端 tag / Release
+```
+
+核对五段：产物版本 = 仓库版本 → `npm pack` 清单含运行必需文件 → 本地 tag → 远端 tag/Release →
+本地 web profile 已安装插件版本。任何一段漂移都是「用户装不到新版」的静默故障。
+
+---
+
 ## 4. 建议的 CI 接法
 
 ```yaml

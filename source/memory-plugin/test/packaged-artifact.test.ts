@@ -22,6 +22,31 @@ function need(file) {
   return readFileSync(path, 'utf8')
 }
 
+test('0.102.0：files 清单里的每个路径都真实存在（缺文件 = 安装后静默失效）', () => {
+  const meta = JSON.parse(need('package.json'))
+  for (const entry of meta.files ?? []) {
+    assert.ok(existsSync(join(PKG, entry)), `${entry} 在 files 里但产物中不存在`)
+  }
+  for (const required of ['lib/index.js', 'lib/client.js', 'locale/zh.json', 'locale/en.json', 'icon.svg', 'README.md', 'CHANGELOG.md', 'LICENSE', 'cordis.patch.yml']) {
+    assert.ok(existsSync(join(PKG, required)), `${required} 缺失`)
+  }
+})
+
+test('0.102.0：locale 可解析且中英键位一致', () => {
+  const zh = JSON.parse(need('locale/zh.json'))
+  const en = JSON.parse(need('locale/en.json'))
+  const keys = (obj) => Object.keys(obj).sort()
+  assert.deepEqual(keys(zh), keys(en), 'zh/en 顶层键必须一致')
+  assert.ok(typeof zh.meta?.title === 'string' && zh.meta.title.length > 0, 'zh 不能是空壳')
+})
+
+test('0.102.0：产物版本与根 package.json 版本一致', () => {
+  const root = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
+  const packed = JSON.parse(need('package.json'))
+  assert.equal(packed.version, root.version, '产物版本落后于仓库版本——先跑 npm run build')
+  assert.equal(packed.name, '@restregular/dsh-memory')
+})
+
 test('单包声明:一个包同时带 host patch 与 client bundle', () => {
   const meta = JSON.parse(need('package.json'))
   assert.equal(meta.dsh?.bundle?.patch, './cordis.patch.yml')
