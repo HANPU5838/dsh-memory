@@ -182,3 +182,22 @@ test('0.67.0: 详细召回统计图增强补召回条数（graphExpanded）', as
   assert.equal(detailed!.graphExpanded, 1, '候选中的图增强条数要如实上报')
   assert.equal(detailed!.candidates, 2)
 })
+
+test('0.69.0: 召回按相对相关度动态分配字数（高相关更长、总预算仍受控）', () => {
+  const cfg = { ...defaultInjectConfig, tokenBudget: 10_000, topK: 5 }
+  const hits = [
+    hit(`高相关记忆：${'甲'.repeat(300)}`, 0.9, 'id-top'),
+    hit(`低相关记忆：${'乙'.repeat(300)}`, 0.3, 'id-weak'),
+  ]
+  const block = renderRecallBlock(hits, cfg, { impression: true, chars: 100 })!
+  const lines = block.text.split('\n').slice(1)
+  assert.equal(lines.length, 2, '两条都应注入（预算充足）')
+  const topLine = lines.find((line) => line.includes('id-top'))!
+  const weakLine = lines.find((line) => line.includes('id-weak'))!
+  assert.ok(topLine.length > weakLine.length, `高相关行应更长（top=${topLine.length}, weak=${weakLine.length}）`)
+  // 下限 48 字：即使相关度很低也不会被截成空行。
+  assert.ok(weakLine.length > 48, '低相关记录仍保留下限字数')
+  assert.ok(block.tokens <= cfg.tokenBudget, '总预算不超')
+  // 同一输入两次渲染逐字相同（确定性）。
+  assert.equal(renderRecallBlock(hits, cfg, { impression: true, chars: 100 })!.text, block.text)
+})

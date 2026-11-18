@@ -260,6 +260,14 @@ export function renderRecallBlock(
   }
   const impression = options.impression === true
   const chars = impression ? (options.chars ?? 120) : 300
+  // 0.69.0：按相对相关度动态分配「每条保留多少字」（0.55×–1.30×，下限 48 字）。
+  // 总 tokenBudget 不变：高相关记忆多给正文、低相关收紧摘要，避免平均主义把预算
+  // 摊给弱命中。相关度取 hit.score / 本轮最高分；分数缺失/非法时按 1 处理（不惩罚）。
+  const maxScore = effectiveHits.reduce((max, h) => (Number.isFinite(h.score) && h.score > max ? h.score : max), 0)
+  const charsFor = (hit           )         => {
+    const ratio = maxScore > 0 && Number.isFinite(hit.score) ? Math.max(0, Math.min(1, hit.score / maxScore)) : 1
+    return Math.max(48, Math.round(chars * (0.55 + 0.75 * ratio)))
+  }
   const header = impression
     ? '以下是与你这次请求可能相关的记忆摘要：'
     : '以下是与此请求可能相关的记忆，供参考（需要正文用 memory_get；与本轮无关的用 memory_block 屏蔽，可逆、不删数据）：'
@@ -281,7 +289,7 @@ export function renderRecallBlock(
       omitted.push({ id: h.record.id, reason: 'budget' })
       continue
     }
-    const line = `- ${h.record.id.slice(0, 8)} ${recordKindPrefix(h.record)}${h.record.content.replace(/\s+/g, ' ').slice(0, chars)}`
+    const line = `- ${h.record.id.slice(0, 8)} ${recordKindPrefix(h.record)}${h.record.content.replace(/\s+/g, ' ').slice(0, charsFor(h))}`
     const cost = estimateTokens(line) + 1
     if (tokens + cost > cfg.tokenBudget) {
       budgetExhausted = true
