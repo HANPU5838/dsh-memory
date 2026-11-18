@@ -222,6 +222,17 @@ config:
 
 ## 评测与验收
 
+### 一键体检真实记忆库
+
+```bash
+npm run doctor                  # 体检 ~/.dsh-memory
+npm run doctor -- --store /path # 指定其它库
+```
+
+只读检查，逐项报告：目录/JSONL 完整性（坏行会 FAIL）、settings.json 可解析与新键齐全、
+健康度分数、冲突中心、规则代码（含待审批钩子）、向量服务可达性、备份数量；退出码在有数据损坏时为 1。
+本机实测：**10 ok / 0 warn / 0 fail（PASS）**。
+
 ### 一条命令验收
 
 ```bash
