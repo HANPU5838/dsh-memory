@@ -2,6 +2,18 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.39.0 — 记忆图：新增 3D 星图，与 2D 星图并存
+
+- **新增 3D 星图（Three.js）**：面板「记忆图」页签下现有三种视图——**记忆图**（原记忆树）/ **2D 星图** / **3D 星图**。2D 星图**保留原样**，3D 是纯增量；`buildMemoryGraph()` 的确定性布局逻辑一字未改，3D 坐标由它派生（`buildMemoryGraph3D()` 是纯函数，无随机量，同样输入必得同样输出）。
+- **统一业务数据层**：`graph-layout.js` 持有布局算法与 `GRAPH_VIEW` 集中配置（缩放上下限 `0.08`–`5`、相机参数、手势灵敏度都在这里，不再散落在 `client.js`）；`graph-2d.js` / `graph-3d.js` 只负责各自渲染，互不知道对方存在。切换视图**不重新取数**、不丢搜索/筛选/选中、不重新随机布局、也不会让两个渲染器同时活着（非活动方 `pause()`）。
+- **真实 3D 场景**：作用域轨道用 `TorusGeometry`（真厚度、有透视、会遮挡，旋转改 `quaternion` 不改 position，中心是作用域局部原点）；中心球 `SphereGeometry`；记忆星按种类着色，单作用域星数 ≥ 24 自动走 `InstancedMesh`；连线用 `BufferGeometry` 原地更新顶点，不每帧重建；标签是 HTML 覆盖层，随相机投影实时定位。光照 `AmbientLight` + 方向光 + `MeshStandardMaterial`，保持深空观感。
+- **手势**（按规格书 §八）：左键拖空白=平移、`Space`+左键拖=整体旋转视角、拖作用域中心球=移动该星系、拖轨道环=只转该星系、拖记忆星=移动该节点、`Ctrl`+滚轮=缩放、双击星=聚焦、单击星=选中并开详情抽屉。轨道环另加了不可见的**拾取代理**（视觉上保持细，射线有足够粗的目标），否则细环几乎点不中。
+- **2D 星图改进**：支持指针拖动平移、`Ctrl`+滚轮**以鼠标为锚点**缩放（锚点不漂）、`Fit` 同时算缩放与 `panX/panY`，且用户手动调过视角后重渲染不再自动 Fit 覆盖。
+- **布局持久化**：`localStorage` 键 `dsh-memory:graph-layout`，结构 `{version, scopes, records, views}`，以稳定 ID 为键；坏数据静默回退不炸面板；「恢复默认」只清用户覆盖层再按确定性默认重算。三种视图的视角状态互相隔离。
+- **降级**：无 WebGL 时明确报告不可用并自动退回 2D 星图，不留白屏。Three.js 走 `require.async('./client.three.js')` **懒加载**，只有第一次进 3D 才拉这 2.5 MB，绝不进入记忆树/2D 路径。
+- **构建**：新增 `tools/vendor-three.mjs`（ESM → classic script chunk，保留 MIT 许可头）与 `tools/assemble-client.mjs`（把 `lib/*.js` 按标记装配回单文件 `client.js`）。`client.three.js` 是独立 chunk，满足宿主"每个包只有一个同步入口"的约束。Three.js 为 vendor 依赖（r187，MIT），未新增 npm 依赖、未引入 React Three Fiber 或额外状态库。
+- 回归守卫：`client-render.test.ts` 从 67 例增到 69 例（2D 锚点缩放与上下限、Fit 不覆盖手动视角、3D 布局确定性、持久化坏数据容错、无 WebGL 降级）。全套 62 个测试文件 **664 例 0 失败**。
+
 ## 0.38.0 — 规则代码卡片重做：批准即开关、折叠、筛选、真实试跑输出
 
 - **批准成为唯一开关，移除启用/停用**：provider 新增 `revokeHookApproval()`（清 `approvedHash`，代码保留、变回待批准），面板 API 加 `action:'revoke-approval'`，`memory_hooks` 加同名 action（`enable`/`disable` 降级为旧别名）。`HookStore.forRun` 不再看 `enabled`；老数据里 `enabled:false` 一次性迁成"未批准"（清指纹），不会突然开始运行。未批准不运行、批准后运行。

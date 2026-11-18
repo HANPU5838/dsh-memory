@@ -33,6 +33,8 @@ import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statS
 import { spawnSync } from 'node:child_process'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { writeClientBundle } from './assemble-client.mjs'
+import { buildThreeChunk } from './vendor-three.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(HERE, '..')
@@ -211,7 +213,16 @@ for (const group of GROUPS) copyTree(group.src, join(OUT, group.dest))
 const panelDir = join(PKGS, 'memory-panel')
 mkdirSync(join(OUT, 'lib'), { recursive: true })
 transpileFile(join(panelDir, 'lib', 'index.js'), join(OUT, 'lib', 'panel.js'))
-cpSync(join(panelDir, 'lib', 'client.js'), join(OUT, 'lib', 'client.js'))
+// 0.39.0:客户端源码按职责拆成了多个分片,发布产物仍然是**一个** client.js
+// (宿主一个包只服务一个 client 入口)。装配规则只在 tools/assemble-client.mjs 一处,
+// 这里必须走它,不能直接 cp —— 否则发出去的还是没装配的源码。
+writeClientBundle(join(OUT, 'lib', 'client.js'), join(panelDir, 'lib'))
+// 0.39.0:Three.js 的 3D 渲染器是**异步 chunk**,只在用户切到 3D 时才被 require.async
+// 拉取。2.5MB 的库绝不能进主 bundle,否则树/2D 用户白等一次解析。
+// 源码在 source/memory-panel/vendor/(ESM),要转成 classic script —— 宿主是把 chunk
+// 拼进 <script> 执行的,里面不能有 import/export。
+// 文件名必须是 client.<name>.js:宿主只按这个模式认 chunk。
+writeFileSync(join(OUT, 'lib', 'client.three.js'), buildThreeChunk(NAME))
 cpSync(join(panelDir, 'icon.svg'), join(OUT, 'icon.svg'))
 // 显示名 / 描述由宿主的 readPluginMeta 读 `<包>/locale/<lang>.json` 的 meta.title /
 // meta.description,并且**必须通过 exports 能解析到**(Node ESM 解析)。所以 locale

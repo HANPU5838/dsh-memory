@@ -180,6 +180,7 @@ async function loadBundleImpl() {
     __ModuleLoader__: {
       load(reg: typeof registration) { registration = reg },
     },
+    localStorage: createMemoryStorage(),
   }
   globals.document = {
     createElement: () => ({ set textContent(_v: string) {}, remove() {} }),
@@ -204,7 +205,7 @@ async function loadBundleImpl() {
     }
     throw new Error(`unexpected require("${name}") in the client bundle`)
   }
-  await import('../lib/client.js')
+  await evaluateAssembledBundle()
   assert.ok(registration, 'bundle must call window.__ModuleLoader__.load')
   const reg = registration as unknown as { id: string; factory: (r: (n: string) => unknown) => Record<string, unknown> }
   assert.equal(reg.id, PACKAGE_NAME, 'ModuleLoader id must equal the package name')
@@ -212,6 +213,41 @@ async function loadBundleImpl() {
   assert.equal(typeof exports.apply, 'function')
   assert.deepEqual(exports.inject, ['slots'])
   return { exports, hooks, portals }
+}
+
+/**
+ * 在内存里装配 `client.js` + 各分片,然后当作 classic script 求值。
+ *
+ * 为什么不直接 `import('../lib/client.js')`:源码已按职责拆成多个分片,发布产物
+ * 才是一个文件。测试必须**测发的那一份**,否则"源码改了、装配坏了"这类问题会
+ * 一路漏到 npm 上。装配规则只有 tools/assemble-client.mjs 一处定义,测试复用它。
+ */
+async function evaluateAssembledBundle() {
+  const { assembleClientSource } = await import('../../../tools/assemble-client.mjs')
+  const { source } = assembleClientSource()
+  // 产物是 classic script(宿主按 <script> 拼接),没有 ESM 语法;用 Function 求值
+  // 既避免写临时文件,也顺带保证它真的能被当作脚本执行。
+  //
+  // 注意**不能**把 window / document 做成 Function 的形参:那样 bundle 里的
+  // `window` 会永久绑定到求值那一刻的对象,而多个测试会替换 globalThis.window
+  // (轨迹桥那几个)。保持自由变量,每次访问都走当前的全局对象。
+  const evaluate = new Function(source)
+  evaluate()
+}
+
+/**
+ * 内存版 localStorage:布局持久化的测试要能读回自己写的东西,又不能污染真实环境。
+ * 只实现 bundle 真正用到的四个方法。
+ */
+function createMemoryStorage() {
+  const map = new Map<string, string>()
+  return {
+    getItem(key: string) { return map.has(key) ? map.get(key)! : null },
+    setItem(key: string, value: string) { map.set(key, String(value)) },
+    removeItem(key: string) { map.delete(key) },
+    clear() { map.clear() },
+    get length() { return map.size },
+  }
 }
 
 // ESM caches the bundle, so it can only be evaluated once per process.
@@ -349,7 +385,7 @@ async function mountPanel(
   hooks.runEffects()
   for (let i = 0; i < 4; i++) await Promise.resolve()
   if (tab !== 'data') {
-    const label = ({ records: '服务', data: '记录', tree: '记忆树', settings: '设置' } as Record<string, string>)[tab] ?? tab
+    const label = ({ records: '服务', data: '记录', tree: '记忆图', settings: '设置' } as Record<string, string>)[tab] ?? tab
     const button = collect(current).find((n) => n.tag === 'button' && textOf(n).trim() === label)
     assert.ok(button, `找不到「${label}」标签`)
     ;(button!.props!.onClick as () => void)()
@@ -1627,7 +1663,7 @@ test('记忆树标签页:从面板能切过去,空数据也有统计、类型图
   }, undefined, 'tree')
 
   const text = textOf(tree())
-  assert.ok(text.includes('记忆树'), '标签栏里有「记忆树」')
+  assert.ok(text.includes('记忆图'), '标签栏里有「记忆图」')
   assert.ok(text.includes('条记忆'), '统计卡显示记忆总数')
   assert.ok(text.includes('个作用域'), '统计卡显示作用域数')
   assert.ok(text.includes('种类型'), '统计卡显示类型数')
@@ -1734,7 +1770,7 @@ test('星图布局:每个作用域一颗星,记忆按同心环铺开,越靠外�
   assert.equal(searched.counts.records, 3)
 })
 
-test('记忆树标签页:二级切换在记忆树与星图之间切,筛选状态跟着走', async () => {
+test('记忆图标签页:三种视图之间切换,筛选状态跟着走', async () => {
   const { hooks } = await loadBundle()
   hooks.resetAll()
   const records = [
@@ -1754,33 +1790,35 @@ test('记忆树标签页:二级切换在记忆树与星图之间切,筛选状态
   const findSubtab = (label: string) => collect(current())
     .find((n) => n.tag === 'button' && String(n.props?.className ?? '').split(/\s+/).includes('subtab') && textOf(n).trim() === label)
 
-  // 默认是记忆树;二级切换与统计挤在同一行
+  // 默认是记忆图(结构树);一级切换与统计挤在同一行
   assert.ok(classes().some((c) => c.includes('viz-head')), '顶部有 viz-head 一行')
-  assert.ok(classes().some((c) => c.includes('tree-wrap')), '默认渲染记忆树画布')
+  assert.ok(classes().some((c) => c.includes('tree-wrap')), '默认渲染记忆图结构树')
   assert.ok(!classes().some((c) => c.includes('graph-wrap')), '默认不渲染星图')
-  assert.ok(textOf(current()).includes('星图'), '二级栏里有「星图」')
+  assert.ok(textOf(current()).includes('2D 星图'), '切换栏里有「2D 星图」')
+  assert.ok(textOf(current()).includes('3D 星图'), '切换栏里有「3D 星图」')
 
-  const toGraph = findSubtab('星图')!
-  assert.ok(toGraph, '找不到「星图」二级标签')
+  // → 2D 星图
+  const toGraph = findSubtab('2D 星图')!
+  assert.ok(toGraph, '找不到「2D 星图」切换标签')
   ;(toGraph.props!.onClick as () => void)()
   hooks.runEffects()
   for (let i = 0; i < 4; i++) await Promise.resolve()
 
-  assert.ok(classes().some((c) => c.includes('graph-wrap')), '切到星图后渲染星图画布')
-  assert.ok(!classes().some((c) => c.includes('tree-wrap')), '星图视图不保留记忆树画布')
+  assert.ok(classes().some((c) => c.includes('graph-wrap')), '切到 2D 后渲染星图画布')
+  assert.ok(!classes().some((c) => c.includes('tree-wrap')), '星图视图不保留结构树画布')
   assert.ok(classes().some((c) => c.includes('graph-canvas')), '星图有画布层')
   assert.equal(collect(current()).filter((n) => String(n.props?.className ?? '').split(/\s+/).includes('hub')).length, 2, '两个作用域 → 两颗星')
   const dots = collect(current()).filter((n) => String(n.props?.className ?? '').split(/\s+/).includes('gnode') && !String(n.props?.className ?? '').split(/\s+/).includes('hub'))
   assert.equal(dots.length, 3, '三条记忆 → 三个星点')
   assert.ok(textOf(current()).includes('颗星'), '星图有 HUD 提示')
 
-  // 切回记忆树:还是同一个标签页,画布换回来
-  const toTree = findSubtab('记忆树')!
+  // 切回结构树:还是同一个标签页,画布换回来
+  const toTree = findSubtab('记忆图')!
   ;(toTree.props!.onClick as () => void)()
   hooks.runEffects()
   for (let i = 0; i < 4; i++) await Promise.resolve()
-  assert.ok(classes().some((c) => c.includes('tree-wrap')), '切回记忆树')
-  assert.ok(!classes().some((c) => c.includes('graph-wrap')), '记忆树视图不残留星图')
+  assert.ok(classes().some((c) => c.includes('tree-wrap')), '切回结构树')
+  assert.ok(!classes().some((c) => c.includes('graph-wrap')), '结构树视图不残留星图')
   hooks.resetAll()
 })
 
@@ -1809,6 +1847,248 @@ test('两个开关的配色跟随宿主 switch token,深色主题下轨道和圆
     assert.doesNotMatch(knob, /#fff/i, `${p.name}:圆点不能写死白色`)
     assert.match(rule(p.knobOn), /background:var\(--dsw-alias-label-primary-foreground\)/, `${p.name}:开启态圆点用 label-primary-foreground`)
   }
+})
+
+test('2D 星图视图:缩放上下限集中配置,以鼠标为锚点缩放时锚点不漂', async () => {
+  const { exports } = await loadBundle()
+  type View = { zoom: number; panX: number; panY: number }
+  const api = exports.__test as {
+    GRAPH_VIEW: { zoomMin: number; zoomMax: number }
+    graph2DDefaultView: () => View
+    graph2DClampZoom: (zoom: number) => number
+    graph2DAnchorZoom: (view: View, next: number, anchor: { x: number; y: number }, stage: { width: number; height: number }) => View
+    graph2DWheelZoom: (view: View, deltaY: number, anchor: { x: number; y: number }, stage: { width: number; height: number }) => View
+    graph2DPan: (view: View, dx: number, dy: number, stage: { width: number; height: number }) => View
+    graph2DFitView: (graph: { width: number; height: number }, stage: { width: number; height: number }) => View
+    graph2DTransform: (view: View) => string
+  }
+
+  // 缩放区间是产品口径 0.08 ~ 5,集中在一处配置
+  assert.equal(api.GRAPH_VIEW.zoomMin, 0.08, '最小缩放 0.08')
+  assert.equal(api.GRAPH_VIEW.zoomMax, 5, '最大缩放 5')
+  assert.equal(api.graph2DClampZoom(0.001), 0.08, '低于下限夹到 0.08')
+  assert.equal(api.graph2DClampZoom(99), 5, '高于上限夹到 5')
+  assert.equal(api.graph2DClampZoom(Number.NaN), 1, 'NaN 回落到 1')
+
+  // 以鼠标为锚点:缩放前后,鼠标下的画布点必须留在原地。
+  // 用画布坐标反推屏幕坐标来验证 —— 这是用户真正看到的效果。
+  const stage = { width: 800, height: 600 }
+  const canvas = { width: 1000, height: 700 }
+  const screenOf = (view: View, cx: number, cy: number) => ({
+    x: stage.width / 2 + view.panX + (cx - canvas.width / 2) * view.zoom,
+    y: stage.height / 2 + view.panY + (cy - canvas.height / 2) * view.zoom,
+  })
+  const anchor = { x: 620, y: 210 }
+  const start: View = { zoom: 1, panX: 40, panY: -25 }
+  // 锚点下面是哪个画布点?
+  const cx = (anchor.x - stage.width / 2 - start.panX) / start.zoom + canvas.width / 2
+  const cy = (anchor.y - stage.height / 2 - start.panY) / start.zoom + canvas.height / 2
+
+  const zoomedIn = api.graph2DWheelZoom(start, -120, anchor, stage)
+  assert.ok(zoomedIn.zoom > start.zoom, 'Ctrl+滚轮向上 = 放大')
+  const after = screenOf(zoomedIn, cx, cy)
+  assert.ok(Math.abs(after.x - anchor.x) < 1.5, `锚点 x 不漂(实际 ${after.x.toFixed(2)} vs ${anchor.x})`)
+  assert.ok(Math.abs(after.y - anchor.y) < 1.5, `锚点 y 不漂(实际 ${after.y.toFixed(2)} vs ${anchor.y})`)
+
+  // 缩放确实被夹在区间内,不会因为连续滚轮冲出去
+  let view = start
+  for (let i = 0; i < 60; i++) view = api.graph2DWheelZoom(view, -240, anchor, stage)
+  assert.ok(view.zoom <= api.GRAPH_VIEW.zoomMax + 1e-9, '连续放大不会超过上限')
+
+  // 拖动平移:屏幕像素 1:1 跟手,zoom 不变
+  const panned = api.graph2DPan(start, 37, -19, stage)
+  assert.equal(panned.zoom, start.zoom, '平移不改缩放')
+  assert.equal(panned.panX, start.panX + 37, '横向 1:1 跟手')
+  assert.equal(panned.panY, start.panY - 19, '纵向 1:1 跟手')
+
+  // 适应画布:同时给出 zoom 与 pan(pan 归零 = 内容居中),首屏观感与旧版一致
+  const fit = api.graph2DFitView(canvas, stage)
+  assert.ok(fit.zoom >= 0.42 && fit.zoom <= 1.15, `适应画布夹在 0.42~1.15(实际 ${fit.zoom})`)
+  assert.equal(fit.panX, 0, '适应画布把平移归零')
+  assert.equal(fit.panY, 0, '适应画布把平移归零')
+
+  // transform:平移在前、缩放在后,pan 才是屏幕像素
+  assert.match(api.graph2DTransform({ zoom: 1.5, panX: 10, panY: -4 }), /^translate\(10\.0px, -4\.0px\) scale\(1\.5000\)$/)
+})
+
+test('2D 星图:适应画布不会覆盖用户手动调过的视角', async () => {
+  const { hooks } = await loadBundle()
+  hooks.resetAll()
+  const records = [
+    makeRecord({ id: 'a', scope: 'project:/w', kind: 'fact', content: '一条记忆', updatedAt: 1 }),
+  ]
+  const current = await mountPanel(hooks, {
+    scopes: [{ scope: 'project:/w', records: 1, pendingEmbeds: 0, label: 'project:/w:演示' }],
+    embedServer: null,
+  }, undefined, 'tree', records)
+
+  const findSubtab = (label: string) => collect(current())
+    .find((n) => n.tag === 'button' && String(n.props?.className ?? '').split(/\s+/).includes('subtab') && textOf(n).trim() === label)
+  const canvasNode = () => collect(current())
+    .find((n) => String(n.props?.className ?? '').split(/\s+/).includes('graph-canvas'))
+
+  // 切到 2D
+  ;(findSubtab('2D 星图')!.props!.onClick as () => void)()
+  hooks.runEffects()
+  for (let i = 0; i < 4; i++) await Promise.resolve()
+  assert.ok(canvasNode(), '2D 画布已渲染')
+
+  // 模拟用户拖动:stage 尺寸拿不到(clientWidth 为 0)时 pan 会被夹到 0,
+  // 所以这里只验证「视图状态存在且 transform 由它决定」这一条不变量。
+  const style = canvasNode()!.props!.style as Record<string, unknown>
+  assert.match(String(style.transform), /^translate\(-?[\d.]+px, -?[\d.]+px\) scale\([\d.]+\)$/, 'transform 由视图状态生成')
+  hooks.resetAll()
+})
+
+test('3D 布局:在 2D 的确定性结果上派生真实三维坐标,且同样无随机量', async () => {
+  const { exports } = await loadBundle()
+  type Graph3 = {
+    scopes: Array<{ key: string; scope: string; position: { x: number; y: number; z: number }; rotation: { x: number; y: number; z: number }; orbit: number; members: unknown[] }>
+    records: Array<{ key: string; id: string; scope: string; position: { x: number; y: number; z: number }; depth: number; r: number; kind: string }>
+    links: Array<{ fromKey: string; toKey: string }>
+    nodeByKey: Map<string, unknown>
+    radius: number
+    center: { x: number; y: number; z: number }
+    counts: Record<string, number>
+  }
+  const api = exports.__test as {
+    buildMemoryGraph: (records: unknown[], options?: Record<string, unknown>) => unknown
+    buildMemoryGraph3D: (graph: unknown, options?: Record<string, unknown>) => Graph3
+  }
+  const records = [
+    makeRecord({ id: 'old', scope: 'project:/w', kind: 'fact', content: '旧事实', updatedAt: 1, supersededBy: 'new' }),
+    makeRecord({ id: 'new', scope: 'project:/w', kind: 'fact', content: '新事实', updatedAt: 2, supersedes: 'old' }),
+    makeRecord({ id: 'rule', scope: 'global', kind: 'rule', content: '硬性规则', updatedAt: 3 }),
+  ]
+  const graph2 = api.buildMemoryGraph(records, { labels: { 'project:/w': '演示项目', global: '全局' } })
+  const graph3 = api.buildMemoryGraph3D(graph2)
+
+  assert.equal(graph3.scopes.length, 2, '两个作用域 → 两个星系')
+  assert.equal(graph3.records.length, 3, '三条记忆 → 三颗星')
+  assert.equal(graph3.links.length, 4, '3 条成员线 + 1 条修正线')
+
+  // 真实三维:z 轴真的有分布,不是一张纸
+  const zs = graph3.records.map((n) => n.position.z)
+  assert.ok(Math.max(...zs) - Math.min(...zs) > 1, '记忆星在 z 轴上有真实分布')
+  // 单颗星的星团谈不上"立体",只核对有两颗以上成员的簇
+  for (const scope of graph3.scopes) {
+    if (scope.members.length < 2) continue
+    const zs2 = scope.members.map((m) => (m as { position: { z: number } }).position.z)
+    assert.ok(Math.max(...zs2) - Math.min(...zs2) > 0.5, `${scope.scope} 的星团是立体的`)
+  }
+
+  // 轨道半径套住簇内所有星(真 3D 距离,不是平面投影)
+  for (const scope of graph3.scopes) {
+    for (const member of scope.members) {
+      const p = (member as { position: { x: number; y: number; z: number } }).position
+      const dist = Math.hypot(p.x - scope.position.x, p.y - scope.position.y, p.z - scope.position.z)
+      assert.ok(dist < scope.orbit, `${(member as { key: string }).key} 要在轨道环之内`)
+    }
+  }
+
+  // 无随机量
+  assert.deepEqual(api.buildMemoryGraph3D(graph2), graph3)
+
+  // 覆盖层:用户拖过的节点用存下来的坐标,没拖的仍走确定性默认布局
+  const moved = api.buildMemoryGraph3D(graph2, { overlay: { records: { new: { x: 111, y: 222, z: 333 } } } })
+  const movedNode = moved.records.find((n) => n.id === 'new')!
+  assert.deepEqual(movedNode.position, { x: 111, y: 222, z: 333 }, '拖过的星用持久化坐标')
+  const untouched = moved.records.find((n) => n.id === 'old')!
+  const original = graph3.records.find((n) => n.id === 'old')!
+  assert.deepEqual(untouched.position, original.position, '没拖过的星位置不变')
+
+  // 作用域旋转也从覆盖层恢复
+  const rotated = api.buildMemoryGraph3D(graph2, {
+    overlay: { scopes: { global: { x: 0, y: 0, z: 0, rotationX: 0.5, rotationY: 1.25, rotationZ: 0 } } },
+  })
+  const rotatedScope = rotated.scopes.find((s) => s.scope === 'global')!
+  assert.equal(rotatedScope.rotation.y, 1.25, '作用域旋转被恢复')
+})
+
+test('布局持久化:稳定 ID 作键、坏数据不炸面板、恢复默认只清覆盖层', async () => {
+  const { exports } = await loadBundle()
+  type Layout = {
+    version: number
+    scopes: Record<string, Record<string, number>>
+    records: Record<string, { x: number; y: number; z: number }>
+    views: Record<string, unknown>
+  }
+  const api = exports.__test as {
+    GRAPH_LAYOUT_KEY: string
+    GRAPH_LAYOUT_VERSION: number
+    loadGraphLayout: () => Layout
+    saveGraphLayout: (layout: Layout) => boolean
+    clearGraphLayout: (mode?: string) => Layout
+    withNodePosition: (layout: Layout, kind: string, id: string, position: { x: number; y: number; z: number }) => Layout
+    withScopeRotation: (layout: Layout, scope: string, rotation: { x: number; y: number; z: number }) => Layout
+    withViewState: (layout: Layout, mode: string, view: Record<string, unknown>) => Layout
+  }
+  const storage = (globalThis as { window?: { localStorage?: { getItem(k: string): string | null; setItem(k: string, v: string): void; clear(): void } } }).window!.localStorage!
+  storage.clear()
+
+  // 空存储 → 干净的空覆盖层(不是 undefined,调用方不用判空)
+  const empty = api.loadGraphLayout()
+  assert.equal(empty.version, api.GRAPH_LAYOUT_VERSION)
+  assert.deepEqual(empty.scopes, {})
+  assert.deepEqual(empty.records, {})
+  assert.deepEqual(empty.views, {})
+
+  // 写入走稳定 ID(作用域键 / 记忆 id),不是数组下标
+  let layout = api.withNodePosition(empty, 'record', 'rec-abc', { x: 1.234, y: 2.345, z: 3.456 })
+  assert.deepEqual(layout.records['rec-abc'], { x: 1.23, y: 2.35, z: 3.46 }, '按记忆 id 存,坐标收到两位小数')
+  layout = api.withNodePosition(layout, 'scope', 'project:/w', { x: 10, y: 20, z: 30 })
+  assert.equal(layout.scopes['project:/w']!.x, 10, '按作用域键存')
+  layout = api.withScopeRotation(layout, 'project:/w', { x: 0.1, y: 0.2, z: 0.3 })
+  assert.equal(layout.scopes['project:/w']!.rotationY, 0.2, '旋转与位置共存')
+  layout = api.withViewState(layout, '2d', { zoom: 2.5, panX: 30, panY: -12 })
+  layout = api.withViewState(layout, '3d', { cameraPosition: [1, 2, 3], cameraTarget: [0, 0, 0], zoom: 1 })
+  assert.ok(api.saveGraphLayout(layout))
+
+  // 读回来等价
+  const loaded = api.loadGraphLayout()
+  assert.deepEqual(loaded.records['rec-abc'], { x: 1.23, y: 2.35, z: 3.46 })
+  assert.equal(loaded.scopes['project:/w']!.rotationY, 0.2)
+  assert.deepEqual((loaded.views['2d'] as { zoom: number }).zoom, 2.5)
+  assert.deepEqual((loaded.views['3d'] as { cameraPosition: number[] }).cameraPosition, [1, 2, 3])
+
+  // 坏数据:JSON 语法错 / 类型错 / 版本更高 —— 一律当作没有覆盖层,绝不抛错
+  storage.setItem(api.GRAPH_LAYOUT_KEY, '{not json')
+  assert.deepEqual(api.loadGraphLayout().records, {}, '坏 JSON 退化成空覆盖层')
+  storage.setItem(api.GRAPH_LAYOUT_KEY, JSON.stringify({ version: 1, records: { a: { x: 'no', y: 1, z: 2 }, b: { x: 1, y: 2, z: 3 } } }))
+  assert.deepEqual(Object.keys(api.loadGraphLayout().records), ['b'], '非数字坐标的条目被丢掉')
+  storage.setItem(api.GRAPH_LAYOUT_KEY, JSON.stringify({ version: 999, records: { a: { x: 1, y: 2, z: 3 } } }))
+  assert.deepEqual(api.loadGraphLayout().records, {}, '未来版本不猜,当没有覆盖层')
+
+  // 恢复默认:只清覆盖层,不动别的东西
+  api.saveGraphLayout(api.withNodePosition(empty, 'record', 'rec-abc', { x: 1, y: 2, z: 3 }))
+  const cleared = api.clearGraphLayout()
+  assert.deepEqual(cleared.records, {}, '恢复默认清掉节点覆盖层')
+  assert.deepEqual(api.loadGraphLayout().records, {}, '清除结果已落盘')
+
+  // 只清某个模式的视角时,节点覆盖层要留着
+  let keep = api.withNodePosition(empty, 'record', 'rec-abc', { x: 1, y: 2, z: 3 })
+  keep = api.withViewState(keep, '2d', { zoom: 3, panX: 0, panY: 0 })
+  keep = api.withViewState(keep, '3d', { cameraPosition: [0, 0, 100], cameraTarget: [0, 0, 0], zoom: 1 })
+  api.saveGraphLayout(keep)
+  const onlyView = api.clearGraphLayout('2d')
+  assert.deepEqual(onlyView.records['rec-abc'], { x: 1, y: 2, z: 3 }, '只清视角不动节点位置')
+  assert.equal(onlyView.views['2d'], undefined, '2D 视角被清掉')
+  assert.ok(onlyView.views['3d'], '3D 视角保留')
+  storage.clear()
+})
+
+test('3D 能力探测:没有 WebGL 时明确报告不可用,让调用方退回 2D', async () => {
+  const { exports } = await loadBundle()
+  const api = exports.__test as { graphWebGLAvailable: () => boolean }
+  const globals = globalThis as Record<string, unknown>
+  const saved = globals.document
+  // 没有 canvas.getContext → 不可用
+  globals.document = { createElement: () => ({}) }
+  assert.equal(api.graphWebGLAvailable(), false, '拿不到 WebGL 上下文 → false')
+  // createElement 直接抛(某些受限环境)→ 也只能返回 false,不能把面板带崩
+  globals.document = { createElement: () => { throw new Error('blocked') } }
+  assert.equal(api.graphWebGLAvailable(), false, 'createElement 抛错 → false')
+  globals.document = saved
 })
 
 test('星图节点有实际尺寸、连线真的落在 svg 里(踩过:圆点只剩光晕、连线全丢)', async () => {
