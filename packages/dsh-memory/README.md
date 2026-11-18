@@ -4,7 +4,7 @@
 
 **给 DeepSeek Harness 的本地优先长期记忆插件：多路检索 + 多跳图增强 + 上下文摘要 + 冲突消解**
 
-[![version](https://img.shields.io/badge/version-v0.95.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![version](https://img.shields.io/badge/version-v0.96.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
 [![license](https://img.shields.io/badge/license-MIT-3DA639.svg)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A522.13-3C873A.svg)](package.json)
 
@@ -12,7 +12,7 @@
 
 </div>
 
-**当前版本：v0.95.0** · [Release](https://github.com/HANPU5838/dsh-memory/releases) · [更新日志](CHANGELOG.md)
+**当前版本：v0.96.0** · [Release](https://github.com/HANPU5838/dsh-memory/releases) · [更新日志](CHANGELOG.md)
 
 ---
 
@@ -87,7 +87,8 @@ DSH 记忆系统是一个**完全本地**的长期记忆插件：Agent 用八个
   （新会话概览）也走同一内核**——上下文只保留一套摘要实现，不再"召回是摘要、摘要是截断"；
 - **冲突消解**：同一轮召回里互相矛盾的记忆（`conflictWith`）只保留重要度更高 → 更新的一条，
   败者不进上下文（记录保留不删，审计记为 `reason=conflict`）；
-- **可解释标记**：图增强补召回的结果带 `graphExpanded: true`；注入审计能看到候选/过滤/省略/预算。
+- **可解释标记**：图增强补召回的结果带 `graphExpanded: true`，**工具输出与注入正文都会标「联想」**
+  （0.94/0.96）；注入审计能看到候选/过滤/省略/预算。
 
 ### 生命周期：会衰减、会巩固、会遗忘
 

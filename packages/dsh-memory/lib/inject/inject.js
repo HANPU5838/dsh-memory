@@ -315,7 +315,10 @@ export function renderRecallBlock(
     const shown = options.digest === false
       ? h.record.content.replace(/\s+/g, ' ').slice(0, cap)
       : digestForRecall(h.record.content, cap, options.queryText ?? '')
-    const line = `- ${h.record.id.slice(0, 8)} ${recordKindPrefix(h.record)}${shown}`
+    // 0.96.0：图增强多跳补召回的结果在注入正文里也标「联想」——与工具输出/审计同口径，
+    // 模型能知道这条不是直接命中，而是通过共享实体联想出来的。
+    const associated = (h                               ).graphExpanded === true ? '（联想）' : ''
+    const line = `- ${h.record.id.slice(0, 8)} ${recordKindPrefix(h.record)}${shown}${associated}`
     const cost = estimateTokens(line) + 1
     if (tokens + cost > cfg.tokenBudget) {
       budgetExhausted = true
