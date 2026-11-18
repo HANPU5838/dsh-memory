@@ -9,6 +9,7 @@ import {
   personalizedPageRank,
   pickGraphExpansion,
   queryEntitySeeds,
+  graphWeightFactor,
 } from '../src/retrieval/graph-expansion.ts'
 
 /**
@@ -159,4 +160,15 @@ test('queryEntitySeeds：查询里的实体直接映射成种子（不依赖词�
   // 查询里没有实体 / 空查询 → 空种子。
   assert.deepEqual(queryEntitySeeds('今天天气不错', graph), [])
   assert.deepEqual(queryEntitySeeds('', graph), [])
+})
+
+test('graphWeightFactor：代码型查询降权、自然语言提权、有界', () => {
+  const code = graphWeightFactor({ codeSignal: 1, naturalSignal: 0 })
+  const natural = graphWeightFactor({ codeSignal: 0, naturalSignal: 1 })
+  const neutral = graphWeightFactor({ codeSignal: 0, naturalSignal: 0 })
+  assert.ok(code < neutral, `代码型应低于中性（${code} < ${neutral}）`)
+  assert.ok(natural > neutral, `自然语言应高于中性（${natural} > ${neutral}）`)
+  assert.ok(code >= 0.5 && natural <= 1.05, '系数保持在 0.5–1.05')
+  // 非法输入安全降级为中性值。
+  assert.equal(graphWeightFactor({}), neutral)
 })

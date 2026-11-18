@@ -36,6 +36,10 @@ jobs:
       - name: 全功能验收（verify:all）
         run: npm run verify:all
 
+      # 图增强多跳评测（纯本地、秒级）：桥接召回与无关记录作为回归参考。
+      - name: 图增强多跳评测（eval:graph）
+        run: npm run eval:graph
+
       # 检索质量门禁：合成集、无嵌入服务，几秒内完成（评测器退出码恒 0，不阻塞 CI）。
       - name: 检索评测（合成集）
         run: node tools/eval/run.mjs --mode synthetic --no-public --quiet

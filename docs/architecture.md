@@ -1,4 +1,4 @@
-# 架构说明（本仓库独立维护版 0.67.0）
+# 架构说明（本仓库独立维护版 0.68.0）
 
 > 本文说明这套记忆插件「为什么是插件」：哪些属于宿主、哪些属于插件、平台差异放在哪里。
 > 本仓库 **[HANPU5838/dsh-memory](https://github.com/HANPU5838/dsh-memory)** 是 DSH 记忆系统的独立维护版
@@ -191,3 +191,10 @@ Personalized PageRank（带重启随机游走，alpha=0.85，最多 24 次幂迭
 图增强补召回的记忆在检索结果里带 `graphExpanded: true`；注入侧汇总成 `RecallResult.graphExpanded`
 并写进召回审计条目的 `graph.expanded`，面板「审计 → 检索与过滤」直接展示「图增强多跳：N」。
 链路：`search() → MemoryHit.graphExpanded → injector 统计 → audit.graph → 面板详情`。
+
+### 自适应权重与评测（0.68.0）
+
+图增强的 RRF 通道权重不再是固定值：`graphWeightFactor(queryProfile)` 按查询画像返回
+0.5–1.05 的系数（代码/标识符型查询降权、自然语言提权），乘在 `retrieval.graphExpansion.weight` 上。
+`npm run eval:graph` 用合成「实体桥接」语料对比开关（桥接召回 0% → 100%、无关记录 0.00），
+作为回归参考进 CI，不对外承诺跨语料分数。

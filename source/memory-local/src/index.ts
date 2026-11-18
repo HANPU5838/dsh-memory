@@ -79,7 +79,7 @@ import { buildStats, lexicalScore, recordScore, tokenize, cosine, normalizeInPla
 import { adaptiveScopeThreshold, calibrateScore } from './retrieval/adapt.ts'
 import { blendHybrid, expandQuery, expandQueries, hybridWeights, queryProfile } from './retrieval/expand.ts'
 import { buildBm25Docs, bm25Score, rankByBm25 } from './retrieval/bm25.ts'
-import { buildAssociationGraph, personalizedPageRank, pickGraphExpansion, queryEntitySeeds } from './retrieval/graph-expansion.ts'
+import { buildAssociationGraph, graphWeightFactor, personalizedPageRank, pickGraphExpansion, queryEntitySeeds } from './retrieval/graph-expansion.ts'
 import { reciprocalRankFusion, normalizeScores } from './retrieval/fusion.ts'
 import { explainCandidate } from './retrieval/rank.ts'
 import { initialStrength, updateAfterUse } from './retrieval/retention.ts'
@@ -5229,7 +5229,10 @@ export class LocalMemoryService implements MemoryServiceApi {
     // 0.66.0：加入「查询实体种子」与自适应预算 —— 候选为空或不足时，也能直接从查询里的
     // 路径/URL/版本/端口等实体起跳（HippoRAG 2 的 query-NER 步骤），不再要求先有命中。
     let graphIds: string[] = []
+    // 0.68.0：按查询画像自适应调权（代码型查询降权、自然语言提权）。
+    let graphWeight = this.cfg.graphExpansion.weight
     if (this.cfg.graphExpansion.enabled) {
+      graphWeight = this.cfg.graphExpansion.weight * graphWeightFactor(queryProfile(query.text))
       const eligible: Array<{ id: string; content: string; tags?: readonly string[]; supersedes?: string; scope: string }> = []
       for (const { store } of stores) {
         for (const rec of store.records.values()) {
@@ -5378,7 +5381,7 @@ export class LocalMemoryService implements MemoryServiceApi {
           { name: 'lexical', ids: lexicalList, weight: this.cfg.fusion.weights.lexical },
           { name: 'vector', ids: byVector, weight: this.cfg.fusion.weights.vector },
           ...(expandedIds.length > 0 ? [{ name: 'expanded', ids: expandedIds, weight: this.cfg.fusion.weights.expanded }] : []),
-          ...(graphIds.length > 0 ? [{ name: 'graph', ids: graphIds, weight: this.cfg.graphExpansion.weight }] : []),
+          ...(graphIds.length > 0 ? [{ name: 'graph', ids: graphIds, weight: graphWeight }] : []),
         ].filter((list) => list.ids.length > 0)
         if (lists.length > 0) {
           const fused = reciprocalRankFusion(lists, { k: this.cfg.fusion.k, limit: Math.max(recallN * 3, candidates.size) })

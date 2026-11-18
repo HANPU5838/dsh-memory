@@ -292,6 +292,24 @@ export function queryEntitySeeds(queryText: string, graph: AssociationGraph): Ar
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
 }
 
+// ---------------------------------------------------------------- 自适应权重
+
+/**
+ * 按查询画像调整图增强的融合权重（0.68.0）。
+ *
+ * 依据：代码/标识符型查询（路径、版本、函数名）里**字面精确**更重要，多跳联想容易
+ * 引入噪声，应当降权；自然语言型查询（中文长句、「怎么配置」）语义与关联更有价值，
+ * 可以适当提权。返回 0.5–1.05 的系数，乘在 `retrieval.graphExpansion.weight` 上。
+ *
+ * @param profile queryProfile() 的结果（codeSignal / naturalSignal 0..1）
+ */
+export function graphWeightFactor(profile: { codeSignal?: number; naturalSignal?: number }): number {
+  const code = clampNumber(profile.codeSignal ?? 0, 0, 1)
+  const natural = clampNumber(profile.naturalSignal ?? 0, 0, 1)
+  const factor = 0.62 + 0.48 * natural - 0.32 * code
+  return clampNumber(factor, 0.5, 1.05)
+}
+
 // ---------------------------------------------------------------- 候选筛选
 
 /**

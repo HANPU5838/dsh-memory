@@ -2,7 +2,7 @@
   <img src="https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/preview/icon-128.png" width="84" alt="记忆系统">
 </p>
 
-> ### 📦 本仓库是 DSH 记忆系统的独立维护版（v0.67.0）
+> ### 📦 本仓库是 DSH 记忆系统的独立维护版（v0.68.0）
 >
 > 本项目是 **DSH 记忆系统**（`@restregular/dsh-memory`，MIT）的独立维护版本：
 > 以原作者代码为起点（完整历史见 CHANGELOG），**后续全部开发、发布、安装与更新只以本仓库为准**。
@@ -12,7 +12,7 @@
 > | 原作者 | **RestRegular**（原始项目 [RestRegular/dsh-memory](https://github.com/RestRegular/dsh-memory)，MIT）；MIT 版权声明与署名完整保留，见 [LICENSE](LICENSE) |
 > | **唯一维护源** | **[HANPU5838/dsh-memory](https://github.com/HANPU5838/dsh-memory)** —— 代码、Release、Issue、更新通道全部在这里 |
 > | 安装 / 更新 | `dsh plugin --profile web add "github:HANPU5838/dsh-memory#main"`；更新同样只从本仓库拉取 |
-> | 当前版本 | **v0.67.0**：图增强多跳召回 v2 + **可解释**（结果带 graphExpanded 标记、审计页展示多跳条数）；记忆图三视图、作用域归档、主动屏蔽、规则代码钩子、跨作用域修正；八个模型工具 |
+> | 当前版本 | **v0.68.0**：图增强自适应权重（按查询画像自动调权）+ 多跳评测脚本；图增强可解释（graphExpanded 标记与审计计数）；记忆图三视图、作用域归档、主动屏蔽、规则代码钩子、跨作用域修正；八个模型工具 |
 > | 许可 | **MIT**，版权归原作者所有；转载、分发请保留原始版权声明 |
 > | 更新与反馈 | Issue / PR / 反馈：[本仓库 Issues](https://github.com/HANPU5838/dsh-memory/issues) |
 >
@@ -27,7 +27,7 @@
 
 JSONL 落盘 · 本机向量检索 · 八个模型工具 · 自动召回 · 硬性规则 · 作用域归档 · 主动屏蔽 · 可视化管理面板
 
-[![version](https://img.shields.io/badge/version-v0.67.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![version](https://img.shields.io/badge/version-v0.68.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/HANPU5838/dsh-memory/blob/main/LICENSE)
 [![ci](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.13-5FA04E.svg)](https://nodejs.org/)
@@ -677,6 +677,10 @@ memory_save({
   `retrieval.graphExpansion.enabled: false` 可关闭。
   **可解释（0.67.0）**：图增强补召回的结果带 `graphExpanded: true` 标记；审计页「检索与过滤」
   新增「图增强多跳」计数，能看出本次有多少条是联想来的、而不是字面/语义真命中。
+  **自适应权重（0.68.0）**：按查询画像自动调 RRF 通道权重——代码/标识符型查询降权（字面精确优先）、
+  自然语言型查询提权；系数 0.5–1.05，见 `graphWeightFactor()`。
+  **效果评测**：`npm run eval:graph` —— 合成「实体桥接」语料对比开关，桥接召回率 0% → 100%、
+  平均无关记录 0.00（本合成集口径，用于回归而非对外承诺）。
 - **可选 LLM 重排**：`retrieval.llm.enabled`，默认关。
 - **自动降级**：端点没配、进程没起、向量身份不匹配时，只走词法，不报错、不阻塞。
 - **面板主动语义检索**：记录页的「语义检索」开关走 `GET /memory/api/search`，用同一套召回排序
@@ -900,7 +904,7 @@ npm run verify:all
 ```
 
 ```
-✓ 单元 / 集成测试：1251 例 / 1250 pass / 1 skip / 0 fail（约 26s）
+✓ 单元 / 集成测试：1252 例 / 1251 pass / 1 skip / 0 fail（约 26s）
 ✓ 单包构建：85 文件 / 5035.0 KiB
 ✓ 面板 API 冒烟：16/16 接口通过
 ✓ 向量后端实测：http://127.0.0.1:8078/health · 1024 维
