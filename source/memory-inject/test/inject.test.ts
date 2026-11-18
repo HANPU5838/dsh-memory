@@ -214,3 +214,14 @@ test('0.70.0: dynamic=false 时回到固定字数（面板可关）', () => {
   const lengths = lines.map((line) => line.replace(/^- \w+ /, '').length)
   assert.equal(lengths[0], lengths[1], '关闭动态分配后两条字数一致')
 })
+
+test('0.81.0：长记忆召回用 TextRank 摘要保留关键句（不是只截开头）', () => {
+  const cfg = { ...defaultInjectConfig, tokenBudget: 10_000, topK: 3 }
+  const filler = '背景信息：' + '与问题无关的背景描述。'.repeat(12)
+  const content = `${filler}发布前必须先跑 pnpm run verify:all 校验，失败不要重启服务。`
+  const hits = [{ ...hit(content, 0.9, 'id-long') }]
+  const block = renderRecallBlock(hits, cfg, { impression: true, chars: 70, queryText: 'verify:all 校验' })!
+  assert.ok(block.text.includes('verify'), `关键句应被保留（实际 ${block.text}）`)
+  assert.ok(block.text.includes('发布前必须先跑'), '关键句应完整出现')
+  assert.ok(block.tokens <= cfg.tokenBudget)
+})

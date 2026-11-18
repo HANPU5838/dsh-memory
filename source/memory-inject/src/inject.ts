@@ -10,6 +10,7 @@ import { estimateTokens } from '../../memory-local/src/rerank.ts'
 import { normalizeScopeInput } from '../../memory-local/src/scope.ts'
 import { textHasTag } from './signals.ts'
 import { recordKindPrefix } from './digest.ts'
+import { digestForRecall } from './summarize.ts'
 import { InjectionState } from './state.ts'
 
 export interface InjectConfig {
@@ -218,6 +219,13 @@ export interface RecallRenderOptions {
    */
   dynamic?: boolean
   /**
+   * 0.81.0：抽取式摘要（TextRank）。记忆正文超过本条字数预算时，选信息量最高的句子
+   * 而不是直接截前缀；`false` = 回到前缀截断。
+   */
+  digest?: boolean
+  /** 0.81.0：本轮查询文本，供摘要按查询相关性加权句子。 */
+  queryText?: string
+  /**
    * 0.35.4：渲染前对召回记录做解析（before-inject 钩子）。
    * 返回改写后的记录数组；被丢弃的 id 会以 reason='hook' 计入 omitted。
    * 由 apply 层把 provider 的 parseForInject 包装进来，渲染函数本身保持纯净。
@@ -296,7 +304,11 @@ export function renderRecallBlock(
       omitted.push({ id: h.record.id, reason: 'budget' })
       continue
     }
-    const line = `- ${h.record.id.slice(0, 8)} ${recordKindPrefix(h.record)}${h.record.content.replace(/\s+/g, ' ').slice(0, charsFor(h))}`
+    const cap = charsFor(h)
+    const shown = options.digest === false
+      ? h.record.content.replace(/\s+/g, ' ').slice(0, cap)
+      : digestForRecall(h.record.content, cap, options.queryText ?? '')
+    const line = `- ${h.record.id.slice(0, 8)} ${recordKindPrefix(h.record)}${shown}`
     const cost = estimateTokens(line) + 1
     if (tokens + cost > cfg.tokenBudget) {
       budgetExhausted = true
@@ -452,7 +464,7 @@ export class MemoryInjector {
     const freshHits = candidates.filter((hit) => freshIds.has(hit.record.id))
     const optionsForRender = typeof this.renderOptions === 'function' ? this.renderOptions() : this.renderOptions
     // 0.35.4：把会话 id 传给 transform（before-inject 钩子按会话判断时用）。
-    const block = renderRecallBlock(freshHits, cfg, { ...optionsForRender, sessionId })
+    const block = renderRecallBlock(freshHits, cfg, { ...optionsForRender, sessionId, queryText: query })
     const graphExpanded = candidates.filter((hit) => (hit as { graphExpanded?: boolean }).graphExpanded === true).length
     const base: RecallResult = {
       ids: [], candidates: candidates.length, dedupSkipped: deduplicated.length, updated, omitted: [], query,

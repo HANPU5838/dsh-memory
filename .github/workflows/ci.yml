@@ -44,6 +44,10 @@ jobs:
       - name: 检索参数扫描（eval:tune）
         run: npm run eval:tune
 
+      # 召回摘要评测（纯本地、秒级）：关键结论保留率作为回归参考。
+      - name: 召回摘要评测（eval:summarize）
+        run: npm run eval:summarize
+
       # 检索质量门禁：合成集、无嵌入服务，几秒内完成（评测器退出码恒 0，不阻塞 CI）。
       - name: 检索评测（合成集）
         run: node tools/eval/run.mjs --mode synthetic --no-public --quiet

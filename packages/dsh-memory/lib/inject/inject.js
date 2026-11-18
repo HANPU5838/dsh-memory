@@ -10,6 +10,7 @@ import { estimateTokens } from '../provider/rerank.js'
 import { normalizeScopeInput } from '../provider/scope.js'
 import { textHasTag } from './signals.js'
 import { recordKindPrefix } from './digest.js'
+import { digestForRecall } from './summarize.js'
 import { InjectionState } from './state.js'
 
                                
@@ -218,6 +219,13 @@ export function hasRecallMessage(
      
                    
      
+                                                   
+                               
+     
+                  
+                                     
+                    
+     
                                           
                                                     
                                                           
@@ -296,7 +304,11 @@ export function renderRecallBlock(
       omitted.push({ id: h.record.id, reason: 'budget' })
       continue
     }
-    const line = `- ${h.record.id.slice(0, 8)} ${recordKindPrefix(h.record)}${h.record.content.replace(/\s+/g, ' ').slice(0, charsFor(h))}`
+    const cap = charsFor(h)
+    const shown = options.digest === false
+      ? h.record.content.replace(/\s+/g, ' ').slice(0, cap)
+      : digestForRecall(h.record.content, cap, options.queryText ?? '')
+    const line = `- ${h.record.id.slice(0, 8)} ${recordKindPrefix(h.record)}${shown}`
     const cost = estimateTokens(line) + 1
     if (tokens + cost > cfg.tokenBudget) {
       budgetExhausted = true
@@ -452,7 +464,7 @@ export class MemoryInjector {
     const freshHits = candidates.filter((hit) => freshIds.has(hit.record.id))
     const optionsForRender = typeof this.renderOptions === 'function' ? this.renderOptions() : this.renderOptions
     // 0.35.4：把会话 id 传给 transform（before-inject 钩子按会话判断时用）。
-    const block = renderRecallBlock(freshHits, cfg, { ...optionsForRender, sessionId })
+    const block = renderRecallBlock(freshHits, cfg, { ...optionsForRender, sessionId, queryText: query })
     const graphExpanded = candidates.filter((hit) => (hit                               ).graphExpanded === true).length
     const base               = {
       ids: [], candidates: candidates.length, dedupSkipped: deduplicated.length, updated, omitted: [], query,
