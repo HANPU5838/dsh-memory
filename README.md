@@ -2,7 +2,7 @@
   <img src="https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/preview/icon-128.png" width="84" alt="记忆系统">
 </p>
 
-> ### 📦 本仓库是 DSH 记忆系统的独立维护版（v0.64.0）
+> ### 📦 本仓库是 DSH 记忆系统的独立维护版（v0.65.0）
 >
 > 本项目是 **DSH 记忆系统**（`@restregular/dsh-memory`，MIT）的独立维护版本：
 > 以原作者代码为起点（完整历史见 CHANGELOG），**后续全部开发、发布、安装与更新只以本仓库为准**。
@@ -12,7 +12,7 @@
 > | 原作者 | **RestRegular**（原始项目 [RestRegular/dsh-memory](https://github.com/RestRegular/dsh-memory)，MIT）；MIT 版权声明与署名完整保留，见 [LICENSE](LICENSE) |
 > | **唯一维护源** | **[HANPU5838/dsh-memory](https://github.com/HANPU5838/dsh-memory)** —— 代码、Release、Issue、更新通道全部在这里 |
 > | 安装 / 更新 | `dsh plugin --profile web add "github:HANPU5838/dsh-memory#main"`；更新同样只从本仓库拉取 |
-> | 当前版本 | **v0.64.0**：记忆图三视图（树 / 2D / 3D 星图）、作用域归档、主动屏蔽、规则代码钩子、跨作用域修正；八个模型工具 |
+> | 当前版本 | **v0.65.0**：新增 **图增强多跳召回**（GraphRAG / HippoRAG 风格 PPR）；记忆图三视图、作用域归档、主动屏蔽、规则代码钩子、跨作用域修正；八个模型工具 |
 > | 许可 | **MIT**，版权归原作者所有；转载、分发请保留原始版权声明 |
 > | 更新与反馈 | Issue / PR / 反馈：[本仓库 Issues](https://github.com/HANPU5838/dsh-memory/issues) |
 >
@@ -27,7 +27,7 @@
 
 JSONL 落盘 · 本机向量检索 · 八个模型工具 · 自动召回 · 硬性规则 · 作用域归档 · 主动屏蔽 · 可视化管理面板
 
-[![version](https://img.shields.io/badge/version-v0.64.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![version](https://img.shields.io/badge/version-v0.65.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/HANPU5838/dsh-memory/blob/main/LICENSE)
 [![ci](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.13-5FA04E.svg)](https://nodejs.org/)
@@ -668,6 +668,11 @@ memory_save({
 
 - **词法通道**：IDF 加权 + 中文 bigram；记录标签也并入可检索文本，所以中文正文 + 英文标签也能被标签查询命中。
 - **向量通道**：调用 `llama-server` 的 OpenAI 兼容 `/v1/embeddings`；可用面板一键安装，也可接自己的端点。
+- **图增强多跳召回（0.65.0，默认开）**：以词法/向量候选为种子，在「共享实体 + 修正谱系」图上跑
+  Personalized PageRank（HippoRAG / GraphRAG 风格），把实体桥接到的多跳记忆补充为候选，
+  例如「pm2 管理 /srv/app」与「/srv/app 的 nginx 配置」会通过共享路径实体互相联想。
+  只对当前可见记录建图（屏蔽 / 归档 / 过期不参与），补充候选只给低相关度、不压过真命中；
+  `retrieval.graphExpansion.enabled: false` 可关闭。
 - **可选 LLM 重排**：`retrieval.llm.enabled`，默认关。
 - **自动降级**：端点没配、进程没起、向量身份不匹配时，只走词法，不报错、不阻塞。
 - **面板主动语义检索**：记录页的「语义检索」开关走 `GET /memory/api/search`，用同一套召回排序
@@ -717,6 +722,8 @@ retrieval:
     retrieval:
       topK: 5
       recallN: 30
+      # 0.65.0：图增强多跳召回（GraphRAG / HippoRAG 风格 PPR）
+      graphExpansion: { enabled: true, seedCount: 6, limit: 8, alpha: 0.85 }
       vector:
         enabled: true
         endpoint: 'http://127.0.0.1:8078/v1/embeddings'
@@ -889,7 +896,7 @@ npm run verify:all
 ```
 
 ```
-✓ 单元 / 集成测试：1243 例 / 1242 pass / 1 skip / 0 fail（约 21s）
+✓ 单元 / 集成测试：1249 例 / 1248 pass / 1 skip / 0 fail（约 22s）
 ✓ 单包构建：85 文件 / 5035.0 KiB
 ✓ 面板 API 冒烟：16/16 接口通过
 ✓ 向量后端实测：http://127.0.0.1:8078/health · 1024 维

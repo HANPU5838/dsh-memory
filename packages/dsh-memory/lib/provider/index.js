@@ -79,6 +79,7 @@ import { buildStats, lexicalScore, recordScore, tokenize, cosine, normalizeInPla
 import { adaptiveScopeThreshold, calibrateScore } from './retrieval/adapt.js'
 import { blendHybrid, expandQuery, expandQueries, hybridWeights, queryProfile } from './retrieval/expand.js'
 import { buildBm25Docs, bm25Score, rankByBm25 } from './retrieval/bm25.js'
+import { buildAssociationGraph, personalizedPageRank, pickGraphExpansion } from './retrieval/graph-expansion.js'
 import { reciprocalRankFusion, normalizeScores } from './retrieval/fusion.js'
 import { explainCandidate } from './retrieval/rank.js'
 import { initialStrength, updateAfterUse } from './retrieval/retention.js'
@@ -328,6 +329,28 @@ function isInside(parent        , child        )          {
                                                                                                                                            
                                        
                                                                                  
+       
+                                            
+                                                        
+                                                     
+       
+                      
+                       
+                         
+                        
+                             
+                    
+                               
+                    
+                             
+                         
+                                 
+                          
+                                 
+                         
+                                     
+                     
+     
    
                                                                                                                                          
                                                
@@ -441,6 +464,17 @@ function isInside(parent        , child        )          {
                            
                 
                      
+   
+                                        
+                   
+                    
+                     
+                 
+                 
+                      
+                       
+                      
+                  
    
                                       
               
@@ -942,6 +976,18 @@ export function resolveConfig(config                    = {})                 {
       // 默认只重排已有候选，不注入"仅 BM25 命中"的新候选 —— 实测后者会在
       // strengthRanking 关闭时用低相关度挤掉真命中（recall -0.04）。需要补召回时再开。
       addCandidates: config.retrieval?.fusion?.addCandidates ?? false,
+    },
+    // 0.65.0：图增强检索默认开。保守参数：只在 ≥6 条可见记录时建图，
+    // 每轮最多补 8 条、门槛为最高 PPR 分的 8%，避免把弱关联噪声灌进上下文。
+    graphExpansion: {
+      enabled: config.retrieval?.graphExpansion?.enabled ?? true,
+      seedCount: config.retrieval?.graphExpansion?.seedCount ?? 6,
+      limit: config.retrieval?.graphExpansion?.limit ?? 8,
+      alpha: config.retrieval?.graphExpansion?.alpha ?? 0.85,
+      iterations: config.retrieval?.graphExpansion?.iterations ?? 24,
+      minRelative: config.retrieval?.graphExpansion?.minRelative ?? 0.08,
+      minRecords: config.retrieval?.graphExpansion?.minRecords ?? 6,
+      weight: config.retrieval?.graphExpansion?.weight ?? 0.8,
     },
     variants: {
       enabled: config.retrieval?.variants?.enabled ?? false,
@@ -5009,7 +5055,7 @@ export class LocalMemoryService                             {
     const retired = new Set        (this.supersededIds())
 
     // --- channel 1: lexical recall, scored per scope with local IDF ---
-                                                                                                                                                                         
+                                                                                                                                                                                                  
     const candidates = new Map              ()
     for (const { store, isGlobal } of stores) {
       const all = [...store.records.values()]
@@ -5179,6 +5225,71 @@ export class LocalMemoryService                             {
       else if (vec !== undefined) cand.recallScore = vec
     }
 
+    // 0.65.0：图增强检索（GraphRAG / HippoRAG 风格）。
+    // 词法通道只看字面重合、向量通道只看整句语义，两者都看不到「记忆共享实体」这层
+    // 关联。这里以当前候选为种子，在「共享实体 + 修正谱系」图上跑 Personalized
+    // PageRank（带重启的随机游走），把实体桥接到的多跳记录补成候选。
+    // 只对通过本次全部过滤（可见性/归档/过期/类型/屏蔽）的记录建图 —— 图里不能有
+    // 当前调用方根本看不到的记录，否则补召回会绕过权限与屏蔽。
+    let graphIds           = []
+    if (this.cfg.graphExpansion.enabled && candidates.size > 0) {
+      const eligible                                                                                                       = []
+      for (const { store } of stores) {
+        for (const rec of store.records.values()) {
+          if (!includeSuperseded && retired.has(rec.id)) continue
+          if (!isRecordVisible(rec, { includeDormant, includeTombstoned, includeExpired, now })) continue
+          if (kindFilter !== undefined && !kindFilter(rec.scope, rec.kind)) continue
+          if (blockedFilter !== undefined && blockedFilter({ id: rec.id, scope: rec.scope })) continue
+          const lineage = rec                            
+          eligible.push({
+            id: rec.id,
+            content: rec.content,
+            ...(rec.tags !== undefined ? { tags: rec.tags } : {}),
+            ...(typeof lineage.supersedes === 'string' ? { supersedes: lineage.supersedes } : {}),
+            scope: rec.scope,
+          })
+        }
+      }
+      if (eligible.length >= this.cfg.graphExpansion.minRecords) {
+        const graph = buildAssociationGraph(eligible)
+        const seeds = [...candidates.values()]
+          .filter((cand) => cand.recallScore > 0)
+          .sort((a, b) => b.recallScore - a.recallScore || a.record.id.localeCompare(b.record.id))
+          .slice(0, this.cfg.graphExpansion.seedCount)
+          .map((cand) => [cand.record.id, cand.recallScore]         )
+        if (seeds.length > 0) {
+          const ppr = personalizedPageRank(graph, seeds, {
+            alpha: this.cfg.graphExpansion.alpha,
+            maxIterations: this.cfg.graphExpansion.iterations,
+          })
+          const picks = pickGraphExpansion({
+            ppr,
+            avoid: new Set(candidates.keys()),
+            limit: this.cfg.graphExpansion.limit,
+            minRelative: this.cfg.graphExpansion.minRelative,
+          })
+          for (const hit of picks) {
+            const record = this.findById(hit.id)
+            if (record === undefined) continue
+            // 双保险：PPR 之后记录可能被并发改写（新屏蔽/归档），落候选前再查一次。
+            if (blockedFilter !== undefined && blockedFilter({ id: record.id, scope: record.scope })) continue
+            if (!isRecordVisible(record, { includeDormant, includeTombstoned, includeExpired, now })) continue
+            const store = stores.find((entry) => entry.scope === record.scope)?.store
+            candidates.set(hit.id, {
+              record,
+              // 联想补回来的记录给低相关度（0.22~0.60），只参与排序、不压过词法/向量真命中。
+              recallScore: 0.22 + 0.38 * hit.relative,
+              isGlobal: record.scope === 'global',
+              vector: store?.vectors.get(hit.id) ?? null,
+              synthetic: true,
+              graphExpanded: true,
+            })
+            graphIds.push(hit.id)
+          }
+        }
+      }
+    }
+
     // 0.40.0（P0）：BM25 + RRF 融合。RRF 只产出 max +20% 的排序加成，不覆盖相关度。
     const fusionBonus = new Map                ()
 
@@ -5258,6 +5369,7 @@ export class LocalMemoryService                             {
           { name: 'lexical', ids: lexicalList, weight: this.cfg.fusion.weights.lexical },
           { name: 'vector', ids: byVector, weight: this.cfg.fusion.weights.vector },
           ...(expandedIds.length > 0 ? [{ name: 'expanded', ids: expandedIds, weight: this.cfg.fusion.weights.expanded }] : []),
+          ...(graphIds.length > 0 ? [{ name: 'graph', ids: graphIds, weight: this.cfg.graphExpansion.weight }] : []),
         ].filter((list) => list.ids.length > 0)
         if (lists.length > 0) {
           const fused = reciprocalRankFusion(lists, { k: this.cfg.fusion.k, limit: Math.max(recallN * 3, candidates.size) })
@@ -5477,12 +5589,15 @@ export class LocalMemoryService                             {
 
     // 0.31.0：广播召回摘要（query / 命中数 / 涉及作用域 / 向量通道是否参与），不含正文。
     const recalled = hits.slice(0, topK)
+    // 0.65.0：图增强补召回到最终结果的条数（可观测性：审计/事件里能看出多跳是否生效）。
+    const graphExpandedHits = recalled.filter((hit) => candidates.get(hit.record.id)?.graphExpanded === true).length
     this.events.recalled({
       query: query.text,
       hits: recalled.length,
       topScopes: [...new Set(recalled.map((hit) => hit.record.scope))],
       vector: qvec?.[0] !== undefined,
       ...(mergedIds.length > 0 ? { merged: mergedIds.length } : {}),
+      ...(graphExpandedHits > 0 ? { graphExpanded: graphExpandedHits } : {}),
     })
     this.store.scheduleFlush()
     return recalled

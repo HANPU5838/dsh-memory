@@ -1,0 +1,139 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { LocalMemoryService } from '../src/index.ts'
+import {
+  buildAssociationGraph,
+  personalizedPageRank,
+  pickGraphExpansion,
+} from '../src/retrieval/graph-expansion.ts'
+
+/**
+ * 0.65.0：图增强检索（GraphRAG / HippoRAG 风格）。
+ *
+ * 三层断言：
+ *   1. 建图：共享实体 = 边；修正谱系 = 边；顺序无关且确定性；
+ *   2. PPR：种子主导、可收敛、确定性（同输入逐位相同）；
+ *   3. 集成：实体桥接的第二条记忆在开启图增强时被补召回，关掉时不被召回。
+ */
+
+function tempDir(prefix: string): string {
+  return mkdtempSync(join(tmpdir(), prefix))
+}
+
+// ---------------------------------------------------------------- 建图
+
+test('建图：共享实体连边，无关记录不连，谱系边生效', () => {
+  const graph = buildAssociationGraph([
+    { id: 'b', content: '/srv/app 的 nginx 配置在 /etc/nginx/sites-enabled' },
+    { id: 'a', content: '用 pm2 管理 /srv/app 服务' },
+    { id: 'c', content: '完全无关的一条记忆：周末去买菜' },
+    { id: 'd', content: '另一条带 /srv/app 但补充了数据库的信息', supersedes: 'x' },
+  ])
+  // a/b/d 共享 path:/srv/app → 两两连边；c 无共享实体 → 无边。
+  assert.ok(graph.adjacency.get('a')?.has('b'), 'a-b 应有实体边')
+  assert.ok(graph.adjacency.get('a')?.has('d'), 'a-d 应有实体边')
+  assert.equal(graph.adjacency.get('c')?.size ?? 0, 0, '无关记录不应连边')
+  // 谱系边只在目标记录也在图里时建立；'x' 不在图里，所以不产生悬空边。
+  assert.ok(graph.nodes.includes('a'))
+  assert.ok(graph.stats.edges >= 2, `至少两条边，实际 ${graph.stats.edges}`)
+})
+
+test('建图：输入顺序无关（确定性）', () => {
+  const records = [
+    { id: 'a', content: '用 pm2 管理 /srv/app 服务' },
+    { id: 'b', content: '/srv/app 的 nginx 配置' },
+    { id: 'c', content: 'port 8080 的调试记录' },
+  ]
+  const forward = buildAssociationGraph(records)
+  const reversed = buildAssociationGraph([...records].reverse())
+  const dump = (g: ReturnType<typeof buildAssociationGraph>): string =>
+    g.nodes.map((n) => `${n}:${[...(g.adjacency.get(n) ?? new Map()).entries()].map(([k, v]) => `${k}=${v.toFixed(6)}`).sort().join(',')}`).join('|')
+  assert.equal(dump(forward), dump(reversed))
+})
+
+// ---------------------------------------------------------------- PPR
+
+test('PPR：种子节点分数最高，且同一输入结果逐位相同', () => {
+  const graph = buildAssociationGraph([
+    { id: 'a', content: '用 pm2 管理 /srv/app 服务' },
+    { id: 'b', content: '/srv/app 的 nginx 配置' },
+    { id: 'c', content: '/srv/app 的数据库连接串在这里' },
+    { id: 'd', content: '无关内容：今天天气不错' },
+  ])
+  const ppr1 = personalizedPageRank(graph, [['a', 1]])
+  const ppr2 = personalizedPageRank(graph, [['a', 1]])
+  assert.deepEqual([...ppr1.entries()], [...ppr2.entries()], '确定性')
+  assert.ok((ppr1.get('a') ?? 0) >= (ppr1.get('b') ?? 0), '种子分数应最高')
+  assert.ok((ppr1.get('b') ?? 0) > 0, '通过共享实体应扩散到 b')
+  assert.equal(ppr1.get('d') ?? 0, 0, '不连通节点不应有分数')
+})
+
+test('PPR：空种子返回空结果；非法种子被忽略', () => {
+  const graph = buildAssociationGraph([{ id: 'a', content: 'x' }])
+  assert.equal(personalizedPageRank(graph, []).size, 0)
+  assert.equal(personalizedPageRank(graph, [['missing', 1]]).size, 0)
+  const ok = personalizedPageRank(graph, [['a', Number.NaN], ['a', 1]])
+  assert.deepEqual([...ok.keys()], ['a'])
+})
+
+// ---------------------------------------------------------------- 筛选
+
+test('pickGraphExpansion：排除已有候选、按相对分门槛与上限挑选', () => {
+  const ppr = new Map([
+    ['a', 1],
+    ['b', 0.6],
+    ['c', 0.4],
+    ['d', 0.01],
+    ['e', 0.5],
+  ])
+  const picked = pickGraphExpansion({ ppr, avoid: new Set(['a']), limit: 2, minRelative: 0.3 })
+  assert.deepEqual(picked.map((hit) => hit.id), ['b', 'e'], '排除 a、按分数降序、最多 2 条')
+  assert.equal(picked[0]!.relative, 0.6, '相对分以全图最高 PPR 分为分母（含被排除的种子）')
+  const none = pickGraphExpansion({ ppr: new Map(), avoid: new Set() })
+  assert.deepEqual(none, [])
+})
+
+// ---------------------------------------------------------------- 集成
+
+test('集成：实体桥接的第二条记忆被图增强补召回，关闭后不召回', async () => {
+  const dir = tempDir('dsh-memory-graph-')
+  const svc = new LocalMemoryService({
+    storeDir: dir,
+    scopes: { global: true, project: true },
+    retrieval: {
+      graphExpansion: { enabled: true, minRecords: 2, seedCount: 4, limit: 4, minRelative: 0.02 },
+    },
+  })
+  try {
+    const a = await svc.save({ content: '用 pm2 管理 /srv/app 服务', scope: 'global', kind: 'note' })
+    const b = await svc.save({ content: '/srv/app 的 nginx 配置在 /etc/nginx/sites-enabled', scope: 'global', kind: 'note' })
+
+    const hits = await svc.search({ text: 'pm2', topK: 5 })
+    const ids = hits.map((hit) => hit.record.id)
+    assert.ok(ids.includes(a.id), '字面命中必须召回')
+    assert.ok(ids.includes(b.id), `实体桥接记忆应被补召回（实际 ${JSON.stringify(ids)}）`)
+
+    // 同一条查询、只关掉图增强：b 不应出现（它既不含 pm2、也没有向量通道）。
+    const plainDir = tempDir('dsh-memory-graph-off-')
+    const plain = new LocalMemoryService({
+      storeDir: plainDir,
+      scopes: { global: true, project: true },
+      retrieval: { graphExpansion: { enabled: false } },
+    })
+    try {
+      await plain.save({ content: '用 pm2 管理 /srv/app 服务', scope: 'global', kind: 'note' })
+      await plain.save({ content: '/srv/app 的 nginx 配置在 /etc/nginx/sites-enabled', scope: 'global', kind: 'note' })
+      const plainHits = await plain.search({ text: 'pm2', topK: 5 })
+      assert.deepEqual(plainHits.map((hit) => hit.record.id).length, 1, '关闭图增强后只应召回字面命中')
+    } finally {
+      try { plain.flushSync() } catch { /* 已 flush */ }
+      rmSync(plainDir, { recursive: true, force: true })
+    }
+  } finally {
+    try { svc.flushSync() } catch { /* 已 flush */ }
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
