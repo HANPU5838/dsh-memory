@@ -11,6 +11,8 @@ import {
   queryEntitySeeds,
   graphWeightFactor,
   canonicalEntityKey,
+  detectCommunities,
+  ENTITY_EDGE_PRIORITY,
 } from '../src/retrieval/graph-expansion.ts'
 
 /**
@@ -219,4 +221,60 @@ test('0.76.0：实体消歧 —— 路径/标签的不同写法落到同一个�
   const seeds = queryEntitySeeds('/srv/app 怎么部署', graph).map(([id]) => id)
   assert.ok(seeds.includes('a') && seeds.includes('b'), `查询实体种子应覆盖两种写法（实际 ${JSON.stringify(seeds)}）`)
   assert.ok(!seeds.includes('c'))
+})
+
+test('0.82.0：具体实体（path/url/version）的边权高于泛标签（tag）', () => {
+  const graph = buildAssociationGraph([
+    { id: 'p1', content: '部署在 /srv/shared 目录的服务' },
+    { id: 'p2', content: '/srv/shared 的 nginx 配置' },
+    { id: 't1', content: '发布流程记录', tags: ['发布'] },
+    { id: 't2', content: '发布回滚方案', tags: ['发布'] },
+  ])
+  const pathEdge = graph.adjacency.get('p1')?.get('p2') ?? 0
+  const tagEdge = graph.adjacency.get('t1')?.get('t2') ?? 0
+  assert.ok(pathEdge > 0 && tagEdge > 0)
+  assert.ok(pathEdge > tagEdge, `path 边应高于 tag 边（${pathEdge} vs ${tagEdge}）`)
+  assert.ok(ENTITY_EDGE_PRIORITY.path > ENTITY_EDGE_PRIORITY.tag)
+})
+
+test('0.82.0：detectCommunities —— 断开的两团归为两个社区，链式相连归为一个', () => {
+  const pairs = buildAssociationGraph([
+    { id: 'a1', content: '/srv/x 部署' },
+    { id: 'a2', content: '/srv/x 配置' },
+    { id: 'b1', content: '/srv/y 部署' },
+    { id: 'b2', content: '/srv/y 配置' },
+  ])
+  const labels = detectCommunities(pairs)
+  assert.notEqual(labels.get('a1'), labels.get('b1'), '两个断开主题应是不同社区')
+  assert.equal(labels.get('a1'), labels.get('a2'))
+  assert.equal(labels.get('b1'), labels.get('b2'))
+  // 确定性：两次一致。
+  assert.deepEqual(detectCommunities(pairs), labels)
+
+  // 加一条「桥」记录把两团连上 → 同属一个社区。
+  const bridged = buildAssociationGraph([
+    { id: 'a1', content: '/srv/x 部署' },
+    { id: 'a2', content: '/srv/x 配置，同时引用 /srv/y' },
+    { id: 'b1', content: '/srv/y 部署' },
+    { id: 'b2', content: '/srv/y 配置' },
+  ])
+  const bridgedLabels = detectCommunities(bridged)
+  assert.equal(new Set(bridgedLabels.values()).size, 1, '桥接后应合并成一个社区')
+})
+
+test('0.82.0：pickGraphExpansion 社区上限 —— 单一社区不刷屏，多社区都能进入', () => {
+  const ppr = new Map([
+    ['a1', 0.9], ['a2', 0.8], ['a3', 0.7], ['a4', 0.6],
+    ['b1', 0.5], ['b2', 0.4],
+  ])
+  const labels = new Map([
+    ['a1', 'A'], ['a2', 'A'], ['a3', 'A'], ['a4', 'A'],
+    ['b1', 'B'], ['b2', 'B'],
+  ])
+  const picks = pickGraphExpansion({ ppr, limit: 8, minRelative: 0, community: { labels, maxPerCommunity: 2 } })
+  const ids = picks.map((hit) => hit.id)
+  assert.deepEqual(ids.sort(), ['a1', 'a2', 'b1', 'b2'], `每个社区至多 2 条（实际 ${JSON.stringify(ids)}）`)
+  // 不传 community 时按分数取满 limit。
+  const all = pickGraphExpansion({ ppr, limit: 8, minRelative: 0 })
+  assert.equal(all.length, 6)
 })

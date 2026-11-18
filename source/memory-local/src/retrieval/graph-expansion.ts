@@ -69,6 +69,26 @@ export interface GraphExpansionHit {
 const MAX_ENTITIES_PER_RECORD = 24
 /** 实体边基础权重：共享实体 = 两个实体权重的几何平均 × idf 缩放。 */
 const ENTITY_EDGE_SCALE = 0.6
+/**
+ * 0.82.0：实体类型的边权微调（「具体实体」比「泛主题标签」更能说明两条记忆属于同一件事）。
+ *
+ * 共享一个路径 / URL / 版本号，通常意味着在讲同一个对象；共享一个泛标签（release、工具链）
+ * 只说明主题相近。原始的实体权重里标签最高，是为了**记录内**排序（tags 是人工信号），
+ * 但到**记录间**连边时，具体实体应当更可信，泛标签应当降权。
+ */
+export const ENTITY_EDGE_PRIORITY: Readonly<Record<string, number>> = {
+  url: 1.25,
+  path: 1.15,
+  version: 1.1,
+  ip: 1.1,
+  port: 1.1,
+  tool: 1.0,
+  identifier: 0.95,
+  date: 0.9,
+  arch: 0.9,
+  os: 0.9,
+  tag: 0.8,
+}
 /** 谱系边（supersedes）权重：修正关系比偶发实体共现更强，但弱于完全同实体。 */
 const SUPERSEDES_EDGE_WEIGHT = 0.9
 /** 单条记录参与的边数上限（防止热点实体把图变成完全图）。 */
@@ -143,7 +163,9 @@ export function buildAssociationGraph(
         const b = unique[j]!
         const wa = recordEntities.get(a)?.find((e) => e.key === key)?.weight ?? 1
         const wb = recordEntities.get(b)?.find((e) => e.key === key)?.weight ?? 1
-        const weight = ENTITY_EDGE_SCALE * Math.sqrt(Math.max(0, wa) * Math.max(0, wb)) * idf
+        const type = key.slice(0, Math.max(0, key.indexOf(':')))
+        const priority = ENTITY_EDGE_PRIORITY[type] ?? 1
+        const weight = ENTITY_EDGE_SCALE * Math.sqrt(Math.max(0, wa) * Math.max(0, wb)) * idf * priority
         addEdge(a, b, weight)
       }
     }
@@ -213,6 +235,58 @@ export function canonicalEntityKey(entity: { type: string; normalized: string })
 /** 实体的归一化图节点键（与 analysis/entities 的节点 id 同构）。 */
 function entityNodeKey(entity: { type: string; normalized: string }): string {
   return canonicalEntityKey(entity)
+}
+
+// ---------------------------------------------------------------- 社区检测
+
+/**
+ * 标签传播社区检测（0.82.0）—— 确定性：按 id 排序更新、同权重优先保持当前标签。
+ *
+ * 图增强的 PPR 会从种子扩散到整张图；当图里存在多个"主题社区"时，不加约束的扩散会把
+ * 别的社区也拉进来。用社区标签给补充候选加一个**每社区条数上限**，让多跳结果保持聚焦，
+ * 而不是被单一热门社区刷屏。
+ *
+ * @returns nodeId → communityLabel（初始为自身 id；孤立节点保持自身）
+ */
+export function detectCommunities(
+  graph: AssociationGraph,
+  options: { maxIterations?: number } = {},
+): Map<string, string> {
+  const labels = new Map<string, string>()
+  for (const id of graph.nodes) labels.set(id, id)
+  const maxIterations = Math.max(1, Math.min(50, Math.floor(options.maxIterations ?? 12)))
+  const nodes = [...graph.nodes].sort()
+  for (let iteration = 0; iteration < maxIterations; iteration++) {
+    let changed = false
+    for (const node of nodes) {
+      const neighbours = graph.adjacency.get(node)
+      if (neighbours === undefined || neighbours.size === 0) continue
+      const weightByLabel = new Map<string, number>()
+      for (const [neighbour, weight] of neighbours) {
+        if (!(weight > 0)) continue
+        const label = labels.get(neighbour) ?? neighbour
+        weightByLabel.set(label, (weightByLabel.get(label) ?? 0) + weight)
+      }
+      const current = labels.get(node) ?? node
+      let bestLabel = current
+      let bestWeight = weightByLabel.get(current) ?? 0
+      const ranked = [...weightByLabel.entries()]
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      for (const [label, weight] of ranked) {
+        // 严格大于才切换：同权重优先保持当前标签，保证确定性。
+        if (weight > bestWeight + 1e-12) {
+          bestWeight = weight
+          bestLabel = label
+        }
+      }
+      if (bestLabel !== current) {
+        labels.set(node, bestLabel)
+        changed = true
+      }
+    }
+    if (!changed) break
+  }
+  return labels
 }
 
 // ---------------------------------------------------------------- PPR
@@ -358,11 +432,18 @@ export function pickGraphExpansion(input: {
   limit?: number
   minRelative?: number
   minAbsolute?: number
+  /**
+   * 0.82.0：社区约束。提供 labels 时，每个社区最多取 maxPerCommunity 条，
+   * 避免"单一热门社区刷屏"；多社区场景下让多跳结果更聚焦。
+   */
+  community?: { labels: ReadonlyMap<string, string>; maxPerCommunity?: number }
 }): GraphExpansionHit[] {
   const avoid = input.avoid ?? new Set<string>()
   const limit = Math.max(0, Math.min(Math.floor(input.limit ?? 8), 50))
   const minRelative = clampNumber(input.minRelative ?? 0.08, 0, 1)
   const minAbsolute = Math.max(0, input.minAbsolute ?? 1e-4)
+  const communityLabels = input.community?.labels
+  const maxPerCommunity = Math.max(1, Math.floor(input.community?.maxPerCommunity ?? 3))
   const hits: Array<{ id: string; score: number }> = []
   let maxScore = 0
   for (const [id, score] of input.ppr) {
@@ -374,10 +455,21 @@ export function pickGraphExpansion(input: {
   }
   if (maxScore <= 0) return []
   const floor = maxScore * minRelative
-  const picked = hits
+  const ranked = hits
     .filter((hit) => hit.score >= floor)
     .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
-    .slice(0, limit)
+  const picked: Array<{ id: string; score: number }> = []
+  const perCommunity = new Map<string, number>()
+  for (const hit of ranked) {
+    if (picked.length >= limit) break
+    if (communityLabels !== undefined) {
+      const label = communityLabels.get(hit.id) ?? hit.id
+      const used = perCommunity.get(label) ?? 0
+      if (used >= maxPerCommunity) continue
+      perCommunity.set(label, used + 1)
+    }
+    picked.push(hit)
+  }
   return picked.map((hit) => ({ id: hit.id, score: hit.score, relative: hit.score / maxScore }))
 }
 

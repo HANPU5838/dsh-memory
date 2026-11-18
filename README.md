@@ -2,7 +2,7 @@
   <img src="https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/preview/icon-128.png" width="84" alt="记忆系统">
 </p>
 
-> ### 📦 本仓库是 DSH 记忆系统的独立维护版（v0.81.0）
+> ### 📦 本仓库是 DSH 记忆系统的独立维护版（v0.82.0）
 >
 > 本项目是 **DSH 记忆系统**（`@restregular/dsh-memory`，MIT）的独立维护版本：
 > 以原作者代码为起点（完整历史见 CHANGELOG），**后续全部开发、发布、安装与更新只以本仓库为准**。
@@ -27,7 +27,7 @@
 
 JSONL 落盘 · 本机向量检索 · 八个模型工具 · 自动召回 · 硬性规则 · 作用域归档 · 主动屏蔽 · 可视化管理面板
 
-[![version](https://img.shields.io/badge/version-v0.81.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![version](https://img.shields.io/badge/version-v0.82.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/HANPU5838/dsh-memory/blob/main/LICENSE)
 [![ci](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.13-5FA04E.svg)](https://nodejs.org/)
@@ -647,6 +647,9 @@ memory_save({
   **语义层偏好（0.75.0）**：记忆巩固产物（`consolidated` 标签）是 episodic 提炼出的 semantic
   记录，检索终态分乘 `1 + retrieval.semanticLayerBoost`（默认 0.04、0 = 关闭、上限 0.2），
   让「提炼过的知识」在与原始记录相关度接近时优先。
+  **图增强升级（0.82.0）**：记录间边权按实体类型区分——共享路径/URL/版本号（具体对象）权重高于
+  共享泛标签（主题相近）；新增确定性社区检测（标签传播），补充候选按社区限流（同社区最多 3 条），
+  避免单一热门主题把多跳结果刷屏。
   **词法伪相关反馈（0.80.0，默认开）**：无向量服务时，查询与记忆用词不一致（「上线失败」vs
   `deploy.sh --dry-run`）会完全够不着。PRF 从首轮 top 文档里选**稀有共现词**（df≤3、df/N≤0.5、
   最多 2 个）做二次 BM25 检索；只在首轮候选 ≤2 条（词法已无法表达查询）时启用，扩展候选拿合成
@@ -889,8 +892,8 @@ npm run verify:all
 ```
 
 ```
-✓ 单元 / 集成测试：1266 例 / 1265 pass / 1 skip / 0 fail（约 22s）
-✓ 单包构建：86 文件 / 2543.4 KiB
+✓ 单元 / 集成测试：1269 例 / 1268 pass / 1 skip / 0 fail（约 22s）
+✓ 单包构建：86 文件 / 2549.1 KiB
 ✓ 面板 API 冒烟：16/16 接口通过
 ✓ 向量后端实测：http://127.0.0.1:8078/health · 1024 维
 结论：PASS（4 通过 / 0 失败 / 0 跳过）
@@ -954,6 +957,7 @@ npm run verify  # 构建到 .verify/，不落 packages/
 
 ## 更新日志
 
+- **0.82.0** —— 图增强升级：实体类型边权（path/url/version > 泛 tag）+ 确定性社区检测（标签传播）与社区限流（同社区最多 3 条）；bridge 召回 100%、无关命中率 42.9% 无回归；新增 3 组单测。
 - **0.81.0** —— 召回正文抽取式摘要（TextRank）：长记忆超过字数预算时选信息量最高的句子（近重复句去重 + 查询相关句强加权），不再只截前缀；eval:summarize 实测关键结论保留 0%→100%、平均输出字数 80→67.5；进 CI。
 - **0.80.0** —— 词法伪相关反馈（BM25 PRF）：无向量也能用首轮命中记忆的措辞补全查询；保守防护（df≤3、df/N≤0.5、最多 2 词、仅候选≤2 时触发、RRF 权重 0.6）。eval:tune 实测：PRF 召回 0% → 100%，无关命中率 45.7% → 42.9%，默认开启；`retrieval.lexicalPrf` 可配。
 - **0.79.0** —— 记录卡 UI 修复：超长项目作用域显示成紧凑标签（`project:…/files/home`，悬停 title 保留完整键），元信息行 `flex-wrap` 换行、作用域徽标可收缩、时间不再被挤出卡片；修复手机窄屏下第一行溢出的观感问题。

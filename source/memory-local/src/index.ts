@@ -79,7 +79,7 @@ import { buildStats, lexicalScore, recordScore, tokenize, cosine, normalizeInPla
 import { adaptiveScopeThreshold, calibrateScore } from './retrieval/adapt.ts'
 import { blendHybrid, expandQuery, expandQueries, hybridWeights, prfTokens, queryProfile } from './retrieval/expand.ts'
 import { buildBm25Docs, bm25Score, rankByBm25 } from './retrieval/bm25.ts'
-import { buildAssociationGraph, graphWeightFactor, personalizedPageRank, pickGraphExpansion, queryEntitySeeds } from './retrieval/graph-expansion.ts'
+import { buildAssociationGraph, detectCommunities, graphWeightFactor, personalizedPageRank, pickGraphExpansion, queryEntitySeeds } from './retrieval/graph-expansion.ts'
 import { reciprocalRankFusion, normalizeScores } from './retrieval/fusion.ts'
 import { explainCandidate } from './retrieval/rank.ts'
 import { initialStrength, updateAfterUse } from './retrieval/retention.ts'
@@ -346,6 +346,8 @@ export interface MemoryLocalConfig {
      */
     graphExpansion?: {
       enabled?: boolean
+      /** 0.82.0：同社区最多补充几条（默认 3），防止单一主题刷屏。 */
+      maxPerCommunity?: number
       /** 种子候选数（默认 6）。 */
       seedCount?: number
       /** 每轮最多补充多少条（默认 8）。 */
@@ -490,6 +492,7 @@ export interface ResolvedConfig {
   /** 0.65.0：图增强检索（实体共现图 + PPR 多跳扩散）。 */
   graphExpansion: {
     enabled: boolean
+    maxPerCommunity: number
     seedCount: number
     limit: number
     alpha: number
@@ -1005,6 +1008,7 @@ export function resolveConfig(config: MemoryLocalConfig = {}): ResolvedConfig {
     // 每轮最多补 8 条、门槛为最高 PPR 分的 8%，避免把弱关联噪声灌进上下文。
     graphExpansion: {
       enabled: config.retrieval?.graphExpansion?.enabled ?? true,
+      maxPerCommunity: config.retrieval?.graphExpansion?.maxPerCommunity ?? 3,
       seedCount: config.retrieval?.graphExpansion?.seedCount ?? 6,
       limit: config.retrieval?.graphExpansion?.limit ?? 8,
       alpha: config.retrieval?.graphExpansion?.alpha ?? 0.85,
@@ -5301,6 +5305,8 @@ export class LocalMemoryService implements MemoryServiceApi {
       }
       if (eligible.length >= this.cfg.graphExpansion.minRecords) {
         const graph = buildAssociationGraph(eligible)
+        // 0.82.0：社区约束 —— 同社区最多补 maxPerCommunity 条，避免单一主题刷屏。
+        const communities = detectCommunities(graph)
         // 候选种子：按相关度取 top-N；结果不足 topK 时自适应多取 2 个。
         const deficit = Math.max(0, topK - candidates.size)
         const seedCount = Math.min(12, this.cfg.graphExpansion.seedCount + (deficit > 0 ? 2 : 0))
@@ -5328,6 +5334,7 @@ export class LocalMemoryService implements MemoryServiceApi {
             avoid: new Set(candidates.keys()),
             limit,
             minRelative,
+            community: { labels: communities, maxPerCommunity: this.cfg.graphExpansion.maxPerCommunity },
           })
           for (const hit of picks) {
             const record = this.findById(hit.id)
