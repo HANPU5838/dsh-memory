@@ -2,6 +2,18 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.79.0 — 记录卡 UI 修复：长作用域不再溢出（2026-11-18）
+
+- **问题**：记录列表卡片头直接渲染作用域展示名；项目作用域没有别名时是
+  `project:/data/data/com.termux/files/home` 这类长路径，移动端窄屏下把 `修正自 / 时间`
+  等元信息挤出卡片，出现截断（用户截图反馈）。
+- **修复**：新增 `compactScopeLabel()` —— 保留类型前缀 + 路径尾部两段
+  （`project:…/files/home`），悬停 `title` 仍给完整 `显示名 → 真实键`；
+  `.rec-head` 改为 `flex-wrap:wrap`，作用域徽标 `flex:0 1 auto + min-width:0` 可收缩，
+  `.time` 不换行，元信息行不再溢出。
+- **测试**：新增记录卡紧凑作用域 + 换行 CSS 断言；全套
+  **1258 例 / 1257 pass / 1 skip / 0 fail**；`npm run verify:all` PASS。
+
 ## 0.78.0 — 文档与验收收尾（2026-11-18）
 
 - **验收文档**：`docs/verification.md` 补「评测回归（§1.5）」——`eval:graph` / `eval:tune` 的

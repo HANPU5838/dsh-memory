@@ -2,7 +2,7 @@
   <img src="https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/preview/icon-128.png" width="84" alt="记忆系统">
 </p>
 
-> ### 📦 本仓库是 DSH 记忆系统的独立维护版（v0.78.0）
+> ### 📦 本仓库是 DSH 记忆系统的独立维护版（v0.79.0）
 >
 > 本项目是 **DSH 记忆系统**（`@restregular/dsh-memory`，MIT）的独立维护版本：
 > 以原作者代码为起点（完整历史见 CHANGELOG），**后续全部开发、发布、安装与更新只以本仓库为准**。
@@ -27,7 +27,7 @@
 
 JSONL 落盘 · 本机向量检索 · 八个模型工具 · 自动召回 · 硬性规则 · 作用域归档 · 主动屏蔽 · 可视化管理面板
 
-[![version](https://img.shields.io/badge/version-v0.78.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![version](https://img.shields.io/badge/version-v0.79.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/HANPU5838/dsh-memory/blob/main/LICENSE)
 [![ci](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.13-5FA04E.svg)](https://nodejs.org/)
@@ -883,8 +883,8 @@ npm run verify:all
 ```
 
 ```
-✓ 单元 / 集成测试：1257 例 / 1256 pass / 1 skip / 0 fail（约 22s）
-✓ 单包构建：85 文件 / 2523.8 KiB
+✓ 单元 / 集成测试：1258 例 / 1257 pass / 1 skip / 0 fail（约 22s）
+✓ 单包构建：85 文件 / 2526.0 KiB
 ✓ 面板 API 冒烟：16/16 接口通过
 ✓ 向量后端实测：http://127.0.0.1:8078/health · 1024 维
 结论：PASS（4 通过 / 0 失败 / 0 跳过）
@@ -948,6 +948,7 @@ npm run verify  # 构建到 .verify/，不落 packages/
 
 ## 更新日志
 
+- **0.79.0** —— 记录卡 UI 修复：超长项目作用域显示成紧凑标签（`project:…/files/home`，悬停 title 保留完整键），元信息行 `flex-wrap` 换行、作用域徽标可收缩、时间不再被挤出卡片；修复手机窄屏下第一行溢出的观感问题。
 - **0.78.0** —— 文档与验收收尾：verification.md 新增「评测回归」章节（eval:graph / eval:tune 口径与耗时）、更新过期数字；删除已过时的星图设计稿；architecture 补齐实体消歧 / 语义层偏好 / 评测调参说明。
 - **0.77.0** —— 检索参数扫描器 `npm run eval:tune`（单因子扫描图权重/种子数/门槛/语义层 boost，纯本地 2s，进 CI 作回归参考）：实测默认值稳健、`semanticLayerBoost=0` 时巩固 top1 0% → 证明偏好有效；默认值保持不变。
 - **0.76.0** —— 实体消歧/规范化：路径抽取支持反斜杠与重复分隔符（`\\srv\\app` / `/srv//app` → 同一 `path`）；图节点键统一 tag/版本大小写与 URL 规范化，不同写法共享实体节点与多跳边（多跳质量提升）。

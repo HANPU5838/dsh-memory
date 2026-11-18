@@ -1487,6 +1487,31 @@ test('记录卡:标签渲染成气泡,修正关系两个方向都有明确徽标
   assert.ok(textOf(tree).includes('已被修正'), '被修正的记录有「已被修正」徽标')
 })
 
+test('0.79.0：超长项目作用域在卡片头显示紧凑标签，title 仍给完整键', async () => {
+  const { exports, hooks } = await loadBundle()
+  hooks.resetAll()
+  const RecordCard = (exports.__test as { RecordCard: (p: Record<string, unknown>) => unknown }).RecordCard
+  const longScope = 'project:/data/data/com.termux/files/home'
+  const rec = makeRecord({ id: 'long-scope', scope: longScope, kind: 'fact', content: '长路径作用域测试', updatedAt: 1 })
+  const tree = render(hooks.React.createElement(RecordCard, {
+    rec,
+    labels: { [longScope]: longScope },
+    onSaved: () => {},
+    onDeleted: () => {},
+  }), hooks)
+
+  const text = textOf(tree)
+  assert.ok(text.includes('project:…/files/home'), `卡片头应显示紧凑作用域（${text}）`)
+  assert.ok(!text.includes('project:/data/data/com.termux/files/home'), '不再直接渲染超长路径')
+  const chip = collect(tree).find((node) => String(node.props?.className ?? '') === 'badge scope')
+  assert.ok(chip, '作用域徽标存在')
+  assert.equal(chip!.props!.title, longScope, '悬停 title 保留完整作用域键')
+
+  // 元信息行允许换行：窄屏时徽标与时间不再互相挤出卡片。
+  const css = (exports.__test as { CSS: string }).CSS
+  assert.match(css, /\.memp \.rec-head\{[^}]*flex-wrap:wrap/, 'rec-head 必须可换行')
+})
+
 test('记录页「是否被修正」筛选:默认隐藏旧版本,可切到全部 / 只看已修正', async () => {
   const { hooks } = await loadBundle()
   hooks.resetAll()

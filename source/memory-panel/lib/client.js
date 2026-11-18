@@ -101,12 +101,12 @@ window.__ModuleLoader__.load({
       '.memp .list{display:flex;flex-direction:column;gap:8px}',
       '.memp .rec{border:1px solid var(--dsw-alias-border-l1);border-radius:10px;padding:9px 12px;background:var(--dsw-alias-bg-layer-1)}',
       '.memp .rec:hover{border-color:var(--dsw-alias-brand-primary)}',
-      '.memp .rec-head{display:flex;gap:7px;align-items:center;font-size:11.5px;color:var(--dsw-alias-label-secondary);cursor:pointer;user-select:none}',
+      '.memp .rec-head{display:flex;flex-wrap:wrap;gap:7px;row-gap:5px;align-items:center;font-size:11.5px;color:var(--dsw-alias-label-secondary);cursor:pointer;user-select:none}',
       '.memp .rec-head:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px;border-radius:6px}',
       '.memp .chev{font-size:9px;opacity:.6;width:9px;flex:none;transition:transform .12s ease}',
       '.memp .chev.open{transform:rotate(90deg)}',
       '.memp .badge{border:1px solid var(--dsw-alias-border-l1);border-radius:5px;padding:0 6px;line-height:1.7;color:var(--dsw-alias-label-secondary);flex:none}',
-      '.memp .badge.scope{color:var(--dsw-alias-brand-primary);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.memp .badge.scope{color:var(--dsw-alias-brand-primary);max-width:min(100%,260px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 1 auto;min-width:0}',
       '.memp .badge.corrected{color:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary)}',
       '.memp .badge.expired{color:#C0563B;border-color:color-mix(in srgb,#C0563B 55%,transparent)}',
       '.memp .tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}',
@@ -119,7 +119,7 @@ window.__ModuleLoader__.load({
       '.memp .footer a{color:var(--dsw-alias-brand-primary);text-decoration:none}',
       '.memp .footer a:hover{text-decoration:underline}',
       '.memp .pending{flex:none}',
-      '.memp .time{margin-left:auto;flex:none}',
+      '.memp .time{margin-left:auto;flex:none;white-space:nowrap}',
       '.memp .preview{margin-top:7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--dsw-alias-label-secondary);line-height:1.5}',
       '.memp .content{margin-top:7px;white-space:pre-wrap;word-break:break-word;line-height:1.55}',
       '.memp .rec-body{margin-top:6px}',
@@ -926,6 +926,25 @@ window.__ModuleLoader__.load({
       return key === '' || key === name ? key : `${name} → ${key}`
     }
 
+    /**
+     * 0.79.0：作用域展示名太长时的紧凑写法（卡片头部用，悬停 title 仍给完整）。
+     *
+     * 典型场景：项目作用域没有别名时展示名是 `project:/data/data/com.termux/files/home`，
+     * 在手机上会把整行元信息挤出去。这里保留类型前缀 + 路径尾部两段：
+     *   project:/data/data/com.termux/files/home → project:…/files/home
+     */
+    function compactScopeLabel(label, max = 34) {
+      const text = String(label === null || label === undefined ? '' : label)
+      if (text.length <= max) return text
+      const sep = text.indexOf(':')
+      const prefix = sep >= 0 ? text.slice(0, sep + 1) : ''
+      const body = sep >= 0 ? text.slice(sep + 1) : text
+      const parts = body.split('/').filter((part) => part !== '')
+      if (parts.length >= 2) return `${prefix}…/${parts.slice(-2).join('/')}`
+      const room = Math.max(1, max - prefix.length - 1)
+      return `${prefix}${body.slice(0, room)}…`
+    }
+
     /** 记忆类型 → 中文名 + 树里的强调色(与宿主主题无关的固定色相,底色用 color-mix 自适应)。 */
     const KIND_ORDER = ['fact', 'decision', 'preference', 'procedure', 'note', 'rule', 'state']
     const KIND_META = {
@@ -1293,7 +1312,10 @@ window.__ModuleLoader__.load({
           },
         },
           h('span', { className: open ? 'chev open' : 'chev' }, '▶'),
-          h('span', { className: 'badge scope', title: scopeTitle(rec.scope, scopeLabel(rec.scope, labels)) }, scopeLabel(rec.scope, labels)),
+          h('span', {
+            className: 'badge scope',
+            title: scopeTitle(rec.scope, scopeLabel(rec.scope, labels)),
+          }, compactScopeLabel(scopeLabel(rec.scope, labels))),
           h('span', { className: 'badge' }, rec.kind),
           score !== null && score !== undefined && Number.isFinite(Number(score))
             ? h('span', {
