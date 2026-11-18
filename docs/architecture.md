@@ -1,4 +1,4 @@
-# 架构说明（本仓库独立维护版 0.104.0）
+# 架构说明（本仓库独立维护版 0.106.0）
 
 > 本文说明这套记忆插件「为什么是插件」：哪些属于宿主、哪些属于插件、平台差异放在哪里。
 > 本仓库 **[HANPU5838/dsh-memory](https://github.com/HANPU5838/dsh-memory)** 是 DSH 记忆系统的独立维护版
@@ -146,15 +146,19 @@ memory/record-forgotten  { scope, ids }
 发布流程（不依赖 npm / 任何第三方仓库）：
 
 ```bash
-# 1) 改版本号：package.json 的 version + build/verify scripts 三处 + CHANGELOG 新条目
-# 2) 构建与验收
+# 1) 版本号：package.json 的 version + build 脚本的 --version + CHANGELOG/README/IMPROVEMENTS 新条目
+# 2) 构建与验收（缺一不可）
 npm run build
 npm test
-npm run verify:all
-# 3) 提交、打 tag、推送；在 GitHub Releases 写说明
+npm run verify:all        # 四段：测试 / 构建 / 面板冒烟 / 向量后端
+npm run check:docs        # 版本/badge/CHANGELOG/链接/文档引用的命令与工具路径
+# 3) 提交、打 tag、推送；release.yml 会自动从 CHANGELOG 生成 GitHub Release
 git commit -am "release: v<新版本>"
 git tag -a v<新版本> -m "v<新版本>"
-git push origin main --tags
+git push origin main
+git push origin v<新版本>
+# 4) 同步本地插件并复核发布链路
+npm run release:check -- --strict
 ```
 
 安装 / 更新端只认本仓库 spec（`github:HANPU5838/dsh-memory`）；升级走「先移除再安装」的
@@ -193,6 +197,8 @@ Personalized PageRank（带重启随机游走，alpha=0.85，最多 24 次幂迭
   （重要度→更新时间→id 确定性），败者保留不删、审计 reason=conflict。
 - **图边权与社区（0.82.0）**：边权乘实体类型因子（具体对象 > 泛标签）；`detectCommunities()`
   标签传播划分主题社区，补充候选按社区限流（`maxPerCommunity`，默认 3）。
+- **文档守门扩展（0.106.0）**：check:docs 校验文档命令/工具路径；architecture 发布流程与联想链路对齐；
+  修复 memory_block 对 memory_search 无效（工具未透传 agent）。
 - **对比文档纠偏（0.104.0）**：comparison/benchmark 对齐 0.103 能力，移除过时结论。
 - **验收稳定性（0.103.0）**：verify:all 四段独立归因、失败日志落盘、probe:flake 偶发探针。
 - **发布链路（0.102.0）**：`npm run release:check` 核对产物/包清单/tag/Release/本地插件并带 strict 模式。
@@ -227,8 +233,9 @@ Personalized PageRank（带重启随机游走，alpha=0.85，最多 24 次幂迭
 ### 可解释性（0.67.0）
 
 图增强补召回的记忆在检索结果里带 `graphExpanded: true`；注入侧汇总成 `RecallResult.graphExpanded`
-并写进召回审计条目的 `graph.expanded`，面板「审计 → 检索与过滤」直接展示「图增强多跳：N」。
-链路：`search() → MemoryHit.graphExpanded → injector 统计 → audit.graph → 面板详情`。
+与具体 `graphExpandedIds`，写进召回审计条目的 `graph.expanded` / `graph.ids`；面板「审计」展示
+「图增强多跳：N」并单独列出「图增强联想（补召回）」的 ID。
+链路：`search() → MemoryHit.graphExpanded → injector 统计/ID → audit.graph → 面板详情 → 工具/注入「联想」标记`。
 
 ### 自适应权重与评测（0.68.0）
 

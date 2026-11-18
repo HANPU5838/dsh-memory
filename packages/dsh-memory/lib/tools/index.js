@@ -1418,6 +1418,9 @@ export function memorySearchTool(opts                    )                      
         const wantedTopK = args.topK !== undefined ? Math.min(20, Math.max(1, args.topK)) : undefined
         const hits = await service.search({
           text: args.query,
+          // 0.106.0：必须把 agent 传下去，provider 才能按会话/工作区解析 memory_block。
+          // 之前只传文本与作用域，导致 memory_block 对显式检索完全无效（只影响注入侧）。
+          ...(agent !== undefined ? { agent } : {}),
           ...(resolved.scope !== undefined ? { scope: resolved.scope } : {}),
           ...(scopes !== undefined ? { scopes } : {}),
           // 多取一些候选,避免范围外命中挤掉范围内的结果。

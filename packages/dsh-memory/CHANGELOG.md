@@ -2,6 +2,21 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.106.0 — 文档守门扩展 + memory_block 对显式检索生效（2026-11-18）
+
+- **check:docs 扩展**：除了版本/badge/链接，现在校验文档里引用的每个 `npm run <script>`
+  在 `package.json` 里真实存在、每个 `tools/...` 文件路径存在；报告项 16 → 29。
+  防止「文档教用户跑一个已删除的命令」这类失效指引。
+- **修复真实 bug（dogfood 发现）**：`memory_search` 之前调 provider 时**没传 agent/sessionId**，
+  provider 的屏蔽过滤拿不到会话 —— `memory_block` 对显式检索完全无效（只影响自动注入）。
+  现在工具把 agent 传下去，会话级/工作区级屏蔽对 `memory_search` 同样生效；
+  新增回归测试（屏蔽前可搜到 → 屏蔽后不再返回 → 解除后恢复）覆盖。
+- **architecture §8 对齐现实**：发布流程补上 `check:docs` / `release:check --strict`，
+  并说明 `release.yml` 自动从 CHANGELOG 生成 Release，不再写「在 GitHub Releases 写说明」。
+- **architecture §9 补全**：可解释性链路补 `graphExpandedIds → graph.ids → 面板联想分组`，
+  与 0.97 实现一致。
+- **全量**：1295 例 / 1294 pass / 1 skip / 0 fail；`verify:all` PASS；`check:docs` PASS（29 ok）。
+
 ## 0.104.0 — 对比文档纠偏（2026-11-18）
 
 - **发现**：`docs/comparison.md` 停留在 0.40 时代——结论写「没有图/多跳、没有实体检索」，

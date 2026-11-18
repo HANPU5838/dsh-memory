@@ -12,7 +12,7 @@
  * 用法：node tools/check-docs.mjs   （在仓库根目录；CI 与 npm test 都会跑）
  * 退出码：全部一致 0；有 ✗ 1。
  */
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 
 const read = (path) => readFileSync(path, 'utf8')
 const checks = []
@@ -73,6 +73,25 @@ else fail('build 脚本版本', `build 脚本未指向 ${version}：${build}`)
 const staleBadges = [...readme.matchAll(/badge\/version-(v[\d.]+)-/g)].map((m) => m[1]).filter((v) => v !== tag)
 if (staleBadges.length === 0) ok('README 旧版本残留', '无')
 else fail('README 旧版本残留', staleBadges.join(', '))
+
+// ⑥ 文档里引用的 npm 命令与工具路径必须真实存在（0.105.0）
+const docFiles = ['README.md', ...readdirSync('docs').filter((file) => file.endsWith('.md')).map((file) => `docs/${file}`)]
+const referencedScripts = new Set()
+const referencedTools = new Set()
+for (const file of docFiles) {
+  if (!existsSync(file)) continue
+  const text = read(file)
+  for (const match of text.matchAll(/npm run ([a-z0-9:]+)/g)) referencedScripts.add(match[1])
+  for (const match of text.matchAll(/tools\/[A-Za-z0-9_./-]+\.(?:mjs|md|json|yml|yaml|ts)/g)) referencedTools.add(match[0])
+}
+for (const name of [...referencedScripts].sort()) {
+  if (pkg.scripts !== undefined && Object.prototype.hasOwnProperty.call(pkg.scripts, name)) ok('文档命令', `npm run ${name}`)
+  else fail('文档命令', `文档引用了 npm run ${name}，但 package.json 里没有这个 script`)
+}
+for (const path of [...referencedTools].sort()) {
+  if (existsSync(path)) ok('文档工具路径', path)
+  else fail('文档工具路径', `${path} 不存在（文档引用已失效）`)
+}
 
 const fails = checks.filter((check) => check.level === 'fail')
 const icon = { ok: '✓', fail: '✗' }
