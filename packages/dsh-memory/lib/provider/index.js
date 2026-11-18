@@ -321,6 +321,11 @@ function isInside(parent        , child        )          {
                              
                                           
                                
+       
+                                                        
+                                              
+       
+                               
                                                        
                                                     
                                 
@@ -465,6 +470,8 @@ function isInside(parent        , child        )          {
                 
                      
    
+                                                   
+                            
                                         
                    
                     
@@ -957,6 +964,8 @@ export function resolveConfig(config                    = {})                 {
     // 0.33.0：强度排序默认开；查询扩展默认关（需要按真实库用 eval 调 beta）。
     strengthRanking: config.retrieval?.strengthRanking ?? true,
     temporalWeighting: config.retrieval?.temporalWeighting ?? true,
+    // 0.75.0：语义层偏好默认 4%，上限 20%（防止喧宾夺主）。
+    semanticLayerBoost: Math.min(0.2, Math.max(0, config.retrieval?.semanticLayerBoost ?? 0.04)),
     // 0.40.0：P0 检索核心。BM25 + RRF 融合默认开（有旧路径可关掉做 A/B）；
     // 查询变体默认关（每个变体多一次 BM25 全扫，先由 eval 决定是否默认开）。
     bm25: {
@@ -5535,7 +5544,14 @@ export class LocalMemoryService                             {
       const temporal = includeExpired || !this.cfg.temporalWeighting ? 1 : temporalBoost(c.record, now)
       // 0.40.0：RRF 融合加成（最多 +20%），只影响排序、不影响相关度语义。
       const fusion = 1 + 0.1 * (fusionBonus.get(c.record.id) ?? 0)
-      return base * temporal * fusion
+      // 0.75.0：语义层偏好 —— 巩固产物（consolidated）是 episodic 提炼出的 semantic 记录，
+      // 相关度接近时优先；boost=0 完全关闭。
+      const semanticLayer = this.cfg.semanticLayerBoost > 0
+        && Array.isArray(c.record.tags)
+        && c.record.tags.some((tag) => String(tag).toLowerCase() === 'consolidated')
+        ? 1 + this.cfg.semanticLayerBoost
+        : 1
+      return base * temporal * fusion * semanticLayer
     }
 
     // 稳定 tie-break:同分时 session > project > 自定义 > global,再同分按 record id ——

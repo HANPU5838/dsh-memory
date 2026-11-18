@@ -2,6 +2,16 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.75.0 — 语义层偏好：巩固产物优先（2026-11-18）
+
+- **算法**：检索终态分新增语义层因子 —— 带 `consolidated` 标签的巩固产物乘
+  `1 + retrieval.semanticLayerBoost`（默认 **0.04**、`0` 关闭、上限 0.2）。巩固产物是
+  episodic 记录提炼出的 semantic 结论，相关度接近时应当优先，而不是被原始记录挤掉。
+- **可配**：`retrieval.semanticLayerBoost` 作为 provider 配置项（默认 0.04），
+  与其它检索配置同一套解析/夹紧逻辑。
+- **测试**：新增 `semantic-layer.test.ts` 两条对比用例（boost=0 按原分排序 / boost=0.2 反超），
+  全套 **1255 例 / 1254 pass / 1 skip / 0 fail**；`npm run verify:all` PASS。
+
 ## 0.74.0 — 星图死代码彻底清理（2026-11-18）
 
 - **删除分片**：`source/memory-panel/lib/graph-layout.js`、`graph-2d.js`、`graph-layout-storage.js`、

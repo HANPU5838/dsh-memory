@@ -321,6 +321,11 @@ export interface MemoryLocalConfig {
     strengthRanking?: boolean
     /** 0.33.0：事实时间权重（新近更新加权 / 临近失效减权）。 */
     temporalWeighting?: boolean
+    /**
+     * 0.75.0：语义层偏好。巩固产物（tag=consolidated）的终态分乘 1+boost，
+     * 让「提炼过的知识」在与原始记录相关度接近时优先。0 = 关闭，默认 0.04。
+     */
+    semanticLayerBoost?: number
     /** 0.33.0：Rocchio 伪相关反馈查询扩展（默认关，配合 eval.ts 调参）。 */
     expansion?: { enabled?: boolean; beta?: number }
     /** 0.40.0：BM25 词法通道（P0）。 */
@@ -465,6 +470,8 @@ export interface ResolvedConfig {
     mmr: boolean
     mmrLambda: number
   }
+  /** 0.75.0：巩固产物的语义层偏好（终态分 × (1+boost)，0 = 关闭）。 */
+  semanticLayerBoost: number
   /** 0.65.0：图增强检索（实体共现图 + PPR 多跳扩散）。 */
   graphExpansion: {
     enabled: boolean
@@ -957,6 +964,8 @@ export function resolveConfig(config: MemoryLocalConfig = {}): ResolvedConfig {
     // 0.33.0：强度排序默认开；查询扩展默认关（需要按真实库用 eval 调 beta）。
     strengthRanking: config.retrieval?.strengthRanking ?? true,
     temporalWeighting: config.retrieval?.temporalWeighting ?? true,
+    // 0.75.0：语义层偏好默认 4%，上限 20%（防止喧宾夺主）。
+    semanticLayerBoost: Math.min(0.2, Math.max(0, config.retrieval?.semanticLayerBoost ?? 0.04)),
     // 0.40.0：P0 检索核心。BM25 + RRF 融合默认开（有旧路径可关掉做 A/B）；
     // 查询变体默认关（每个变体多一次 BM25 全扫，先由 eval 决定是否默认开）。
     bm25: {
@@ -5535,7 +5544,14 @@ export class LocalMemoryService implements MemoryServiceApi {
       const temporal = includeExpired || !this.cfg.temporalWeighting ? 1 : temporalBoost(c.record, now)
       // 0.40.0：RRF 融合加成（最多 +20%），只影响排序、不影响相关度语义。
       const fusion = 1 + 0.1 * (fusionBonus.get(c.record.id) ?? 0)
-      return base * temporal * fusion
+      // 0.75.0：语义层偏好 —— 巩固产物（consolidated）是 episodic 提炼出的 semantic 记录，
+      // 相关度接近时优先；boost=0 完全关闭。
+      const semanticLayer = this.cfg.semanticLayerBoost > 0
+        && Array.isArray(c.record.tags)
+        && c.record.tags.some((tag) => String(tag).toLowerCase() === 'consolidated')
+        ? 1 + this.cfg.semanticLayerBoost
+        : 1
+      return base * temporal * fusion * semanticLayer
     }
 
     // 稳定 tie-break:同分时 session > project > 自定义 > global,再同分按 record id ——
