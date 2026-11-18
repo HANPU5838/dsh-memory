@@ -24,6 +24,7 @@
  * 容错：读写失败只退化为「没有屏蔽」，绝不把异常抛回检索 / 注入 / 面板链路。
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { DEFAULT_CONFIG_FRESHNESS_TTL_MS, fileStamp } from './freshness.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 
@@ -146,12 +147,16 @@ function cleanBlocks(raw         , level            )                {
 export class MemoryBlocksStore {
                    dir        
                    warn                           
-  /** `session:<id>` / `workspace:<key>` → 屏蔽列表；undefined = 还没读过。 */
-                   cache = new Map                       ()
+  /** `session:<id>` / `workspace:<key>` → 屏蔽列表 + 文件 stamp。 */
+                   cache = new Map                                                                     ()
+  /** 0.109.0：多进程下屏蔽配置必须能感知别的进程写入。 */
+                   refreshTtlMs        
+          lastCheckAt = 0
 
   constructor(options                          ) {
     this.dir = join(options.root, 'blocks')
     this.warn = options.warn ?? ((message) => console.warn(message))
+    this.refreshTtlMs = options.refreshTtlMs ?? DEFAULT_CONFIG_FRESHNESS_TTL_MS
   }
 
           fileOf(level            , key        )         {
@@ -170,10 +175,17 @@ export class MemoryBlocksStore {
     const trimmed = key.trim()
     const cacheKey = this.cacheKey(level, trimmed)
     const cached = this.cache.get(cacheKey)
-    if (cached !== undefined) return cached.map((block) => ({ ...block }))
+    const file = this.fileOf(level, trimmed)
+    if (cached !== undefined) {
+      const now = Date.now()
+      if (this.refreshTtlMs > 0 && now - this.lastCheckAt < this.refreshTtlMs) {
+        return cached.blocks.map((block) => ({ ...block }))
+      }
+      this.lastCheckAt = now
+      if (fileStamp(file) === cached.stamp) return cached.blocks.map((block) => ({ ...block }))
+    }
     let blocks                = []
     try {
-      const file = this.fileOf(level, trimmed)
       if (existsSync(file)) {
         const parsed = JSON.parse(readFileSync(file, 'utf8'))              
         // 文件里记录的 key 必须与查询一致：hash 碰撞时宁可当没有，也不串会话 / 工作区。
@@ -185,7 +197,7 @@ export class MemoryBlocksStore {
       this.warn(`[dsh-memory-local] 忽略损坏的屏蔽文件 ${this.fileOf(level, trimmed)}: ${error instanceof Error ? error.message : String(error)}`)
       blocks = []
     }
-    this.cache.set(cacheKey, blocks)
+    this.cache.set(cacheKey, { blocks, stamp: fileStamp(file), checkedAt: Date.now() })
     return blocks.map((block) => ({ ...block }))
   }
 
@@ -238,7 +250,7 @@ export class MemoryBlocksStore {
     try {
       if (cleaned.length === 0) {
         rmSync(file, { force: true })
-        this.cache.set(this.cacheKey(level, trimmed), [])
+        this.cache.set(this.cacheKey(level, trimmed), { blocks: [], stamp: fileStamp(file), checkedAt: Date.now() })
         return []
       }
       mkdirSync(join(this.dir, level === 'session' ? 'session' : 'workspace'), { recursive: true })
@@ -251,7 +263,7 @@ export class MemoryBlocksStore {
         updatedAt: Date.now(),
       }, null, 2)}\n`, 'utf8')
       renameSync(tmp, file)
-      this.cache.set(this.cacheKey(level, trimmed), cleaned)
+      this.cache.set(this.cacheKey(level, trimmed), { blocks: cleaned, stamp: fileStamp(file), checkedAt: Date.now() })
       return cleaned.map((block) => ({ ...block }))
     } catch (error) {
       this.warn(`[dsh-memory-local] 无法写入屏蔽文件 ${file}: ${error instanceof Error ? error.message : String(error)}`)

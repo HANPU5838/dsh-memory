@@ -30,6 +30,13 @@
   architecture 工具与事件清单、analysis 模块引用、README `revoke-approval` 等全部对齐。
 - `check:docs` 新增「README 当前最新 vX」校验。
 
+## 0.109.0 已处理（原 backlog 前 3 项）
+
+- 多进程配置缓存 fail-open → `freshness.ts`（mtime stamp + 1s 节流），可见域/屏蔽/归档三处 + 测试；
+- 面板多字段写入非原子 → `/scope-meta` 别名失败回滚、`/visibility` 绑定失败回滚 + 测试；
+- 测试缺口 → `/hooks` API 全流程、插件装配层冒烟（8 工具/面板路由/监听/技能/半边隔离）、配置新鲜度；
+  **自动自举主流程集成测试仍留 backlog**（需注入 discovery/spawn/install 依赖）。
+
 ## 待办 backlog（未阻塞 0.108.0，按优先级）
 
 ### 检索/生命周期/安全

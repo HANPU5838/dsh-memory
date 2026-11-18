@@ -29,6 +29,7 @@
  * 容错:读写失败都只退化为"没有覆盖",绝不把异常抛回检索/注入链路。
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { DEFAULT_CONFIG_FRESHNESS_TTL_MS, fileStamp } from './freshness.js'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 
@@ -140,12 +141,16 @@ function cloneConfig(config                         )                          {
 export class SessionVisibilityStore {
                    dir        
                    warn                           
-  /** sessionId -> 显式配置;null = 已确认没有文件(避免反复 stat)。 */
-                   cache = new Map                                        ()
+  /** sessionId -> 显式配置 + 文件 stamp;null = 已确认没有文件。 */
+                   cache = new Map                                                                                      ()
+  /** 0.109.0：多进程下配置必须能感知别的进程写入（ttl 节流 stat）。 */
+                   refreshTtlMs        
+          lastCheckAt = 0
 
   constructor(options                               ) {
     this.dir = join(options.root, 'visibility')
     this.warn = options.warn ?? ((message) => console.warn(message))
+    this.refreshTtlMs = options.refreshTtlMs ?? DEFAULT_CONFIG_FRESHNESS_TTL_MS
   }
 
           fileOf(sessionId        )         {
@@ -155,11 +160,20 @@ export class SessionVisibilityStore {
   /** 显式可见域;undefined = 没有覆盖(用默认集合)。 */
   get(sessionId        )                                      {
     if (sessionId === '') return undefined
+    const file = this.fileOf(sessionId)
     const cached = this.cache.get(sessionId)
-    if (cached !== undefined) return cached === null ? undefined : cloneConfig(cached)
+    if (cached !== undefined) {
+      // 节流：最多每 ttl 秒 stat 一次；stamp 变化说明别的进程改过这份配置。
+      const now = Date.now()
+      if (this.refreshTtlMs <= 0 || now - this.lastCheckAt >= this.refreshTtlMs) {
+        this.lastCheckAt = now
+        if (fileStamp(file) === cached.stamp) return cached.config === null ? undefined : cloneConfig(cached.config)
+      } else {
+        return cached.config === null ? undefined : cloneConfig(cached.config)
+      }
+    }
     let config                                     
     try {
-      const file = this.fileOf(sessionId)
       if (existsSync(file)) {
         const parsed = JSON.parse(readFileSync(file, 'utf8'))                    
         const rules = cleanVisibilityRules(parsed?.scopes)
@@ -173,7 +187,7 @@ export class SessionVisibilityStore {
       this.warn(`[dsh-memory-local] 忽略损坏的会话可见范围 ${this.fileOf(sessionId)}: ${error instanceof Error ? error.message : String(error)}`)
       config = undefined
     }
-    this.cache.set(sessionId, config ?? null)
+    this.cache.set(sessionId, { config: config ?? null, stamp: fileStamp(file), checkedAt: Date.now() })
     return config === undefined ? undefined : cloneConfig(config)
   }
 
@@ -183,12 +197,13 @@ export class SessionVisibilityStore {
     const scopes = config === null ? undefined : cleanVisibilityRules(config.scopes)
     if (config === null || scopes === undefined) {
       try {
-        rmSync(this.fileOf(sessionId), { force: true })
-        this.cache.set(sessionId, null)
+        const file = this.fileOf(sessionId)
+        rmSync(file, { force: true })
+        this.cache.set(sessionId, { config: null, stamp: fileStamp(file), checkedAt: Date.now() })
         return null
       } catch (error) {
         this.warn(`[dsh-memory-local] 无法清除会话可见范围 ${this.fileOf(sessionId)}: ${error instanceof Error ? error.message : String(error)}`)
-        return this.cache.get(sessionId) ?? null
+        return this.cache.get(sessionId)?.config ?? null
       }
     }
     const cleaned                          = { scopes, level: cleanLevel(config.level, 'normal') }
@@ -203,12 +218,12 @@ export class SessionVisibilityStore {
         updatedAt: Date.now(),
       }, null, 2)}\n`, 'utf8')
       renameSync(tmp, file)
-      this.cache.set(sessionId, cloneConfig(cleaned))
+      this.cache.set(sessionId, { config: cloneConfig(cleaned), stamp: fileStamp(file), checkedAt: Date.now() })
       return cloneConfig(cleaned)
     } catch (error) {
       // 写盘失败:内存里的旧值不清空,但也不能假装成功。调用方会看到旧值。
       this.warn(`[dsh-memory-local] 无法写入会话可见范围 ${this.fileOf(sessionId)}: ${error instanceof Error ? error.message : String(error)}`)
-      const previous = this.cache.get(sessionId) ?? null
+      const previous = this.cache.get(sessionId)?.config ?? null
       return previous === null ? null : cloneConfig(previous)
     }
   }

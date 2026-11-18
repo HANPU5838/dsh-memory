@@ -21,6 +21,7 @@
  * 容错：读写失败一律退化为「没有归档」，绝不把异常抛回检索 / 注入链路。
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { DEFAULT_CONFIG_FRESHNESS_TTL_MS, fileStamp } from './freshness.js'
 import { join } from 'node:path'
 
 export const SCOPE_ARCHIVE_VERSION = 1
@@ -80,16 +81,29 @@ export class ScopeArchiveStore {
                    warn                           
   /** undefined = 还没读过盘。 */
           cache                                 
+  /** 0.109.0：多进程下归档配置必须能感知别的进程写入。 */
+                   refreshTtlMs        
+          lastCheckAt = 0
+          stamp = ''
 
   constructor(options                          ) {
     this.dir = join(options.root, 'archive')
     this.file = join(this.dir, 'project.json')
     this.warn = options.warn ?? ((message) => console.warn(message))
+    this.refreshTtlMs = options.refreshTtlMs ?? DEFAULT_CONFIG_FRESHNESS_TTL_MS
   }
 
   /** 全部归档记录（拷贝）。 */
   list()                      {
-    if (this.cache !== undefined) return this.cache.map((entry) => ({ ...entry }))
+    if (this.cache !== undefined) {
+      const now = Date.now()
+      if (this.refreshTtlMs <= 0 || now - this.lastCheckAt >= this.refreshTtlMs) {
+        this.lastCheckAt = now
+        if (fileStamp(this.file) === this.stamp) return this.cache.map((entry) => ({ ...entry }))
+      } else {
+        return this.cache.map((entry) => ({ ...entry }))
+      }
+    }
     let entries                      = []
     try {
       if (existsSync(this.file)) {
@@ -110,6 +124,7 @@ export class ScopeArchiveStore {
       entries = []
     }
     this.cache = entries
+    this.stamp = fileStamp(this.file)
     return entries.map((entry) => ({ ...entry }))
   }
 
@@ -219,6 +234,8 @@ export class ScopeArchiveStore {
         updatedAt: Date.now(),
       }, null, 2)}\n`, 'utf8')
       renameSync(tmp, this.file)
+      this.stamp = fileStamp(this.file)
+      this.lastCheckAt = Date.now()
     } catch (error) {
       this.warn(`[dsh-memory-local] 无法写入作用域归档 ${this.file}: ${error instanceof Error ? error.message : String(error)}`)
     }

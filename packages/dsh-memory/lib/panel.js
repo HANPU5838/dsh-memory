@@ -905,17 +905,25 @@ async function handle(ctx, routePath, req, res) {
         next = { scopes, level }
       }
       // 工作区级绑定:省略 = 不改;数组 = 整体替换。与可见范围同一个保存动作提交。
+      // 0.109.0：两处写入必须“要么都成功要么都回滚” —— 先把可见范围写成功，
+      // 绑定失败时回滚可见范围，避免半份状态（审计 P2）。
       const rawBindings = body?.bindings
-      if (rawBindings !== undefined) {
-        if (typeof memory.setWorkspaceBindings !== 'function') {
-          throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供工作区绑定接口（请升级 @restregular/dsh-memory）')
-        }
-        const bindings = normalizeBindings(rawBindings)
-        let session
-        try { session = ctx.get('sessions')?.get?.(sessionId) } catch { session = undefined }
-        memory.setWorkspaceBindings({ session: session !== undefined ? session : { id: sessionId } }, bindings)
+      if (rawBindings !== undefined && typeof memory.setWorkspaceBindings !== 'function') {
+        throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供工作区绑定接口（请升级 @restregular/dsh-memory）')
       }
+      const before = typeof memory.sessionVisibility === 'function' ? memory.sessionVisibility(sessionId) : null
       memory.setSessionVisibility(sessionId, next)
+      if (rawBindings !== undefined) {
+        try {
+          const bindings = normalizeBindings(rawBindings)
+          let session
+          try { session = ctx.get('sessions')?.get?.(sessionId) } catch { session = undefined }
+          memory.setWorkspaceBindings({ session: session !== undefined ? session : { id: sessionId } }, bindings)
+        } catch (error) {
+          try { memory.setSessionVisibility(sessionId, before) } catch { /* 回滚失败也要把原始错误抛给用户 */ }
+          throw error
+        }
+      }
       writeJson(res, { ok: true, value: visibilityPayload(ctx, memory, sessionId) })
       return
     }
@@ -1343,21 +1351,39 @@ async function handle(ctx, routePath, req, res) {
         } catch { known = true /* 目录不可用时不拦：让 provider 自己校验 */ }
         if (!known) throw new ApiError(404, 'SCOPE_UNKNOWN', `目录里没有作用域 ${scope}（可能刚被删除或改名）`)
       }
-      let description
-      if (wantDescription) {
-        if (typeof memory.describeScope !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供作用域用途编辑接口')
-        description = memory.describeScope(scope, String(body.description), 'user').description
+      // 0.109.0：用途与别名是一个保存动作 —— 别名先写（最可能因重名失败），
+      // 用途失败时回滚别名，避免「返回失败但用途已被改写」的半份状态（审计 P2）。
+      let previousName = null
+      if (wantName) {
+        try {
+          const entry = (memory.scopeCatalog?.(undefined) ?? []).find((item) => item?.scope === scope)
+          previousName = typeof entry?.name === 'string' ? entry.name : null
+        } catch { previousName = null }
       }
       let name
-      if (wantName) {
-        if (typeof memory.renameScope !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供作用域别名编辑接口')
-        name = memory.renameScope(scope, String(body.name)).name ?? ''
+      let descriptionValue
+      let renamed = false
+      try {
+        if (wantName) {
+          if (typeof memory.renameScope !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供作用域别名编辑接口')
+          name = memory.renameScope(scope, String(body.name)).name ?? ''
+          renamed = true
+        }
+        if (wantDescription) {
+          if (typeof memory.describeScope !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供作用域用途编辑接口')
+          descriptionValue = memory.describeScope(scope, String(body.description), 'user').description
+        }
+      } catch (error) {
+        if (renamed) {
+          try { memory.renameScope(scope, previousName) } catch { /* 回滚失败保留原始错误 */ }
+        }
+        throw error
       }
       writeJson(res, {
         ok: true,
         value: {
           scope,
-          ...(wantDescription ? { description } : {}),
+          ...(wantDescription ? { description: descriptionValue } : {}),
           ...(wantName ? { name } : {}),
         },
       })
