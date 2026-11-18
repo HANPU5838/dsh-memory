@@ -4438,29 +4438,7 @@ window.__ModuleLoader__.load({
       }, [showEmpty, layout.width, layout.height])
 
 
-      // 一级切换:记忆图(结构树)/ 2D 星图 / 3D 星图。放在统计左边,统计靠右 ——
-      // 一行同时给出「我在看哪种视图」和「图里有多少东西」。
-      //
-      // 2D 与 3D 是两个**并列**的渲染器,谁也不替换谁:2D 在超大图上有更好的
-      // 全局可读性,3D 提供真实的深度与遮挡。切过去不重新取数、不重排、不丢选中。
-      const vizTabs = h('div', { className: 'subtabs' },
-        h('button', {
-          className: 'subtab' + (view === 'tree' ? ' on' : ''),
-          title: '按 记忆 → 作用域 → 类型 → 记录 分层展开',
-          onClick: () => setView('tree'),
-        }, '记忆图'),
-        h('button', {
-          className: 'subtab' + (view === 'graph' ? ' on' : ''),
-          title: '每个作用域一颗星,记忆按类型着色铺成同心环',
-          onClick: () => setView('graph'),
-        }, '2D 星图'),
-        h('button', {
-          className: 'subtab' + (view === '3d' ? ' on' : ''),
-          title: '立体星图:拖动旋转、Ctrl+滚轮缩放、双击星聚焦',
-          onClick: () => setView('3d'),
-        }, '3D 星图'),
-      )
-
+      // 0.73.0：2D / 3D 星图视图已移除，记忆图只保留知识树这一种视图。
       const stats = h('div', { className: 'tree-stats' },
         h('div', { className: 'stat' }, h('b', null, String(records.length)), h('span', null, '条记忆')),
         h('div', { className: 'stat' }, h('b', null, String(scopeTotal)), h('span', null, '个作用域')),
@@ -4468,7 +4446,7 @@ window.__ModuleLoader__.load({
         h('div', { className: 'stat' }, h('b', null, String(correctionsTotal)), h('span', null, '处修正')),
       )
 
-      const vizHead = h('div', { className: 'viz-head' }, vizTabs, stats)
+      const vizHead = h('div', { className: 'viz-head' }, stats)
 
       const toolbar = h('div', { className: 'tree-toolbar' },
         h('input', {
@@ -4823,42 +4801,13 @@ window.__ModuleLoader__.load({
         detail,
       )
 
-      // ===== 3D 星图 =====
-      // 容器由渲染器自己往里面塞 canvas 与标签层,React 不参与 DOM 细节 ——
-      // 否则每次 setState 都会跟 three 抢孩子节点。
-      const graph3Wrap = h('div', { className: 'graph-wrap graph3-wrap', ref: wrapRef },
-        h('div', {
-          className: 'graph3-stage',
-          ref: graph3HostRef,
-        }),
-        three3D.status === 'loading'
-          ? h('div', { className: 'graph3-status' }, '正在加载 3D 渲染器…')
-          : null,
-        showEmpty ? emptyNode('🌌') : null,
-        showEmpty ? null : h('div', { className: 'graph-hud' },
-          h('b', null, String(graph.counts.scopes)), ' 个星系 · ',
-          h('b', null, String(graph.counts.records)), ' 颗星 · 拖动旋转，Ctrl+滚轮缩放，双击星聚焦',
-        ),
-        showEmpty ? null : h('div', { className: 'tree-zoom' },
-          h('button', { title: '拉远', onClick: () => { if (graph3Ref.current) graph3Ref.current.fit(graph3 ? graph3.radius * 1.5 : 600) } }, '−'),
-          h('button', { title: '适应视野', onClick: () => { if (graph3Ref.current) graph3Ref.current.fit(graph3 ? graph3.radius : 400) } }, '适应'),
-        ),
-        showCorrections && graph.corrections.length > 0 && !showEmpty
-          ? h('div', { className: 'tree-legend' }, h('span', null, h('i', { className: 'line' }), '修正关系'))
-          : null,
-        detail,
-      )
-
       return h('div', { className: 'tree-tab' },
         vizHead,
         toolbar,
         kindbar,
         statusLegend,
         error && records.length > 0 ? h('div', { className: 'err' }, error) : null,
-        three3D.status === 'failed' && three3D.error !== ''
-          ? h('div', { className: 'err' }, three3D.error)
-          : null,
-        view === '3d' ? graph3Wrap : view === 'graph' ? graphWrap : treeWrap,
+        treeWrap,
       )
     }
 

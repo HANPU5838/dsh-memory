@@ -1773,7 +1773,7 @@ test('星图布局:每个作用域一颗星,记忆按同心环铺开,越靠外�
   assert.equal(searched.counts.records, 3)
 })
 
-test('记忆图标签页:三种视图之间切换,筛选状态跟着走', async () => {
+test('0.73.0：记忆图标签页只保留知识树（2D/3D 星图已移除）', async () => {
   const { hooks } = await loadBundle()
   hooks.resetAll()
   const records = [
@@ -1790,38 +1790,14 @@ test('记忆图标签页:三种视图之间切换,筛选状态跟着走', async 
   }, undefined, 'tree', records)
 
   const classes = () => collect(current()).map((n) => String(n.props?.className ?? '').split(/\s+/))
-  const findSubtab = (label: string) => collect(current())
-    .find((n) => n.tag === 'button' && String(n.props?.className ?? '').split(/\s+/).includes('subtab') && textOf(n).trim() === label)
-
-  // 默认是记忆图(结构树);一级切换与统计挤在同一行
+  // 结构树 + 统计仍在同一行
   assert.ok(classes().some((c) => c.includes('viz-head')), '顶部有 viz-head 一行')
   assert.ok(classes().some((c) => c.includes('tree-wrap')), '默认渲染记忆图结构树')
-  assert.ok(!classes().some((c) => c.includes('graph-wrap')), '默认不渲染星图')
-  assert.ok(textOf(current()).includes('2D 星图'), '切换栏里有「2D 星图」')
-  assert.ok(textOf(current()).includes('3D 星图'), '切换栏里有「3D 星图」')
-
-  // → 2D 星图
-  const toGraph = findSubtab('2D 星图')!
-  assert.ok(toGraph, '找不到「2D 星图」切换标签')
-  ;(toGraph.props!.onClick as () => void)()
-  hooks.runEffects()
-  for (let i = 0; i < 4; i++) await Promise.resolve()
-
-  assert.ok(classes().some((c) => c.includes('graph-wrap')), '切到 2D 后渲染星图画布')
-  assert.ok(!classes().some((c) => c.includes('tree-wrap')), '星图视图不保留结构树画布')
-  assert.ok(classes().some((c) => c.includes('graph-canvas')), '星图有画布层')
-  assert.equal(collect(current()).filter((n) => String(n.props?.className ?? '').split(/\s+/).includes('hub')).length, 2, '两个作用域 → 两颗星')
-  const dots = collect(current()).filter((n) => String(n.props?.className ?? '').split(/\s+/).includes('gnode') && !String(n.props?.className ?? '').split(/\s+/).includes('hub'))
-  assert.equal(dots.length, 3, '三条记忆 → 三个星点')
-  assert.ok(textOf(current()).includes('颗星'), '星图有 HUD 提示')
-
-  // 切回结构树:还是同一个标签页,画布换回来
-  const toTree = findSubtab('记忆图')!
-  ;(toTree.props!.onClick as () => void)()
-  hooks.runEffects()
-  for (let i = 0; i < 4; i++) await Promise.resolve()
-  assert.ok(classes().some((c) => c.includes('tree-wrap')), '切回结构树')
-  assert.ok(!classes().some((c) => c.includes('graph-wrap')), '结构树视图不残留星图')
+  assert.ok(!classes().some((c) => c.includes('graph-wrap')), '不再渲染星图')
+  // 一级视图切换整体移除：没有 subtab 按钮、没有 2D/3D 文案
+  assert.equal(collect(current()).filter((n) => String(n.props?.className ?? '').split(/\s+/).includes('subtab')).length, 0, '没有视图切换标签')
+  assert.ok(!textOf(current()).includes('2D 星图'), '不再出现「2D 星图」')
+  assert.ok(!textOf(current()).includes('3D 星图'), '不再出现「3D 星图」')
   hooks.resetAll()
 })
 
@@ -1914,32 +1890,19 @@ test('2D 星图视图:缩放上下限集中配置,以鼠标为锚点缩放时锚
   assert.match(api.graph2DTransform({ zoom: 1.5, panX: 10, panY: -4 }), /^translate\(10\.0px, -4\.0px\) scale\(1\.5000\)$/)
 })
 
-test('2D 星图:适应画布不会覆盖用户手动调过的视角', async () => {
+test('0.73.0：星图画布不再渲染（2D/3D 已移除）', async () => {
   const { hooks } = await loadBundle()
   hooks.resetAll()
-  const records = [
-    makeRecord({ id: 'a', scope: 'project:/w', kind: 'fact', content: '一条记忆', updatedAt: 1 }),
-  ]
+  const records = [makeRecord({ id: 'a', scope: 'project:/w', kind: 'fact', content: '一条记忆', updatedAt: 1 })]
   const current = await mountPanel(hooks, {
     scopes: [{ scope: 'project:/w', records: 1, pendingEmbeds: 0, label: 'project:/w:演示' }],
     embedServer: null,
   }, undefined, 'tree', records)
-
-  const findSubtab = (label: string) => collect(current())
-    .find((n) => n.tag === 'button' && String(n.props?.className ?? '').split(/\s+/).includes('subtab') && textOf(n).trim() === label)
-  const canvasNode = () => collect(current())
-    .find((n) => String(n.props?.className ?? '').split(/\s+/).includes('graph-canvas'))
-
-  // 切到 2D
-  ;(findSubtab('2D 星图')!.props!.onClick as () => void)()
-  hooks.runEffects()
-  for (let i = 0; i < 4; i++) await Promise.resolve()
-  assert.ok(canvasNode(), '2D 画布已渲染')
-
-  // 模拟用户拖动:stage 尺寸拿不到(clientWidth 为 0)时 pan 会被夹到 0,
-  // 所以这里只验证「视图状态存在且 transform 由它决定」这一条不变量。
-  const style = canvasNode()!.props!.style as Record<string, unknown>
-  assert.match(String(style.transform), /^translate\(-?[\d.]+px, -?[\d.]+px\) scale\([\d.]+\)$/, 'transform 由视图状态生成')
+  const classes = collect(current()).map((n) => String(n.props?.className ?? '').split(/\s+/))
+  assert.ok(classes.some((c) => c.includes('tree-wrap')), '知识树照常渲染')
+  assert.ok(!classes.some((c) => c.includes('graph-canvas')), '没有星图画布')
+  assert.ok(!classes.some((c) => c.includes('graph-stage')), '没有星图舞台')
+  assert.ok(classes.some((c) => c.includes('tree-scroll')), '树的滚动容器还在')
   hooks.resetAll()
 })
 

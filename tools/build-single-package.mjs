@@ -34,7 +34,6 @@ import { spawnSync } from 'node:child_process'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { writeClientBundle } from './assemble-client.mjs'
-import { buildThreeChunk } from './vendor-three.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(HERE, '..')
@@ -222,7 +221,7 @@ writeClientBundle(join(OUT, 'lib', 'client.js'), join(panelDir, 'lib'))
 // 源码在 source/memory-panel/vendor/(ESM),要转成 classic script —— 宿主是把 chunk
 // 拼进 <script> 执行的,里面不能有 import/export。
 // 文件名必须是 client.<name>.js:宿主只按这个模式认 chunk。
-writeFileSync(join(OUT, 'lib', 'client.three.js'), buildThreeChunk(NAME))
+// 0.73.0：2D/3D 星图视图已移除，不再打包 2.5MB 的 three.js chunk。
 cpSync(join(panelDir, 'icon.svg'), join(OUT, 'icon.svg'))
 // 显示名 / 描述由宿主的 readPluginMeta 读 `<包>/locale/<lang>.json` 的 meta.title /
 // meta.description,并且**必须通过 exports 能解析到**(Node ESM 解析)。所以 locale
