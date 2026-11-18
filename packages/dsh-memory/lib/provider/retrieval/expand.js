@@ -324,6 +324,70 @@ export function expandQuery(
                                                                          
 
 /** 一个查询变体。 */
+// ---------------------------------------------------------------------------
+// 词法伪相关反馈（BM25 PRF，0.80.0）
+// ---------------------------------------------------------------------------
+
+                             
+                              
+                   
+                                            
+                     
+                                                   
+                
+ 
+
+/**
+ * 从伪相关文档里选**扩展词**（Rocchio 的纯词法版本）。
+ *
+ * 为什么需要它：无向量服务时，查询与记忆的用词一旦不一致（「上线失败」vs「deploy.sh
+ * --dry-run」），词法通道就完全够不着。用首轮 top 文档里**与查询共现、但不在查询里**
+ * 的高 IDF 词做二次检索，等于用记忆自己的措辞补全查询 —— 不需要嵌入、纯本地、确定性。
+ *
+ * 选词规则（全部保守，宁可少选）：
+ *   1. 排除查询已有的词；
+ *   2. 文档频率 `df` 必须 ≥2（只出现一次的词多半是噪声）；
+ *   3. `df / 总文档数 ≤ maxDfRatio`（默认 0.5，滤掉「日志 / 流程」这类泛词）**且 df ≤ maxDf**
+ *      （默认 3：只选"稀有但可共享"的词，防止扩展词把大量同模板记录带回来）；
+ *   4. 权重 = Σ_伪文档 tf(t,d) × BM25 非负 IDF，取 top maxTerms。
+ *
+ * @param queryTokens  查询 token（去重后使用）
+ * @param pseudoDocs   伪相关文档的加权词频表（来自 Bm25Index.docs 的 termFreq）
+ * @param df           token → 文档频率
+ * @param totalDocs    语料文档数
+ * @returns 扩展词列表（权重降序、同权重按词升序；确定性）
+ */
+export function prfTokens(
+  queryTokens                   ,
+  pseudoDocs                                                          ,
+  df                             ,
+  totalDocs        ,
+  options             = {},
+)           {
+  const maxTerms = Math.max(1, Math.min(8, Math.floor(options.maxTerms ?? 2)))
+  const maxDfRatio = Math.min(1, Math.max(0.1, options.maxDfRatio ?? 0.5))
+  const maxDf = Math.max(2, Math.floor(options.maxDf ?? 3))
+  if (!Array.isArray(queryTokens) || pseudoDocs.length === 0 || totalDocs <= 0) return []
+  const querySet = new Set(queryTokens)
+  const weights = new Map                ()
+  for (const doc of pseudoDocs) {
+    for (const [term, tf] of doc.termFreq) {
+      if (querySet.has(term)) continue
+      if (!(tf > 0)) continue
+      const termDf = df.get(term) ?? 0
+      if (termDf < 2 || termDf > maxDf || termDf / totalDocs > maxDfRatio) continue
+      // 与 bm25.ts 同一套非负 IDF 口径。
+      const idf = Math.log(1 + (totalDocs - termDf + 0.5) / (termDf + 0.5))
+      if (!(idf > 0)) continue
+      weights.set(term, (weights.get(term) ?? 0) + tf * idf)
+    }
+  }
+  return [...weights.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, maxTerms)
+    .map(([term]) => term)
+}
+
                                
                                         
               

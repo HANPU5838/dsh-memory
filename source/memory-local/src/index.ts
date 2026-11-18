@@ -77,7 +77,7 @@ import {
 import { mergeInjectSettings, normalizeInjectSettings, type InjectSettings } from './inject-settings.ts'
 import { buildStats, lexicalScore, recordScore, tokenize, cosine, normalizeInPlace, isGenericOnlyQuery, hasContentHit, finalFloor, semanticDedupe, mmrSelect } from './scoring.ts'
 import { adaptiveScopeThreshold, calibrateScore } from './retrieval/adapt.ts'
-import { blendHybrid, expandQuery, expandQueries, hybridWeights, queryProfile } from './retrieval/expand.ts'
+import { blendHybrid, expandQuery, expandQueries, hybridWeights, prfTokens, queryProfile } from './retrieval/expand.ts'
 import { buildBm25Docs, bm25Score, rankByBm25 } from './retrieval/bm25.ts'
 import { buildAssociationGraph, graphWeightFactor, personalizedPageRank, pickGraphExpansion, queryEntitySeeds } from './retrieval/graph-expansion.ts'
 import { reciprocalRankFusion, normalizeScores } from './retrieval/fusion.ts'
@@ -328,6 +328,11 @@ export interface MemoryLocalConfig {
     semanticLayerBoost?: number
     /** 0.33.0：Rocchio 伪相关反馈查询扩展（默认关，配合 eval.ts 调参）。 */
     expansion?: { enabled?: boolean; beta?: number }
+    /**
+     * 0.80.0：词法伪相关反馈（BM25 PRF）。用首轮 top 文档里与查询共现的高 IDF 词
+     * 做二次 BM25 检索，**不依赖向量服务**。保守选词（最多 2 个、df≥2、df/N≤0.5）。
+     */
+    lexicalPrf?: { enabled?: boolean; maxTerms?: number; maxDfRatio?: number; maxDf?: number; weight?: number; maxCandidates?: number }
     /** 0.40.0：BM25 词法通道（P0）。 */
     bm25?: { enabled?: boolean; k1?: number; b?: number; tagsWeight?: number }
     /** 0.40.0：RRF 多路融合（P0）。 */
@@ -472,6 +477,16 @@ export interface ResolvedConfig {
   }
   /** 0.75.0：巩固产物的语义层偏好（终态分 × (1+boost)，0 = 关闭）。 */
   semanticLayerBoost: number
+  /** 0.80.0：词法伪相关反馈（BM25 PRF）。 */
+  lexicalPrf: {
+    enabled: boolean
+    maxTerms: number
+    maxDfRatio: number
+    maxDf: number
+    weight: number
+    /** 只在首轮候选 ≤ 该条数时扩展（候选充足说明词法已能表达查询，扩展只会加噪）。 */
+    maxCandidates: number
+  }
   /** 0.65.0：图增强检索（实体共现图 + PPR 多跳扩散）。 */
   graphExpansion: {
     enabled: boolean
@@ -997,6 +1012,14 @@ export function resolveConfig(config: MemoryLocalConfig = {}): ResolvedConfig {
       minRelative: config.retrieval?.graphExpansion?.minRelative ?? 0.08,
       minRecords: config.retrieval?.graphExpansion?.minRecords ?? 6,
       weight: config.retrieval?.graphExpansion?.weight ?? 0.8,
+    },
+    lexicalPrf: {
+      enabled: config.retrieval?.lexicalPrf?.enabled ?? true,
+      maxTerms: config.retrieval?.lexicalPrf?.maxTerms ?? 2,
+      maxDfRatio: config.retrieval?.lexicalPrf?.maxDfRatio ?? 0.5,
+      maxDf: config.retrieval?.lexicalPrf?.maxDf ?? 3,
+      weight: config.retrieval?.lexicalPrf?.weight ?? 0.6,
+      maxCandidates: config.retrieval?.lexicalPrf?.maxCandidates ?? 2,
     },
     variants: {
       enabled: config.retrieval?.variants?.enabled ?? false,
@@ -5387,6 +5410,34 @@ export class LocalMemoryService implements MemoryServiceApi {
         }
         expandedIds = [...seen]
       }
+      // 0.80.0：词法伪相关反馈（BM25 PRF）—— 无向量服务时的查询扩展。
+      // 用当前 scope 里首轮 top-3 词法候选的加权词频选扩展词，再跑一次 BM25 补召回。
+      let prfIds: string[] = []
+      // 门控：首轮候选已经充足（>maxCandidates）时不做 PRF —— 那说明词法已能表达
+      // 查询，再扩展只会引入噪声；只有"词法只够到一两条"的稀疏场景才需要补全措辞。
+      if (this.cfg.lexicalPrf.enabled && perScope.length > 0 && candidates.size <= this.cfg.lexicalPrf.maxCandidates) {
+        const queryTokenSet = new Set(queryTokens)
+        const seen = new Set<string>()
+        for (const part of perScope) {
+          const pseudo = [...candidates.values()]
+            .filter((cand) => part.docsById.has(cand.record.id))
+            .sort((a, b) => (b.lexScore ?? b.recallScore) - (a.lexScore ?? a.recallScore) || a.record.id.localeCompare(b.record.id))
+            .slice(0, 3)
+            .map((cand) => part.index.docs.get(cand.record.id))
+            .filter((doc): doc is NonNullable<typeof doc> => doc !== undefined)
+          if (pseudo.length === 0) continue
+          const extra = prfTokens(queryTokens, pseudo, part.index.df, part.index.n, {
+            maxTerms: this.cfg.lexicalPrf.maxTerms,
+            maxDfRatio: this.cfg.lexicalPrf.maxDfRatio,
+            maxDf: this.cfg.lexicalPrf.maxDf,
+          })
+          if (extra.length === 0) continue
+          const expandedTokens = [...queryTokenSet, ...extra]
+          for (const hit of rankByBm25(expandedTokens, part.index, recallN * 2)) seen.add(hit.id)
+        }
+        prfIds = [...seen]
+      }
+
       const ensureCandidate = (id: string): boolean => {
         if (candidates.has(id)) return true
         for (const part of perScope) {
@@ -5400,6 +5451,9 @@ export class LocalMemoryService implements MemoryServiceApi {
         return false
       }
       if (this.cfg.fusion.addCandidates) for (const id of [...bm25Ids, ...expandedIds]) ensureCandidate(id)
+      // PRF 补召回不受 fusion.addCandidates 限制：它就是"用记忆措辞补全查询"的通道，
+      // 但候选只拿到合成低分（与 BM25 补召回同口径），不会压过真命中。
+      for (const id of prfIds) ensureCandidate(id)
 
       if (this.cfg.fusion.enabled && candidates.size > 0 && perScope.length > 0) {
         const lexicalList = this.cfg.bm25.enabled && bm25Ids.length > 0 ? bm25Ids : byLexical
@@ -5407,6 +5461,7 @@ export class LocalMemoryService implements MemoryServiceApi {
           { name: 'lexical', ids: lexicalList, weight: this.cfg.fusion.weights.lexical },
           { name: 'vector', ids: byVector, weight: this.cfg.fusion.weights.vector },
           ...(expandedIds.length > 0 ? [{ name: 'expanded', ids: expandedIds, weight: this.cfg.fusion.weights.expanded }] : []),
+          ...(prfIds.length > 0 ? [{ name: 'prf', ids: prfIds, weight: this.cfg.lexicalPrf.weight }] : []),
           ...(graphIds.length > 0 ? [{ name: 'graph', ids: graphIds, weight: graphWeight }] : []),
         ].filter((list) => list.ids.length > 0)
         if (lists.length > 0) {

@@ -77,7 +77,7 @@ import {
 import { mergeInjectSettings, normalizeInjectSettings,                     } from './inject-settings.js'
 import { buildStats, lexicalScore, recordScore, tokenize, cosine, normalizeInPlace, isGenericOnlyQuery, hasContentHit, finalFloor, semanticDedupe, mmrSelect } from './scoring.js'
 import { adaptiveScopeThreshold, calibrateScore } from './retrieval/adapt.js'
-import { blendHybrid, expandQuery, expandQueries, hybridWeights, queryProfile } from './retrieval/expand.js'
+import { blendHybrid, expandQuery, expandQueries, hybridWeights, prfTokens, queryProfile } from './retrieval/expand.js'
 import { buildBm25Docs, bm25Score, rankByBm25 } from './retrieval/bm25.js'
 import { buildAssociationGraph, graphWeightFactor, personalizedPageRank, pickGraphExpansion, queryEntitySeeds } from './retrieval/graph-expansion.js'
 import { reciprocalRankFusion, normalizeScores } from './retrieval/fusion.js'
@@ -328,6 +328,11 @@ function isInside(parent        , child        )          {
                                
                                                        
                                                     
+       
+                                                        
+                                                          
+       
+                                                                                                                                       
                                 
                                                                               
                                
@@ -472,6 +477,16 @@ function isInside(parent        , child        )          {
    
                                                    
                             
+                                  
+               
+                    
+                    
+                      
+                 
+                  
+                                                  
+                         
+   
                                         
                    
                     
@@ -997,6 +1012,14 @@ export function resolveConfig(config                    = {})                 {
       minRelative: config.retrieval?.graphExpansion?.minRelative ?? 0.08,
       minRecords: config.retrieval?.graphExpansion?.minRecords ?? 6,
       weight: config.retrieval?.graphExpansion?.weight ?? 0.8,
+    },
+    lexicalPrf: {
+      enabled: config.retrieval?.lexicalPrf?.enabled ?? true,
+      maxTerms: config.retrieval?.lexicalPrf?.maxTerms ?? 2,
+      maxDfRatio: config.retrieval?.lexicalPrf?.maxDfRatio ?? 0.5,
+      maxDf: config.retrieval?.lexicalPrf?.maxDf ?? 3,
+      weight: config.retrieval?.lexicalPrf?.weight ?? 0.6,
+      maxCandidates: config.retrieval?.lexicalPrf?.maxCandidates ?? 2,
     },
     variants: {
       enabled: config.retrieval?.variants?.enabled ?? false,
@@ -5387,6 +5410,34 @@ export class LocalMemoryService                             {
         }
         expandedIds = [...seen]
       }
+      // 0.80.0：词法伪相关反馈（BM25 PRF）—— 无向量服务时的查询扩展。
+      // 用当前 scope 里首轮 top-3 词法候选的加权词频选扩展词，再跑一次 BM25 补召回。
+      let prfIds           = []
+      // 门控：首轮候选已经充足（>maxCandidates）时不做 PRF —— 那说明词法已能表达
+      // 查询，再扩展只会引入噪声；只有"词法只够到一两条"的稀疏场景才需要补全措辞。
+      if (this.cfg.lexicalPrf.enabled && perScope.length > 0 && candidates.size <= this.cfg.lexicalPrf.maxCandidates) {
+        const queryTokenSet = new Set(queryTokens)
+        const seen = new Set        ()
+        for (const part of perScope) {
+          const pseudo = [...candidates.values()]
+            .filter((cand) => part.docsById.has(cand.record.id))
+            .sort((a, b) => (b.lexScore ?? b.recallScore) - (a.lexScore ?? a.recallScore) || a.record.id.localeCompare(b.record.id))
+            .slice(0, 3)
+            .map((cand) => part.index.docs.get(cand.record.id))
+            .filter((doc)                                 => doc !== undefined)
+          if (pseudo.length === 0) continue
+          const extra = prfTokens(queryTokens, pseudo, part.index.df, part.index.n, {
+            maxTerms: this.cfg.lexicalPrf.maxTerms,
+            maxDfRatio: this.cfg.lexicalPrf.maxDfRatio,
+            maxDf: this.cfg.lexicalPrf.maxDf,
+          })
+          if (extra.length === 0) continue
+          const expandedTokens = [...queryTokenSet, ...extra]
+          for (const hit of rankByBm25(expandedTokens, part.index, recallN * 2)) seen.add(hit.id)
+        }
+        prfIds = [...seen]
+      }
+
       const ensureCandidate = (id        )          => {
         if (candidates.has(id)) return true
         for (const part of perScope) {
@@ -5400,6 +5451,9 @@ export class LocalMemoryService                             {
         return false
       }
       if (this.cfg.fusion.addCandidates) for (const id of [...bm25Ids, ...expandedIds]) ensureCandidate(id)
+      // PRF 补召回不受 fusion.addCandidates 限制：它就是"用记忆措辞补全查询"的通道，
+      // 但候选只拿到合成低分（与 BM25 补召回同口径），不会压过真命中。
+      for (const id of prfIds) ensureCandidate(id)
 
       if (this.cfg.fusion.enabled && candidates.size > 0 && perScope.length > 0) {
         const lexicalList = this.cfg.bm25.enabled && bm25Ids.length > 0 ? bm25Ids : byLexical
@@ -5407,6 +5461,7 @@ export class LocalMemoryService                             {
           { name: 'lexical', ids: lexicalList, weight: this.cfg.fusion.weights.lexical },
           { name: 'vector', ids: byVector, weight: this.cfg.fusion.weights.vector },
           ...(expandedIds.length > 0 ? [{ name: 'expanded', ids: expandedIds, weight: this.cfg.fusion.weights.expanded }] : []),
+          ...(prfIds.length > 0 ? [{ name: 'prf', ids: prfIds, weight: this.cfg.lexicalPrf.weight }] : []),
           ...(graphIds.length > 0 ? [{ name: 'graph', ids: graphIds, weight: graphWeight }] : []),
         ].filter((list) => list.ids.length > 0)
         if (lists.length > 0) {

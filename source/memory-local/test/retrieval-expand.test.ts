@@ -16,6 +16,7 @@ import {
   blendHybrid,
   expandQuery,
   hybridWeights,
+  prfTokens,
   queryProfile,
 } from '../src/retrieval/expand.ts'
 
@@ -260,4 +261,28 @@ test('expandQuery:不改入参、确定性(同输入同输出)', () => {
   const dirty = new Float32Array([1, Number.NaN, 0])
   const expanded = expandQuery(dirty, [new Float32Array([0, 1, 0])])!
   for (const value of expanded) assert.ok(Number.isFinite(value))
+})
+
+test('0.80.0：prfTokens —— 选高 IDF 共现词、排除查询词与泛词、确定性', () => {
+  const df = new Map([
+    ['deploy0.sh', 2],
+    ['日志', 9],       // df/N=9/10 超过 0.5 → 泛词，不选
+    ['只出现一次', 1],  // df<2 → 噪声，不选
+    ['预演', 3],
+  ])
+  const pseudo = [{ termFreq: new Map([['deploy0.sh', 2], ['日志', 1], ['只出现一次', 1], ['预演', 2], ['查询词', 1]]) }]
+  const extra = prfTokens(['查询词'], pseudo, df, 10)
+  assert.equal(extra[0], 'deploy0.sh', `最高 IDF 的共现词应排第一（实际 ${JSON.stringify(extra)}）`)
+  assert.ok(extra.includes('预演'), 'df 未超比例的专有词可入选')
+  assert.ok(!extra.includes('日志'), '泛词（df/N > 0.5）不选')
+  assert.ok(!extra.includes('只出现一次'), 'df<2 的噪声不选')
+  assert.ok(!extra.includes('查询词'), '查询已有词不选')
+  // 确定性：同样输入两次结果一致。
+  assert.deepEqual(prfTokens(['查询词'], pseudo, df, 10), extra)
+  // maxTerms 生效。
+  const df2 = new Map([['a', 2], ['b', 2], ['c', 2]])
+  const pseudo2 = [{ termFreq: new Map([['a', 1], ['b', 1], ['c', 1]]) }]
+  assert.equal(prfTokens([], pseudo2, df2, 10, { maxTerms: 2 }).length, 2)
+  // 空输入安全。
+  assert.deepEqual(prfTokens([], [], new Map(), 0), [])
 })

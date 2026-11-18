@@ -50,6 +50,9 @@ async function run(enableGraph) {
     storeDir: dir,
     scopes: { global: true, project: true },
     retrieval: {
+      // 隔离图通道：两臂都关掉词法 PRF（0.80 起默认开启，否则它也会通过共享路径把 B
+      // 捞回来，让「图增强关」这一臂失真）。本评测只回答图增强本身有没有用。
+      lexicalPrf: { enabled: false },
       graphExpansion: { enabled: enableGraph, minRecords: 4, seedCount: 6, limit: 6, minRelative: 0.02 },
     },
   })

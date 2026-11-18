@@ -56,6 +56,12 @@ function buildCorpus() {
     records.push({ key: `sem${c}`, content: `部署端口 90${c}0 内部服务，注意防火墙放行（已提炼为稳定结论）`, kind: 'consolidated', topic: c, tags: ['consolidated'] })
     queries.push({ text: `端口 90${c}0 部署`, kind: 'consolidated', topic: c })
   }
+  // PRF：查询词 phN 只出现在 A；B 与 A 共享 deployN.sh，不含查询词。
+  for (let i = 0; i < 6; i++) {
+    records.push({ key: `pra${i}`, content: `ph${i} 发布流程：先跑 deploy${i}.sh，失败看日志`, kind: 'prfPseudo', topic: i })
+    records.push({ key: `prb${i}`, content: `deploy${i}.sh 支持 --dry-run 预演，避免线上问题`, kind: 'prfTarget', topic: i })
+    queries.push({ text: `ph${i}`, kind: 'prf', topic: i })
+  }
   // 噪声
   for (let n = 0; n < 5; n++) records.push({ key: `noise${n}`, content: `无关记录 ${n}：今天天气不错，随手记一笔`, kind: 'noise', topic: -1 })
   return { records, queries }
@@ -79,6 +85,7 @@ async function evaluate(overrides) {
         ...(overrides.graphExpansion ?? {}),
       },
       ...(overrides.semanticLayerBoost !== undefined ? { semanticLayerBoost: overrides.semanticLayerBoost } : {}),
+      ...(overrides.lexicalPrf !== undefined ? { lexicalPrf: overrides.lexicalPrf } : {}),
     },
   })
   try {
@@ -100,6 +107,8 @@ async function evaluate(overrides) {
     let exactTotal = 0
     let consolidatedTop1 = 0
     let consolidatedTotal = 0
+    let prfHits = 0
+    let prfTotal = 0
     let noise = 0
     let hitsTotal = 0
     for (const query of queries) {
@@ -116,10 +125,15 @@ async function evaluate(overrides) {
         relevant = new Set([exactId].filter(Boolean))
         exactTotal += 1
         if (hitIds[0] === exactId) exactTop1 += 1
-      } else {
+      } else if (query.kind === 'consolidated') {
         relevant = new Set([byKey(`orig${query.topic}`), byKey(`sem${query.topic}`)].filter(Boolean))
         consolidatedTotal += 1
         if (hitIds[0] === byKey(`sem${query.topic}`)) consolidatedTop1 += 1
+      } else {
+        // PRF：桥接目标 B 不含查询词，只能靠伪相关反馈捞回来。
+        relevant = new Set([byKey(`pra${query.topic}`), byKey(`prb${query.topic}`)].filter(Boolean))
+        prfTotal += 1
+        if (hitIds.includes(byKey(`prb${query.topic}`))) prfHits += 1
       }
       noise += hitIds.filter((id) => !relevant.has(id)).length
     }
@@ -127,6 +141,7 @@ async function evaluate(overrides) {
       bridgeRecall: bridgeTotal === 0 ? 0 : bridgeHits / bridgeTotal,
       exactTop1: exactTotal === 0 ? 0 : exactTop1 / exactTotal,
       consolidatedTop1: consolidatedTotal === 0 ? 0 : consolidatedTop1 / consolidatedTotal,
+      prfRecall: prfTotal === 0 ? 0 : prfHits / prfTotal,
       noiseRate: hitsTotal === 0 ? 0 : noise / hitsTotal,
     }
   } finally {
@@ -136,7 +151,7 @@ async function evaluate(overrides) {
 }
 
 const pct = (value) => `${(value * 100).toFixed(1)}%`
-const composite = (m) => 0.5 * m.bridgeRecall + 0.3 * m.exactTop1 + 0.2 * m.consolidatedTop1
+const composite = (m) => 0.35 * m.bridgeRecall + 0.25 * m.exactTop1 + 0.15 * m.consolidatedTop1 + 0.25 * m.prfRecall
 
 const base = await evaluate({})
 console.log(`## 检索参数扫描（合成语料：${TOPICS} 主题桥接 + ${EXACT} 精确 + ${CONSOLIDATED} 巩固，topK=${TOP_K}）\n`)
@@ -146,6 +161,7 @@ console.log('| --- | --- |')
 console.log(`| 桥接召回 | ${pct(base.bridgeRecall)} |`)
 console.log(`| 精确 top1 | ${pct(base.exactTop1)} |`)
 console.log(`| 巩固 top1 | ${pct(base.consolidatedTop1)} |`)
+console.log(`| PRF 召回 | ${pct(base.prfRecall)} |`)
 console.log(`| 无关命中率 | ${pct(base.noiseRate)} |`)
 console.log(`| 综合分 | ${composite(base).toFixed(3)} |\n`)
 
@@ -154,13 +170,15 @@ const sweeps = [
   { name: 'graphExpansion.seedCount', values: [3, 6, 9], apply: (v) => ({ graphExpansion: { seedCount: v } }) },
   { name: 'graphExpansion.minRelative', values: [0.02, 0.08, 0.15], apply: (v) => ({ graphExpansion: { minRelative: v } }) },
   { name: 'semanticLayerBoost', values: [0, 0.04, 0.1, 0.2], apply: (v) => ({ semanticLayerBoost: v }) },
+  // lexicalPrf.maxTerms：先测开启（默认 maxTerms=2），再扫 1/2/3。
+  { name: 'lexicalPrf', values: [false, 1, 2, 3], apply: (v) => v === false ? { lexicalPrf: { enabled: false } } : { lexicalPrf: { enabled: true, maxTerms: v } } },
 ]
 
 const recommendations = []
 for (const sweep of sweeps) {
   console.log(`### ${sweep.name}\n`)
-  console.log('| 取值 | 桥接召回 | 精确 top1 | 巩固 top1 | 无关命中率 | 综合分 |')
-  console.log('| --- | --- | --- | --- | --- | --- |')
+  console.log('| 取值 | 桥接召回 | 精确 top1 | 巩固 top1 | PRF 召回 | 无关命中率 | 综合分 |')
+  console.log('| --- | --- | --- | --- | --- | --- | --- |')
   let best = null
   for (const value of sweep.values) {
     const metrics = await evaluate(sweep.apply(value))
@@ -168,10 +186,10 @@ for (const sweep of sweeps) {
     // 无关命中率明显变差（> 基线 +5%）的配置不参与推荐。
     const ok = metrics.noiseRate <= base.noiseRate + 0.05
     // 分数并列时优先「当前默认值」，避免把等价配置误报成更优。
-    const currentDefault = { 'graphExpansion.weight': 0.8, 'graphExpansion.seedCount': 6, 'graphExpansion.minRelative': 0.08, 'semanticLayerBoost': 0.04 }[sweep.name]
+    const currentDefault = { 'graphExpansion.weight': 0.8, 'graphExpansion.seedCount': 6, 'graphExpansion.minRelative': 0.08, 'semanticLayerBoost': 0.04, 'lexicalPrf': 2 }[sweep.name]
     if (ok && (best === null || score > best.score + 1e-9
       || (Math.abs(score - best.score) <= 1e-9 && value === currentDefault))) best = { value, score }
-    console.log(`| ${value} | ${pct(metrics.bridgeRecall)} | ${pct(metrics.exactTop1)} | ${pct(metrics.consolidatedTop1)} | ${pct(metrics.noiseRate)} | ${score.toFixed(3)} |`)
+    console.log(`| ${value} | ${pct(metrics.bridgeRecall)} | ${pct(metrics.exactTop1)} | ${pct(metrics.consolidatedTop1)} | ${pct(metrics.prfRecall)} | ${pct(metrics.noiseRate)} | ${score.toFixed(3)} |`)
   }
   console.log('')
   if (best !== null) recommendations.push({ name: sweep.name, value: best.value, score: best.score })

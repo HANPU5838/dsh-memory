@@ -1,4 +1,4 @@
-# 架构说明（本仓库独立维护版 0.79.0）
+# 架构说明（本仓库独立维护版 0.80.0）
 
 > 本文说明这套记忆插件「为什么是插件」：哪些属于宿主、哪些属于插件、平台差异放在哪里。
 > 本仓库 **[HANPU5838/dsh-memory](https://github.com/HANPU5838/dsh-memory)** 是 DSH 记忆系统的独立维护版
@@ -189,6 +189,8 @@ Personalized PageRank（带重启随机游走，alpha=0.85，最多 24 次幂迭
   统一 path / url / tag / version 写法，不同写法的同一实体共享节点与多跳边。
 - **语义层偏好（0.75.0）**：巩固产物（tag=consolidated）终态分乘 `1+retrieval.semanticLayerBoost`
   （默认 0.04），semantic 记录在与 episodic 记录相关度接近时优先。
+- **词法 PRF（0.80.0）**：`prfTokens()` 从首轮 top 文档选稀有共现词做二次 BM25；
+  只在首轮候选稀疏（≤2）时启用，扩展候选低分 + RRF 权重 0.6，避免噪声。
 - **评测与调参（0.68/0.77）**：`npm run eval:graph` 守住桥接召回；`npm run eval:tune` 单因子
   扫描图增强与语义层参数，默认值在扫描区间内稳健（见 docs/verification.md §1.5）。
 
