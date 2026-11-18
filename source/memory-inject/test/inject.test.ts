@@ -225,3 +225,20 @@ test('0.81.0：长记忆召回用 TextRank 摘要保留关键句（不是只截�
   assert.ok(block.text.includes('发布前必须先跑'), '关键句应完整出现')
   assert.ok(block.tokens <= cfg.tokenBudget)
 })
+
+test('0.83.0：冲突记忆只注入胜者，败者记为省略（reason=conflict）', () => {
+  const cfg = { ...defaultInjectConfig, tokenBudget: 5000, topK: 5 }
+  const winner = { ...hit('新结论：端口 8080 已改为 8090。', 0.9, 'id-new') }
+  winner.record.importance = 0.9
+  winner.record.updatedAt = 200
+  const loser = { ...hit('旧结论：端口 8080 保持不变。', 0.9, 'id-old') }
+  loser.record.importance = 0.3
+  loser.record.updatedAt = 100
+  winner.record.conflictWith = ['id-old']
+  loser.record.conflictWith = ['id-new']
+  const block = renderRecallBlock([winner, loser], cfg, { impression: true, chars: 100 })!
+  assert.ok(block.text.includes('8090'), '胜者应注入')
+  assert.ok(!block.text.includes('保持不变'), '败者不应注入')
+  assert.deepEqual(block.omitted, [{ id: 'id-old', reason: 'conflict' }])
+  assert.deepEqual(block.ids, ['id-new'])
+})

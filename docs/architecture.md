@@ -1,4 +1,4 @@
-# 架构说明（本仓库独立维护版 0.82.0）
+# 架构说明（本仓库独立维护版 0.83.0）
 
 > 本文说明这套记忆插件「为什么是插件」：哪些属于宿主、哪些属于插件、平台差异放在哪里。
 > 本仓库 **[HANPU5838/dsh-memory](https://github.com/HANPU5838/dsh-memory)** 是 DSH 记忆系统的独立维护版
@@ -189,6 +189,8 @@ Personalized PageRank（带重启随机游走，alpha=0.85，最多 24 次幂迭
   统一 path / url / tag / version 写法，不同写法的同一实体共享节点与多跳边。
 - **语义层偏好（0.75.0）**：巩固产物（tag=consolidated）终态分乘 `1+retrieval.semanticLayerBoost`
   （默认 0.04），semantic 记录在与 episodic 记录相关度接近时优先。
+- **注入冲突消解（0.83.0）**：`resolveInjectionConflicts()` 在渲染前淘汰同批命中的冲突败者
+  （重要度→更新时间→id 确定性），败者保留不删、审计 reason=conflict。
 - **图边权与社区（0.82.0）**：边权乘实体类型因子（具体对象 > 泛标签）；`detectCommunities()`
   标签传播划分主题社区，补充候选按社区限流（`maxPerCommunity`，默认 3）。
 - **召回摘要（0.81.0）**：`summarize.ts` 对超预算正文做 TextRank 抽句（近重复去重 +

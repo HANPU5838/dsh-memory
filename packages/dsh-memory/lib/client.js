@@ -3963,7 +3963,7 @@ window.__ModuleLoader__.load({
 
     const AUDIT_OMIT_LABEL = {
       top_k: '条数上限', budget: '预算', superseded: '已退役', expired: '已过期',
-      tag_mismatch: '标签不匹配', dedup: '去重', excluded: '被排除', skipped: '跳过',
+      tag_mismatch: '标签不匹配', dedup: '去重', excluded: '被排除', skipped: '跳过', conflict: '冲突（保留更重要/更新的一条）',
     }
 
     function AuditTab({

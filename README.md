@@ -2,7 +2,7 @@
   <img src="https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/preview/icon-128.png" width="84" alt="记忆系统">
 </p>
 
-> ### 📦 本仓库是 DSH 记忆系统的独立维护版（v0.82.0）
+> ### 📦 本仓库是 DSH 记忆系统的独立维护版（v0.83.0）
 >
 > 本项目是 **DSH 记忆系统**（`@restregular/dsh-memory`，MIT）的独立维护版本：
 > 以原作者代码为起点（完整历史见 CHANGELOG），**后续全部开发、发布、安装与更新只以本仓库为准**。
@@ -27,7 +27,7 @@
 
 JSONL 落盘 · 本机向量检索 · 八个模型工具 · 自动召回 · 硬性规则 · 作用域归档 · 主动屏蔽 · 可视化管理面板
 
-[![version](https://img.shields.io/badge/version-v0.82.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![version](https://img.shields.io/badge/version-v0.83.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/HANPU5838/dsh-memory/blob/main/LICENSE)
 [![ci](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.13-5FA04E.svg)](https://nodejs.org/)
@@ -74,7 +74,7 @@ JSONL 落盘 · 本机向量检索 · 八个模型工具 · 自动召回 · 硬�
 | **会话授权（grants）** | Agent 申请、用户批准的例外单独存在 `<storeDir>/grants/<session>.json`，不并入可见域策略；只读 / 可写独立、可撤销、只在本会话（及子 Agent）生效；`absolute` 下授权不生效，作用域被删除重建后按创建代次自动失效 |
 | **双通道检索** | 词法（IDF + 中文 bigram）**+** 向量（本机 llama-server 的 OpenAI 兼容 `/v1/embeddings`）。向量缺席自动降级，不报错、不阻塞 |
 | **检索结果整形** | 双通道召回后先按**匹配强度**做地板分（不误杀"相关但久未访问"的旧记忆），再做**同义结果合并**（余弦 ≥0.85 只留分最高的一条），最后用 **MMR 多样性**挑选，避免同义记忆挤占名额、弱相关噪声混进 topK；阈值还会按查询长度自适应，global 与 project 的分数先校准再同槽排序 |
-| **语义整理（认知层）** | 写入后按向量做近重复检测：余弦 ≥0.92 且**关键细节一致**才自动合并（旧记录经 `supersedes` 保留、`generation` 递增）；0.75~0.92 或**数字/路径/标识符不一致**先打冲突标记，**0.40.0 起再按「矛盾度 + 证据计数 + 来源可信度 + 时间」自动裁决**（0.41.4 收敛为：仅数值/路径差异才失效旧事实，标识符差异保留双方并打标），面板冲突中心可逐条复核（例如「占用 10.4GB」和「占用 20GB」不会被当成同义合并） |
+| **语义整理（认知层）** | 写入后按向量做近重复检测：余弦 ≥0.92 且**关键细节一致**才自动合并（旧记录经 `supersedes` 保留、`generation` 递增）；0.75~0.92 或**数字/路径/标识符不一致**先打冲突标记，**0.40.0 起再按「矛盾度 + 证据计数 + 来源可信度 + 时间」自动裁决**（0.41.4 收敛为：仅数值/路径差异才失效旧事实，标识符差异保留双方并打标），面板冲突中心可逐条复核（例如「占用 10.4GB」和「占用 20GB」不会被当成同义合并）。**0.83.0**：每轮注入前再做一次冲突消解——同一次召回里互相矛盾的记忆只保留重要度更高/更新的一条，另一条不进上下文（审计 `reason=conflict`），记录不删 |
 | **生命周期** | `dormant` 休眠（长期未访问且不重要 → 不进摘要/召回，命中即唤醒）、`tombstone` 软删（`memory_forget` 默认 30 天内可 `restore`，到期由维护任务物理清理）、`snapshot/restore`（gzip JSONL 快照，可整库备份/迁移/回滚） |
 | **性能** | 文档/查询向量缓存（同内容重写、重复问句免嵌入；实测热查询 ~0.03ms）、批量嵌入（部分失败只留单条 null，超长记录不再毒死整批回填）、llama-server 预热 + 周期探活保活、可选纯 JS HNSW 索引模块（2 万条查询 P50 1.73ms vs 全量 25.2ms）、本地 chat 模型重排（可选，失败静默回退） |
 | **记忆强度（0.33.0）** | 每条记忆带 **FSRS 式保持度**：`stability`（越用越牢）、`difficulty`（长文/易变类型更难）、`utility`（被取用才涨）；检索排序 = 相关度 × 保持度 × 效用 × 重要度，且带可解释 breakdown。老记录无需迁移（由内容/类型/访问次数推导） |
@@ -892,8 +892,8 @@ npm run verify:all
 ```
 
 ```
-✓ 单元 / 集成测试：1269 例 / 1268 pass / 1 skip / 0 fail（约 22s）
-✓ 单包构建：86 文件 / 2549.1 KiB
+✓ 单元 / 集成测试：1273 例 / 1272 pass / 1 skip / 0 fail（约 22s）
+✓ 单包构建：87 文件 / 2554.7 KiB
 ✓ 面板 API 冒烟：16/16 接口通过
 ✓ 向量后端实测：http://127.0.0.1:8078/health · 1024 维
 结论：PASS（4 通过 / 0 失败 / 0 跳过）
@@ -957,6 +957,7 @@ npm run verify  # 构建到 .verify/，不落 packages/
 
 ## 更新日志
 
+- **0.83.0** —— 注入前冲突消解：同一次召回里互相矛盾的记忆只注入胜者（重要度 → 更新时间 → id 确定性裁决），败者保留但不进上下文，审计 reason=conflict；新增单测 + 召回集成测试。
 - **0.82.0** —— 图增强升级：实体类型边权（path/url/version > 泛 tag）+ 确定性社区检测（标签传播）与社区限流（同社区最多 3 条）；bridge 召回 100%、无关命中率 42.9% 无回归；新增 3 组单测。
 - **0.81.0** —— 召回正文抽取式摘要（TextRank）：长记忆超过字数预算时选信息量最高的句子（近重复句去重 + 查询相关句强加权），不再只截前缀；eval:summarize 实测关键结论保留 0%→100%、平均输出字数 80→67.5；进 CI。
 - **0.80.0** —— 词法伪相关反馈（BM25 PRF）：无向量也能用首轮命中记忆的措辞补全查询；保守防护（df≤3、df/N≤0.5、最多 2 词、仅候选≤2 时触发、RRF 权重 0.6）。eval:tune 实测：PRF 召回 0% → 100%，无关命中率 45.7% → 42.9%，默认开启；`retrieval.lexicalPrf` 可配。

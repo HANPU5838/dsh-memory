@@ -11,6 +11,7 @@ import { normalizeScopeInput } from '../provider/scope.js'
 import { textHasTag } from './signals.js'
 import { recordKindPrefix } from './digest.js'
 import { digestForRecall } from './summarize.js'
+import { resolveInjectionConflicts } from './conflicts.js'
 import { InjectionState } from './state.js'
 
                                
@@ -235,7 +236,7 @@ export function hasRecallMessage(
 
                                  
             
-                                     
+                                                  
  
 
                               
@@ -271,6 +272,10 @@ export function renderRecallBlock(
       }
     } catch { /* 解析失败 = 没解析：记录原样进入上下文 */ }
   }
+  // 0.83.0：冲突消解 —— 互相矛盾的记忆不能同时进上下文（保留更重要/更新的一条）。
+  const conflictResolution = resolveInjectionConflicts(effectiveHits)
+  effectiveHits = conflictResolution.kept
+
   const impression = options.impression === true
   const chars = impression ? (options.chars ?? 120) : 300
   // 0.69.0：按相对相关度动态分配「每条保留多少字」（0.55×–1.30×，下限 48 字）。
@@ -295,6 +300,8 @@ export function renderRecallBlock(
   for (const h of hits) {
     if (droppedIds.has(h.record.id)) omitted.push({ id: h.record.id, reason: 'hook' })
   }
+  // 冲突败者：记录保留、只是不进本轮上下文，审计写清原因。
+  for (const id of conflictResolution.dropped) omitted.push({ id, reason: 'conflict' })
   for (const [index, h] of effectiveHits.entries()) {
     if (index >= cfg.topK) {
       omitted.push({ id: h.record.id, reason: 'top_k' })
