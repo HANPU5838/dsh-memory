@@ -13,7 +13,7 @@
  * 0.28.0：范围外清单只给作用域（名字 / 条数 / 用途），**不再给条目摘要**；清单与
  * withheld 说明不再重复讲同一件事（「索引已列在下方」那句直接去掉）。
  */
-                                                                                                                               
+                                                                                                                                                                                          
 import { scopeDisplayName } from '../provider/scope.js'
 
 /** 把 scope 键渲染成展示文案（宿主能查到会话标题时用它，否则用短 id）。 */
@@ -60,6 +60,8 @@ export function renderWithheldNote(withheld                          )         {
       return `另有 ${count} 条记忆所在的作用域在本会话记忆范围里被标记为「不可读」（可读/可写按钮），未返回。如确实需要，请让用户打开该作用域的「可读」状态后重试。`
     case 'scope-disabled':
       return `另有 ${count} 条记忆所在的作用域已被配置关闭（global / project / session / custom 开关），未返回。如确实需要，请让用户打开对应类型的作用域。`
+    case 'blocked':
+      return `另有 ${count} 条记忆被你主动屏蔽了（会话级或工作区级），未返回。要恢复请用 memory_block({action:"unblock", ...}) 解除，或用 memory_block({action:"list"}) 看当前清单。`
     default:
       return ''
   }
@@ -140,7 +142,11 @@ export function renderListResult(value            , label            )         {
         omitted += 1
         return shortId(record.id)
       }
-      return `(${label(record.scope)}/${record.kind}) ${record.content}`
+      const full = record.fullTime
+      const timeLine = full === undefined
+        ? ''
+        : ` [创建 ${full.createdAt} · 更新 ${full.updatedAt}${full.expiresAt !== undefined ? ` · 过期 ${full.expiresAt}` : ''}]`
+      return `(${label(record.scope)}/${record.kind})${timeLine} ${record.content}`
     }).join('\n')
   const note = renderWithheldNote(value.withheld)
   const tail = [omitted > 0 ? DEDUPE_NOTE : '', note].filter((part) => part !== '').join('\n\n')
@@ -208,7 +214,12 @@ export function renderScopesResult(value                  , label            )  
     if (item.records !== undefined) meta.push(`${item.records} 条`)
     if (item.archived === true) {
       // 0.30.0：归档不是权限拒绝，而是会话生命周期 —— 数据仍在，恢复会话即复原。
-      meta.push('已归档 · 恢复会话后自动恢复读写')
+      meta.push(item.archivedKind === 'project'
+        ? '已归档 · 面板里解除归档即恢复'
+        : '已归档 · 恢复会话后自动恢复读写')
+    } else if (item.blocked === true) {
+      // 0.32.0：屏蔽不是权限拒绝，是 Agent 主动降噪 —— 数据仍在，解除后立刻复原。
+      meta.push(`已屏蔽（${item.blockedLevel === 'workspace' ? '工作区级' : '会话级'}）· 解除后立刻复原`)
     } else if (item.inScope) {
       meta.push(item.accessStatus === 'default'
         ? '范围内'
@@ -287,6 +298,140 @@ export function renderGetResult(value           , label            )         {
   const tail = [missing, note].filter((part) => part !== '').join('\n\n')
   if (body === '') return tail === '' ? '没有找到记忆。' : tail
   return tail === '' ? body : `${body}\n\n${tail}`
+}
+
+/**
+ * memory_block 的渲染（0.32.0）。让模型一眼看清：屏蔽生效在哪个层级、影响什么、
+ * 怎么解除 —— 屏蔽是 Agent 自己做的降噪动作，它必须知道这是可逆的。
+ */
+export function renderBlockResult(value             , label            )         {
+  const levelText = (level        )         => level === 'workspace' ? '工作区级（影响该工作区所有会话）' : '会话级（只影响本会话）'
+  const describe = (block                 )         => {
+    const target = block.scope !== undefined
+      ? label(block.scope)
+      : block.recordId !== undefined
+        ? `记录 ${shortId(block.recordId)}${block.recordKind !== undefined ? `（${block.recordKind}）` : ''}`
+        : `前缀 ${block.prefix ?? '?'}`
+    return `- ${target} · ${levelText(block.level)}${block.reason !== undefined ? ` · ${block.reason}` : ''}`
+  }
+  if (value.action === 'list') {
+    if (value.blocks.length === 0) return '当前没有屏蔽任何记忆。'
+    return `当前屏蔽（${value.blocks.length} 条）：\n${value.blocks.map(describe).join('\n')}`
+  }
+  if (value.action === 'unblock') {
+    if (value.outcome !== 'unblocked') return value.note ?? '没有找到匹配的屏蔽记录。'
+    const rest = value.blocks.length === 0 ? '现在没有生效的屏蔽。' : `剩余 ${value.blocks.length} 条屏蔽：\n${value.blocks.map(describe).join('\n')}`
+    return `已解除 ${value.removed ?? 0} 条屏蔽。${rest}`
+  }
+  if (value.outcome !== 'blocked') {
+    return value.note ?? (value.outcome === 'rejected'
+      ? '用户拒绝了这次屏蔽；记忆保持原样。'
+      : value.outcome === 'timeout'
+        ? '审批超时，屏蔽没有生效。'
+        : '当前环境无法发起屏蔽。')
+  }
+  const head = value.blocks.length === 1
+    ? `已屏蔽 ${describe(value.blocks[0] ).slice(2)}。`
+    : `已屏蔽 ${value.blocks.length} 条：\n${value.blocks.map(describe).join('\n')}`
+  const records = value.records !== undefined && value.records.length > 0
+    ? `\n涉及记录：${value.records.map((record) => `[${shortId(record.id)}] ${label(record.scope)}/${record.kind}`).join('、')}`
+    : ''
+  const note = value.note !== undefined ? `\n${value.note}` : ''
+  // 屏蔽是「藏起来」而不是删除：这句话必须出现，否则模型容易把屏蔽当成不可逆操作而不敢用。
+  return `${head}${records}${note}\n（屏蔽不删除任何记忆，数据原样保留；解除后立刻复原。）`
+}
+
+/**
+ * memory_hooks 的渲染（0.35.0）。
+ *
+ * 三件事必须让模型看懂，否则它会误判「脚本已经生效」：
+ *   1. 代码是否已获用户批准（未批准 = 不会运行）；
+ *   2. 运行时机与适用范围；
+ *   3. 最近的运行结局（校验器坏了 / 一直在拒，都要一眼看见）。
+ *
+ * 代码正文**不在 list 里打印**（那是 get 的事）：一次列十几段脚本会把上下文撑爆。
+ */
+export function renderHooksResult(value             , label            )         {
+  const phaseText                         = {
+    'before-save': '保存前校验（可拒绝保存）',
+    'after-save': '保存后观察（不阻断）',
+    'before-inject': '注入前解析（可改写/丢弃）',
+  }
+  const pending = (hook                )          => hook.pendingApproval === true
+
+  const describe = (hook                )         => {
+    const parts = [`[${shortId(hook.id)}] ${hook.name}`, phaseText[hook.phase] ?? hook.phase]
+    if (!hook.enabled) parts.push('已停用')
+    if (pending(hook)) parts.push('⏳ 待用户批准（不会运行）')
+    if (hook.scopes.length > 0) parts.push(`作用域 ${hook.scopes.map(label).join('/')}`)
+    if (hook.kinds.length > 0) parts.push(`类型 ${hook.kinds.join('/')}`)
+    if (hook.runCount > 0) parts.push(`运行 ${hook.runCount}${hook.rejectCount > 0 ? ` / 拒 ${hook.rejectCount}` : ''}${hook.errorCount > 0 ? ` / 错 ${hook.errorCount}` : ''}`)
+    if (hook.lastOutcome === 'error') parts.push(`最近出错：${hook.lastMessage ?? '（无说明）'}`)
+    else if (hook.lastOutcome === 'rejected') parts.push(`最近拒绝：${hook.lastMessage ?? '（无说明）'}`)
+    return `- ${parts.join(' · ')}`
+  }
+
+  const settingsLine = ()         => {
+    const s = value.settings
+    if (s === undefined) return ''
+    const state = s.enabled ? '开启' : '关闭'
+    return `钩子总开关：${state}；超时 ${s.timeoutMs}ms；带代码的规则${s.requireApproval ? '需要用户批准一次' : '不要求批准（已关闭审批）'}。`
+  }
+
+  if (value.action === 'get') {
+    const hook = value.hooks[0]
+    if (hook === undefined) return '这个钩子不存在。'
+    const head = describe(hook)
+    const body = hook.code.split('\n').map((line, index) => `${String(index + 1).padStart(3, ' ')}| ${line}`).join('\n')
+    const tail = pending(hook) ? '\n\n⚠ 这段代码还没被用户批准，**当前不会运行**。' : ''
+    return `${head}\n\n\`\`\`js\n${body}\n\`\`\`${tail}`
+  }
+
+  if (value.action === 'run') {
+    const hook = value.hooks[0]
+    const phase = hook?.phase
+    // 0.38.0：不同时机试跑结果侧重不同 —— 校验看通过/拒绝，观察看附注，解析看改写/丢弃。
+    const phaseLabel = phase === 'before-save' ? '保存前校验' : phase === 'after-save' ? '保存后观察' : phase === 'before-inject' ? '注入前解析' : '脚本'
+    const head = hook !== undefined ? `${describe(hook)} · 试跑（${phaseLabel}）` : `试跑（${phaseLabel}）`
+    const outcomes = value.outcomes ?? []
+    const detail = outcomes.length === 0
+      ? '（脚本没有命中这次输入）'
+      : outcomes.map((outcome) => {
+          const lines           = []
+          if (outcome.error !== undefined) lines.push(`运行失败：${outcome.error}`)
+          else {
+            // 判定文案按时机区分。
+            if (phase === 'before-save') lines.push(outcome.ok ? '判定：允许保存（通过）' : `判定：拒绝保存 —— ${outcome.message ?? '（脚本没给理由）'}`)
+            else if (phase === 'after-save') lines.push(outcome.ok ? '判定：观察通过（不阻断）' : `判定：附注 —— ${outcome.message ?? '（无说明）'}`)
+            else lines.push(outcome.ok ? '判定：保留并记录（通过）' : `判定：不通过 —— ${outcome.message ?? '（脚本没给理由）'}`)
+            if (outcome.content !== undefined) lines.push(`改写后正文：${outcome.content.slice(0, 400)}`)
+            if (outcome.drop === true) lines.push('整条丢弃（drop:true）')
+            if (outcome.message !== undefined && phase !== 'before-save') lines.push(`脚本说明：${outcome.message}`)
+            // 真实输出：把脚本原始返回值原样回显，而不是只给规范化结论。
+            if (outcome.raw !== undefined) {
+              let rawText        
+              try { rawText = JSON.stringify(outcome.raw) } catch { rawText = String(outcome.raw) }
+              lines.push(`脚本真实输出：${rawText}`)
+            }
+          }
+          if (outcome.logs !== undefined && outcome.logs.length > 0) lines.push(`日志：${outcome.logs.join(' / ')}`)
+          lines.push(`耗时 ${outcome.durationMs}ms`)
+          return lines.join('\n')
+        }).join('\n')
+    return [head, detail, value.note ?? ''].filter((part) => part !== '').join('\n')
+  }
+
+  const list = value.hooks
+  if (list.length === 0) {
+    return [value.note ?? '', '当前没有任何记忆钩子。']
+      .filter((part) => part !== '')
+      .concat('在 memory_save 里带上 hookCode 就能随规则一起登记一段校验脚本。')
+      .join('\n')
+  }
+  const body = list.map(describe).join('\n')
+  const note = value.note !== undefined ? `${value.note}\n` : ''
+  const settings = settingsLine()
+  return `${body}${settings !== '' ? `\n\n${settings}` : ''}${note !== '' ? `\n${note}` : ''}`
 }
 
 

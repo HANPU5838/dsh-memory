@@ -13,7 +13,7 @@ import { memoryTools } from '../src/index.ts'
  */
 test('apply registers every memoryTools entry (including memory_get)', () => {
   const names = Object.keys(memoryTools({ getService: () => undefined }))
-  assert.deepEqual(names.sort(), ['memory_forget', 'memory_get', 'memory_list', 'memory_save', 'memory_scopes', 'memory_search'])
+  assert.deepEqual(names.sort(), ['memory_block', 'memory_forget', 'memory_get', 'memory_hooks', 'memory_list', 'memory_save', 'memory_scopes', 'memory_search'])
   const here = dirname(fileURLToPath(import.meta.url))
   const apply = readFileSync(join(here, '..', 'src', 'apply.ts'), 'utf8')
   for (const name of names) {
@@ -36,4 +36,17 @@ test('工具参数只用扁平 schema，不使用嵌套 object', () => {
     assert.equal(text.includes('"type":"object"'), false, `${name} 不能使用 object 参数`)
     assert.equal(text.includes('"properties"'), false, `${name} 不能使用 properties 参数`)
   }
+})
+
+/**
+ * 0.36.0 / 0.37.0：memory_save 的返回提示必须在「@ <key>」里带上保存到的目标作用域 key，
+ * 但只出现一次（0.37.0 去掉了额外的「保存到的目标作用域 key：」行，避免同一 key 重复两遍）。
+ */
+test('memory_save 渲染带一次目标作用域 key，且不再有冗余的第二行', () => {
+  const here = dirname(fileURLToPath(import.meta.url))
+  const apply = readFileSync(join(here, '..', 'src', 'apply.ts'), 'utf8')
+  assert.ok(apply.includes('value.scope'), 'head 要用记录实际保存到的 scope key')
+  assert.ok(apply.includes('@ ${value.scope}'), '作用域 key 出现在 @ 后')
+  assert.equal(apply.includes('保存到的目标作用域 key：'), false, '不能再有第二行重复 key')
+  assert.ok(apply.includes('value.supersedes'), 'supersedes 场景必须额外说明修正关系')
 })

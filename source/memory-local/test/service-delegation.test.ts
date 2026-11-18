@@ -42,3 +42,38 @@ test('CordisMemoryService 暴露面板语义检索入口', () => {
   assert.equal(typeof proto.searchForPanel, 'function', 'ctx.get(\'memory\').searchForPanel 必须存在')
   assert.equal(typeof proto.search, 'function', '通用检索入口仍然保留')
 })
+
+test('CordisMemoryService 暴露归档 / 屏蔽接口', () => {
+  // 0.32.0 的归档与屏蔽只实现在 LocalMemoryService 上,包装层漏转发时真实 profile 里
+  // ctx.get('memory').listBlocks 是 undefined:面板「解除屏蔽」按钮点了没反应、/status
+  // 的 blocked 字段永远为空,而单测直接 new LocalMemoryService 完全看不见。
+  const proto = CordisMemoryService.prototype as unknown as Record<string, unknown>
+  for (const name of [
+    'archiveScope', 'restoreScope', 'archivedProjectScopes',
+    'blocksFor', 'listBlocks', 'sessionBlocks', 'workspaceBlocks',
+    'isScopeBlocked', 'isRecordBlocked', 'unblock', 'clearBlocks', 'requestBlock',
+  ]) {
+    assert.equal(
+      typeof proto[name],
+      'function',
+      `ctx.get('memory').${name} 必须存在，否则面板的归档 / 屏蔽功能静默失效`,
+    )
+  }
+})
+
+test('CordisMemoryService 暴露记忆钩子接口', () => {
+  // 0.35.0：钩子的存储、运行、审批全在 LocalMemoryService 上；面板与 memory_hooks
+  // 工具拿的是包装实例，漏一个就是 undefined（面板「规则代码」页空白、工具报不支持）。
+  const proto = CordisMemoryService.prototype as unknown as Record<string, unknown>
+  for (const name of [
+    'hookSettings', 'updateHookSettings', 'listHooks', 'getHook', 'saveHook',
+    'deleteHook', 'approveHook', 'hookPendingApproval', 'requestHookApproval',
+    'runHooks', 'runHookTrial', 'parseForInject',
+  ]) {
+    assert.equal(
+      typeof proto[name],
+      'function',
+      `ctx.get('memory').${name} 必须存在，否则记忆钩子静默失效`,
+    )
+  }
+})

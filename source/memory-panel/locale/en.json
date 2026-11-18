@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Memory System",
-    "description": "Local memory system: automatic recall, hard rules, five memory tools, JSONL storage and local vector search."
+    "description": "Local memory system: automatic recall, hard rules, seven memory tools (including proactive blocking and scope archiving), JSONL storage and local vector search."
   }
 }

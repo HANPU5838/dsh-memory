@@ -70,6 +70,20 @@ export const LOG_FILE_NAME = 'llama-server.log'
 const RELEASES_API = 'https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=20'
 /** GitHub 要求带 UA；不带会被 403。 */
 const USER_AGENT = 'dsh-memory-local-installer'
+/**
+ * 认证用的环境变量，按序取第一个非空的（GitHub 官方是 GITHUB_TOKEN，gh CLI 是 GH_TOKEN）。
+ * 有 token 时额度 5000 次/小时；没有就是匿名 60 次/小时，而且是**按出口 IP 算**，
+ * 公司/校园网、CI 里几乎必然被别的进程吃掉 —— issue #5 就是撞在这一条上。
+ */
+const TOKEN_ENV_VARS = ['GITHUB_TOKEN', 'GH_TOKEN'] as const
+/**
+ * 发行版列表的落盘缓存（放在 `<root>/llamacpp/` 里：这个目录本来就是安装器自己的，
+ * 卸载时会一起清掉）。作用有两个：
+ *  ① 一次安装内 release 列表要查两次（主包 + CUDA 伴生包），不该发两个请求；
+ *  ② 匿名额度被用完时还能拿上一次的结果把安装走完 —— 限流不该让用户卡住。
+ */
+const RELEASES_CACHE_FILE = '.releases-cache.json'
+const RELEASES_CACHE_TTL_MS = 15 * 60_000
 
 /**
  * 模型下载源，按顺序回退（同一份 Q4_K_M，仓库都是 gpustack/bge-m3-GGUF）。
@@ -225,6 +239,11 @@ export interface InstallerOptions {
    * 已存在也不使用它。
    */
   preferSystem?: boolean
+  /**
+   * 读 GitHub API 用的 token（可选）。不给就读 `GITHUB_TOKEN` / `GH_TOKEN` 环境变量。
+   * 只发给 api.github.com，绝不给模型下载源。
+   */
+  token?: string
 }
 
 /** zip 中央目录里一条记录（只保留解压需要的字段）。 */
@@ -1137,6 +1156,33 @@ function urlHost(url: string): string {
   }
 }
 
+/**
+ * 限流错误的完整文案：说清「是谁的额度用完了、什么时候恢复、怎么一次解决」。
+ *
+ * 旧文案只有一句「未认证请求每小时 60 次，请稍后重试」，实测（issue #5）把人卡死
+ * 在这里：用户不知道要等多久，也不知道配个 token 就能绕过 —— 而匿名额度是按出口
+ * IP 算的，共用网络下重试几乎永远不会成功。
+ */
+function rateLimitMessage(res: Response, authenticated: boolean): string {
+  const reset = Number.parseInt(res.headers.get('x-ratelimit-reset') ?? '', 10)
+  const when = Number.isFinite(reset) && reset > 0 ? `，额度将在 ${formatEpoch(reset)} 恢复` : ''
+  if (authenticated) {
+    return `GitHub API 限流（已用 token，额度 5000 次/小时）${when}；请等待恢复后重试`
+  }
+  const retryAfter = Number.parseInt(res.headers.get('retry-after') ?? '', 10)
+  const after = Number.isFinite(retryAfter) && retryAfter > 0 ? `，建议 ${retryAfter} 秒后再试` : ''
+  return `GitHub API 限流（未认证请求按出口 IP 每小时 60 次，很可能已被同网络的其他程序用完）${when}${after}；`
+    + '解决办法：设置环境变量 GITHUB_TOKEN（或 GH_TOKEN）为任意 GitHub token 后重试，额度升到 5000 次/小时'
+}
+
+/** 把 x-ratelimit-reset 的 epoch 秒写成本地时间（用户要看的是「几点」。 */
+function formatEpoch(seconds: number): string {
+  const date = new Date(seconds * 1000)
+  if (Number.isNaN(date.getTime())) return '稍后'
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
 /** 等一个背压 drain；顺手把流错误也变成 reject，免得卡死。 */
 function waitDrain(stream: WriteStream): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -1480,6 +1526,8 @@ export class VectorInstaller {
   private controller: AbortController | null = null
   /** 当前正在写的 .part 与它的流（取消时要立刻销毁，否则 fd 悬着）。 */
   private sink: { gen: number; part: string; stream: WriteStream } | null = null
+  /** 本轮安装的发行版列表：主包与 CUDA 伴生包共用，避免同一轮发两次相同请求。 */
+  private releasesCache: readonly unknown[] | null = null
 
   constructor(opts: InstallerOptions) {
     this.opts = opts
@@ -1559,6 +1607,8 @@ export class VectorInstaller {
       ...(this.opts.modelSources ? { sources: this.opts.modelSources } : {}),
     }
     const flavor: RuntimeFlavor = this.opts.flavor ?? 'cpu'
+    // 上一轮（例如用户换过风味后重装）的结果不能带进本轮：release 列表是易失数据。
+    this.releasesCache = null
     const paths = installPaths(root, model.file)
     try {
       const systemExe = this.opts.systemExe ?? null
@@ -1744,8 +1794,7 @@ export class VectorInstaller {
     // prerelease:true，而 latest 只认正式版，现在返回的是一个与本项目无关的
     // v0.6.0（资产只有 nightly-tag.txt）——照它匹配必然失败。正确做法是拉倒序
     // 列表，取第一个含匹配资产的 release（prerelease 与否无关）。
-    const releases = await this.fetchJson(RELEASES_API, '查询 llama.cpp 发行版')
-    if (!Array.isArray(releases)) throw new Error('llama.cpp 发行版接口返回的数据格式异常')
+    const releases = await this.releases(gen)
     const wanted = flavor === 'metal' ? 'cpu' : flavor
     const hit = findAssetInReleases(releases, pattern)
     if (hit !== null) return hit
@@ -1770,8 +1819,7 @@ export class VectorInstaller {
   ): Promise<RuntimeAsset | null> {
     const pattern = runtimeCompanionPattern(platform, arch, flavor)
     if (pattern === null) return null
-    const releases = await this.fetchJson(RELEASES_API, '查询 llama.cpp 发行版')
-    if (!Array.isArray(releases)) return null
+    const releases = await this.releases(gen)
     const hit = findAssetInReleases(releases, pattern)
     if (hit === null) {
       this.report(gen, { message: `没有找到 CUDA 运行库（匹配 ${String(pattern)}）：llama-server 可能起不来，可改用 Vulkan 或 CPU 运行时` })
@@ -2094,31 +2142,103 @@ export class VectorInstaller {
   }
 
   /** 发一个带 UA 的请求；extraHeaders 给续传（Range/If-Range）用。 */
+  /**
+   * 发一个带 UA 的请求；网络层错误翻译成人话，但 AbortError 原样上抛。
+   *
+   * 只有 api.github.com 才带 Authorization：别的下载源（hf-mirror / modelscope）
+   * 收到一个 GitHub token 既没用又等于把凭据送给第三方。
+   */
   private async request(url: string, accept: string, extraHeaders?: Record<string, string>): Promise<Response> {
     const impl = this.opts.fetchImpl ?? fetch
     const signal = this.requestSignal()
+    const headers: Record<string, string> = { accept, 'user-agent': USER_AGENT }
+    if (urlHost(url) === 'api.github.com') {
+      const token = this.token()
+      if (token !== null) headers.authorization = `Bearer ${token}`
+    }
     try {
-      return await impl(url, {
-        headers: { accept, 'user-agent': USER_AGENT, ...extraHeaders },
-        signal,
-        redirect: 'follow',
-      })
+      return await impl(url, { headers: { ...headers, ...extraHeaders }, signal, redirect: 'follow' })
     } catch (error) {
       if (isAbortError(error)) throw error
       throw new Error(`网络请求失败（${urlHost(url)}）：${describeError(error)}`)
     }
   }
 
+  /** 本次安装用的 GitHub token：显式注入优先（给了就只认它，测试可传 '' 强制匿名），其次环境变量。 */
+  private token(): string | null {
+    if (this.opts.token !== undefined) {
+      const explicit = this.opts.token.trim()
+      return explicit === '' ? null : explicit
+    }
+    for (const name of TOKEN_ENV_VARS) {
+      const value = process.env[name]?.trim()
+      if (value !== undefined && value !== '') return value
+    }
+    return null
+  }
+
   private async fetchJson(url: string, what: string): Promise<unknown> {
     const res = await this.request(url, 'application/vnd.github+json')
-    if (res.status === 403 || res.status === 429) {
-      throw new Error('GitHub API 限流（未认证请求每小时 60 次），请稍后重试')
-    }
+    // 判定「是不是限流」只看响应头，不看状态码：403 既可能是额度耗尽，也可能是
+    // 代理/区域策略拒绝、secondary rate limit、甚至 token 权限不足。旧版一律报
+    // 「未认证请求每小时 60 次」，让拿着 token 的用户照着这句话重试一辈子。
+    const remaining = res.headers.get('x-ratelimit-remaining')
+    const limited = res.status === 429 || (res.status === 403 && (remaining === '0' || res.headers.get('retry-after') !== null))
+    if (limited) throw new Error(rateLimitMessage(res, this.token() !== null))
     if (!res.ok) throw new Error(`${what}失败：HTTP ${res.status}（${url}）`)
     try {
       return await res.json()
     } catch (error) {
       throw new Error(`${what}返回的不是合法 JSON：${describeError(error)}`)
+    }
+  }
+
+  /**
+   * 查发行版列表，带两层优化（都是 issue #5 的直接推论）：
+   *  ① 一次安装内只查一次 —— 主包与 CUDA 伴生包共用同一份结果；
+   *  ② 查询失败时退回磁盘上的近期缓存；查到了也顺手写一份。
+   *
+   * 缓存只是**降级通道**：它绝不覆盖一份成功的实时结果，过期（15 分钟）或读不出来
+   * 就当没有。命中缓存时会在进度消息里说明，用户不会以为自己拿到了最新构建。
+   */
+  private async releases(gen: number): Promise<readonly unknown[]> {
+    if (this.releasesCache !== null) return this.releasesCache
+    const cachePath = join(installPaths(this.opts.root).dir, RELEASES_CACHE_FILE)
+    try {
+      const list = await this.fetchJson(RELEASES_API, '查询 llama.cpp 发行版')
+      if (!Array.isArray(list)) throw new Error('llama.cpp 发行版接口返回的数据格式异常')
+      this.releasesCache = list
+      this.writeReleasesCache(cachePath, list)
+      return list
+    } catch (error) {
+      const cached = this.readReleasesCache(cachePath)
+      if (cached === null) throw error
+      this.releasesCache = cached
+      this.report(gen, {
+        message: `查询 llama.cpp 发行版失败（${describeError(error)}），改用 ${Math.round((Date.now() - cached.at) / 60_000)} 分钟前的缓存结果继续安装`,
+      })
+      return cached.releases
+    }
+  }
+
+  private writeReleasesCache(path: string, releases: readonly unknown[]): void {
+    try {
+      ensureDir(dirname(path), '创建运行时目录')
+      writeFileSync(path, JSON.stringify({ at: Date.now(), releases }))
+    } catch {
+      // 缓存写不进去不影响安装（只影响下次限流时能不能兜底）。
+    }
+  }
+
+  private readReleasesCache(path: string): { at: number; releases: readonly unknown[] } | null {
+    try {
+      const raw = JSON.parse(readFileSync(path, 'utf8')) as { at?: unknown; releases?: unknown }
+      if (typeof raw.at !== 'number' || !Array.isArray(raw.releases)) return null
+      if (raw.releases.length === 0) return null
+      if (!Number.isFinite(raw.at) || Date.now() - raw.at > RELEASES_CACHE_TTL_MS) return null
+      return { at: raw.at, releases: raw.releases }
+    } catch {
+      return null
     }
   }
 

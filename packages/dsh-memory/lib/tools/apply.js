@@ -20,7 +20,7 @@ import {
                           
                 
 } from './index.js'
-import { renderGetResult, renderListResult, renderScopesResult, renderSearchResult } from './render.js'
+import { renderBlockResult, renderGetResult, renderHooksResult, renderListResult, renderScopesResult, renderSearchResult } from './render.js'
 import { resolveCurrentScopes, scopeDisplayName, sessionShortId,               } from '../provider/scope.js'
 
 export const name = 'dsh-tool-memory'
@@ -137,10 +137,31 @@ export function apply(ctx     , config                   = {}) {
   }
 
   register(tools.memory_save, (value, _args, exec) => {
-    const agent = (exec                                   )?.agent
-    return value.deduped
-      ? `已更新既有记忆（内容相同，去重）：${value.id} @ ${renderScope(value.scope, agent)}`
-      : `已保存记忆 ${value.id} @ ${renderScope(value.scope, agent)}`
+    // 0.37.0：作用域 key 只在头部出现一次 —— head 直接写原始 key（value.scope），
+    // 去掉了原先额外追加的那行 key 文案（它和 @ <scope> 说同一件事，重复）。
+    // 文案仍以「已保存记忆 <uuid> @ <key>」开头，signals.ts 按 UUID 抽取不受影响。
+    const head = value.deduped
+      ? `已更新既有记忆（内容相同，去重）：${value.id} @ ${value.scope}`
+      : `已保存记忆 ${value.id} @ ${value.scope}`
+    // supersedes 场景补一条修正关系（旧记录所在作用域可不同）。
+    const correctionLine = value.supersedes === undefined
+      ? ''
+      : `\n已用本条修正旧记忆 ${value.supersedes.id}${value.supersedes.scope !== undefined ? `（旧记录在 ${value.supersedes.scope}）` : ''}`
+    const tail = correctionLine
+    const hook = value.hook
+    if (hook === undefined) return `${head}${tail}`
+    const approvalText                         = {
+      approved: '已获批准，会按设定时机运行',
+      rejected: '用户拒绝批准，**不会运行**（改脚本或让用户批准后才生效）',
+      timeout: '等待批准超时，**不会运行**',
+      unavailable: '当前环境无法审批，**不会运行**',
+      unsupported: '当前 provider 不支持钩子，脚本未登记',
+      'not-needed': '无需批准',
+    }
+    const state = hook.approval.startsWith('save-failed')
+      ? `登记失败：${hook.approval.slice('save-failed: '.length)}`
+      : approvalText[hook.approval] ?? hook.approval
+    return `${head}${tail}\n随附规则代码 ${hook.id !== '' ? `${hook.id} ` : ''}（${hook.phase}）：${state}`
   })
 
   register(tools.memory_search, (value, _args, exec) => {
@@ -165,6 +186,16 @@ export function apply(ctx     , config                   = {}) {
   register(tools.memory_get, (value, _args, exec) => {
     const agent = (exec                                   )?.agent
     return renderGetResult(value, (scope) => renderScope(scope, agent))
+  })
+
+  register(tools.memory_block, (value, _args, exec) => {
+    const agent = (exec                                   )?.agent
+    return renderBlockResult(value, (scope) => renderScope(scope, agent))
+  })
+
+  register(tools.memory_hooks, (value, _args, exec) => {
+    const agent = (exec                                   )?.agent
+    return renderHooksResult(value, (scope) => renderScope(scope, agent))
   })
 }
 

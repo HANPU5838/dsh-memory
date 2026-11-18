@@ -2,7 +2,7 @@
   <img src="https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/preview/icon-128.png" width="84" alt="记忆系统">
 </p>
 
-> ### 📦 本仓库在上游基础上持续维护（v0.63.0）
+> ### 📦 本仓库在上游基础上持续维护（v0.64.0）
 >
 > 本项目是 **DSH 记忆系统**（npm 包 `@restregular/dsh-memory`，MIT）的分支维护版：
 > 在上游 v0.30.1 之上做了平台适配、插件化、可靠性加固、语义认知层与嵌入性能优化，并在 **0.40/0.41 补上 BM25+RRF、记忆健康度、冲突自动裁决、可疑写入隔离、本地备份与离线评测**。
@@ -23,9 +23,9 @@
 
 **本地优先的长期记忆，让每次对话都接得上。**
 
-JSONL 落盘 · 本机向量检索 · 六个模型工具 · 自动召回 · 硬性规则 · 可视化管理面板
+JSONL 落盘 · 本机向量检索 · 八个模型工具 · 自动召回 · 硬性规则 · 作用域归档 · 主动屏蔽 · 可视化管理面板
 
-[![version](https://img.shields.io/badge/version-v0.63.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![version](https://img.shields.io/badge/version-v0.64.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/HANPU5838/dsh-memory/blob/main/LICENSE)
 [![ci](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.13-5FA04E.svg)](https://nodejs.org/)
@@ -34,6 +34,17 @@ JSONL 落盘 · 本机向量检索 · 六个模型工具 · 自动召回 · 硬�
 
 > **它解决的不是「存一段文本」，而是「让模型在该记的时候记住、该用的时候用上」。**
 > 记忆默认只落在本机；没有向量服务也能工作——检索自动退化为词法，不产生任何网络请求。
+
+## 联系方式
+
+| 平台 | 账号 | 名称 |
+| --- | --- | --- |
+| 🌐 网站 | [hanpuhan.cn](https://hanpuhan.cn) | 清崖文存 |
+| ✉️ 邮箱 | [640615397@qq.com](mailto:640615397@qq.com) | — |
+| 📱 快手 | QQ640615397 | 涵清 |
+| 💬 QQ 群 | 9591166552 | 清崖文存 |
+
+---
 
 ![记忆记录：搜索、作用域筛选、类型与修正关系](https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/preview/memory-records.png)
 
@@ -55,7 +66,7 @@ JSONL 落盘 · 本机向量检索 · 六个模型工具 · 自动召回 · 硬�
 
 | 能力 | 说明 |
 | --- | --- |
-| **六个工具** | `memory_save` / `memory_search` / `memory_list` / `memory_get` / `memory_forget` / `memory_scopes`。`memory_search` 只回印象（8 位 id / 作用域 / 类型 / 标签 / 短摘要），正文和元数据用 `memory_get` 的 `fields` 按需取；同一会话里已出现过的条目只回 id。范围外命中默认只给**作用域清单**（`outOfScope` 字段：名字 / 条数 / 用途，0.28.0 起不再带条目摘要），确认后带 `requestApproval: true` 重发才弹审批。`description` 字段在普通限制下必填，审批卡会展示它。`memory_scopes` 管目录：`action="list"` 给作用域名字 / 用途 / 当前可读可写状态，`action="edit"` 编辑某个作用域的**用途 / 别名**（0.29.0），`action="request"` 申请范围外权限；目录本身不返回任何正文。**作用域参数传裸名**（`handbook`）：0.26.0 起工具输出里的展示名 `custom:handbook` 粘进参数会被自动归一，`project:` / `session:` 本来就直接可用 |
+| **八个工具** | `memory_save` / `memory_search` / `memory_list` / `memory_get` / `memory_forget` / `memory_scopes` / `memory_block` / `memory_hooks`。`memory_search` 只回印象（8 位 id / 作用域 / 类型 / 标签 / 短摘要），正文和元数据用 `memory_get` 的 `fields` 按需取；同一会话里已出现过的条目只回 id。范围外命中默认只给**作用域清单**（`outOfScope` 字段：名字 / 条数 / 用途，0.28.0 起不再带条目摘要），确认后带 `requestApproval: true` 重发才弹审批。`description` 字段在普通限制下必填，审批卡会展示它。`memory_scopes` 管目录：`action="list"` 给作用域名字 / 用途 / 当前可读可写状态，`action="edit"` 编辑某个作用域的**用途 / 别名**（0.29.0），`action="request"` 申请范围外权限；目录本身不返回任何正文。`memory_block`（0.32.0）让 Agent 把无关记忆**藏起来**而不是删掉：`action="block"` / `"unblock"` / `"list"`，目标可以是作用域或记录 id / 前缀，层级 `session`（只影响本会话）/ `workspace`（影响该工作区所有会话）。**作用域参数传裸名**（`handbook`）：0.26.0 起工具输出里的展示名 `custom:handbook` 粘进参数会被自动归一，`project:` / `session:` 本来就直接可用。`memory_hooks`（0.35.0）管理规则附带的脚本：`list` / `get` / `save` / `delete` / `approve` / `enable` / `disable` / `run`（试跑不写记忆）；写脚本前 Agent 会先加载随包技能 `memory-hook-scripts` |
 | **四种作用域** | 会话 / 项目 / `global` / 自定义名。默认写进当前会话，读默认合并会话 + 项目 + global；项目作用域可起别名。自定义作用域**首次由 Agent 创建时必须带 `scopeDescription`**（一句话用途），可选带 `scopeRule` 写一条初始规则；元数据存在 `<storeDir>/scope-meta/`，删光记录也不会丢 |
 | **作用域目录与绝对隔离** | `memory_scopes` 列出范围内 / 范围外的名字与用途（`action="edit"` 可改用途与别名）；normal / none 下还带**初始化记录正文**（每个作用域最多 3 条，方便 Agent 直接读到“这个作用域主要放什么”）。绝对限制下范围外作用域**仍可发现**，但正文（含初始记录）永不可读、不可写、不可申请（没有任何审批放行路径）；普通限制下范围外条目可申请，`memory_scopes request` 走审批后写入**本会话**授权（默认只读，写权限必须单独申请），子 Agent 沿父会话继承 |
 | **会话授权（grants）** | Agent 申请、用户批准的例外单独存在 `<storeDir>/grants/<session>.json`，不并入可见域策略；只读 / 可写独立、可撤销、只在本会话（及子 Agent）生效；`absolute` 下授权不生效，作用域被删除重建后按创建代次自动失效 |
@@ -83,14 +94,17 @@ JSONL 落盘 · 本机向量检索 · 六个模型工具 · 自动召回 · 硬�
 | **自动召回** | 每轮按用户问题召回；新会话第一步注入项目 / global 摘要；发布、部署、工具失败等行为按标签触发定向召回 |
 | **印象形态** | 每轮只给每条记忆的短摘要；模型判断相关但需要细节时再 `memory_get` 取全文，省 token 也不丢信息 |
 | **硬性规则** | `kind: rule` 进系统提示常驻段；行首带 8 位 id，注入的是摘要，需要全文时用 `memory_get`；旧会话会收到新增 / 编辑提醒；超预算有明确警告，不静默丢弃 |
+| **规则代码（0.35.0）** | 规则记忆可附带脚本，插件在三个时机运行：**保存前校验**（`before-save`，返回 `{ok:false,message}` **直接拒绝保存**并把理由回给模型）、**保存后观察**（`after-save`，不阻断）、**注入前解析**（`before-inject`，改写正文或丢弃）。通过 `memory_save` 的 `hookCode` / `hookPhase` 随规则登记，或用 `memory_hooks` 工具单独管理。代码存在 `<storeDir>/hooks.json`，**不进检索 / 摘要 / 召回**；在 node:vm 沙箱里同步运行（无 `require` / `process` / 网络、禁用 `eval`、120ms 超时），脚本崩溃只告警不阻断。**首次保存或改代码要用户批准一次**（按代码指纹记账，改一个字符重新批准），未批准的代码永不执行。面板「规则代码」页可逐行查看 / 编辑 / 试跑 / 启停，用户自己保存的代码视为已批准 |
 | **记忆权限** | 输入框旁的「记忆权限」按钮设置本会话可读的作用域 + 限制等级（绝对 / 普通 / 无限制）；每个作用域一行就是一条设置：**勾选**表示本会话可访问，行内**【绑定】/【可读】/【可写】**控制工作区默认可见与读写权限——**【绑定】点一下立即保存**（0.25.13 起），绑定到当前工作区后新会话默认可见，可读 / 可写独立影响工具读写；Agent 通过 `memory_scopes request` 申请到的范围外授权**也用勾选呈现**（名称右边挂一个「AI」气泡，样式与你自己勾选的行区分开），取消勾选只是草稿，**点「保存」才真正撤销**（0.25.4 起），且按钮数字 / 「已选」都把 AI 授权算进去（0.25.5 起）并**实时轮询**——浮窗关着，Agent 刚拿到的授权也会让按钮数字自己变（0.25.6 起）；**整张作用域卡片都能点选**，点名称 / 计数 / 留白等同点勾选框（0.25.7 起），本会话那一行直接叫「**session:当前会话**」（0.25.8 起，0.25.10 起带类型前缀）；**所有作用域名都以 `global:` / `project:` / `session:` / `custom:` 开头**（0.25.10 起）；浮窗挂在页面根层，不会被输入框上方的浮动按钮盖住（0.25.8 起）；Agent 及其子 Agent 都按它检索、注入与 `memory_get` |
 | **修正版编辑** | 面板里编辑一条记忆 = 新建一条修正版并通过 `supersedes` 指向旧记录，旧记录不原地修改；记录页「是否被修正」筛选默认隐藏旧版本，可切到全部 / 只看已修正 |
+| **归档（0.32.0）** | **会话作用域**随会话归档冻结（0.30.0）；**项目作用域**绑定工作区路径，归档记录持久化在 `archive/project.json`。工作区从侧边栏移除 → 归档条目转 `dormant`（记忆保留、不参与检索）；重新加入 → **自动解除归档**（实时读宿主 `workspaceRegistry`，5 秒节流对账）。`global` / 自定义作用域**拒绝归档**（`SCOPE_NOT_ARCHIVABLE`）。归档不是权限：没有审批通道、`requestable=false`，面板可手动「解除归档」 |
+| **屏蔽（0.32.0）** | Agent 用 `memory_block` 主动降噪：被屏蔽的作用域 / 记录不再出现在检索、注入、规则段、过程段与目录里，**数据一字不改**，`unblock` 立刻复原。存储 `blocks/session/<id>.json` / `blocks/workspace/<sha1>.json`。**审批矩阵**：按作用域屏蔽 → 弹审批；工作区级 → 弹审批；目标是硬性规则（`kind='rule'`）→ **一律弹审批，即使按 id**；只有「会话级 + 按记录 id/前缀 + 不是规则」静默生效。被屏蔽的作用域**拒绝 Agent 写入**（`SCOPE_BLOCKED`），避免写进去自己看不见。**0.34.0 起它真的会被用起来**：常驻策略段、摘要头部、召回头部都点名 `memory_block` 并给出「无关条目就屏蔽，屏蔽是降噪不是清理」的口径（此前三处只提 `memory_forget`，等于把降噪指到了删除上） |
 | **范围外审批** | 普通限制下，`memory_search` 撞到可见域外的记忆**默认只返回作用域清单**（名字 / 条数 / 用途，不含任何条目内容与摘要，0.28.0 起），不自动弹审批；Agent 确认某个作用域的用途确实相关后，带 `requestApproval=true` 重发查询才会发起审批。另一条路是 `memory_scopes request`（申请整个作用域的本会话权限）。发起后，审批卡在**对应会话的输入框上方**出现（样式与系统权限审批一致）：展示工具、Agent 说明、查询关键词与范围外记忆摘要，支持逐条勾选 / 全选 / 取消全选（「允许选中的 N 条」或整单「允许一次」）或「拒绝」；点记忆 ID 直接跳到面板「记录」页并展开该条。**0.25.14 起**审批等待期间还会像系统审批 / ask 工具一样，在该会话的侧边栏行显示黄色圆点与「待审批」（含后台会话；回答或超时后撤销），其它插件也能从宿主 `uiSession.sessionStatus` 读到这条阻塞 |
 | **上下文去重** | `memory_search` / `memory_list` 返回过的条目记进会话上下文状态；同一版本再次命中只回记忆 ID（`memory_search` 的裸 ID 与带摘要条目之间空一行），并提示用 `memory_get` 取全文（内容更新后重新给摘要） |
 | **状态记忆** | `kind: state` 默认 7 天 TTL；注入带「状态，使用前验证」；过期后默认不进检索 / 摘要 / 召回，但 `memory_get` 与面板仍可取 |
 | **流程索引** | `kind: procedure` 的目录进系统提示：按当前工作区 + 触发词（工具名 / 关键词）列 `id · 触发词 → 标题`，需要时再用 `memory_get` 取全文 |
-| **可视化管理** | 记录页分「**记忆** / **作用域**」两个子标签页：记忆侧浏览 / 搜索 / 新建 / 编辑 / 删除（编辑生成修正版），并**可主动做语义检索**（与 `memory_search` 同一套排序）、有「是否被修正」筛选；作用域侧列出每个域的名称、**用途**、记忆条数与最近更新（与 `memory_scopes` 目录同源），**可直接编辑用途与别名**（0.29.0，别名可选、留空即移除），可一键跳到该域的记忆列表；记忆树展示作用域、类型与修正链；设置改完即存；导入导出 |
-| **一键向量后端** | 面板里下载 llama.cpp 运行时与内置模型，按 CPU / 内存 / 显卡推荐；换模型自动重建向量 |
+| **可视化管理** | 记录页分「**记忆** / **作用域**」两个子标签页：记忆侧浏览 / 搜索 / 新建 / 编辑 / 删除（编辑生成修正版），并**可主动做语义检索**（与 `memory_search` 同一套排序）、有「是否被修正」筛选；作用域侧列出每个域的名称、**用途**、记忆条数与最近更新（与 `memory_scopes` 目录同源），**可直接编辑用途与别名**（0.29.0，别名可选、留空即移除），可一键跳到该域的记忆列表；**记忆图**页有三种视图（记忆树 / 2D 星图 / 3D 星图，0.39.0 新增 3D），都展示作用域、类型与修正链；设置改完即存；导入导出 |
+| **一键向量后端** | 面板里下载 llama.cpp 运行时与内置模型，按 CPU / 内存 / 显卡推荐；换模型自动重建向量。查发行版列表走 GitHub API：设了 `GITHUB_TOKEN` / `GH_TOKEN` 就是 5000 次/小时，没设是匿名 60 次/小时**按出口 IP 算**（0.34.1 起限流会报恢复时间与解法，并会用近期缓存把安装走完） |
 | **可插拔嵌入后端** | `retrieval.vector.provider`：`local`（默认，本机 llama-server）/ `openai`（任意兼容 `/v1/embeddings`）/ `ollama` / `off`（纯词法，永不联网）；只有 `local` 由插件托管子进程 |
 | **平台自检** | 面板「向量服务 → 环境自检」一次探测 平台 / glibc loader / 后端 / 磁盘 / 目录权限，Termux 与普通 Linux 都是自包含的（不改宿主、不需要环境变量） |
 | **插件事件** | 对外发 `memory/record-saved` / `memory/recalled` / `memory/record-forgotten` 事件（只含元数据，不含正文），其他插件可 `ctx.on(...)` 订阅 |
@@ -101,7 +115,7 @@ JSONL 落盘 · 本机向量检索 · 六个模型工具 · 自动召回 · 硬�
 | **词法只认内容词（0.63.0）** | 词法准入要求命中至少一个「≥2 字非功能词」；「怎么办」「怎么减肥」这类只有功能词重叠的查询不再误命中无关记忆（语义相关交由向量通道） |
 | **保底召回精度边界（0.63.0）** | 零命中时的保底地板取 `max(noiseFloor, minScore − relax)`，默认 0.48：真命中 0.483/0.4995 捞得回，无关查询 0.459/0.454 不硬凑；`recallFallback.relax` 可调 |
 | **空会话作用域回收（0.63.0）** | 每小时维护任务会回收「没有任何记录、且超过保留期」的 `session:<id>` 作用域元数据（默认 1 天，`limits.sessionScopeMaxAgeDays` 可调，0 禁用）；有记录/活跃/已归档的作用域一律不动 |
-| **向量后端手动安装（0.63.0 默认）** | `retrieval.vector.autoBootstrap` 默认 `'off'`：**不自动装包、不自动下模型、也不自动探测端点**，一切由面板「下载并安装」按钮显式发起（`POST /embed/install`）。下载/安装是一次性、可感知的成本（运行时 + 400MB+ 模型），不该由「启用向量」隐式触发。日志在 `<installRoot>/bootstrap.log` |
+| **向量后端手动安装（0.62.4–0.62.9，0.63.0 已恢复自动）** | 曾把 `autoBootstrap` 默认设为 `'off'`（不自动装包/下模型/探测端点，一切由面板「下载并安装」发起）。0.63.0 因它会连带关掉系统运行时采纳而恢复为 `'auto'`；仍可显式设 `'off'` 回到手动模式 |
 | **零配置自举（默认开启，0.63.0 恢复）** | `autoBootstrap` 默认 `'auto'`：Termux 自动 `pkg install llama-cpp` → 只下模型 → 托管启动；任意平台已有系统 llama-server 只补模型；桌面端仍不擅自下载（`always` 才托管下载）。**Termux 无系统运行时且无 glibc 时改走系统运行时（pkg 装），绝不下载跑不起来的 glibc 托管运行时** |
 | **本机端点自动发现（0.60.0）** | 自举前扫 `127.0.0.1`：Ollama(11434)/LM Studio(1234)/llama.cpp(8080)/通用 OpenAI 兼容(8000)，**同模型 + 同维度**验证通过就直接采用，零下载；维度不符宁可不采用 |
 | **端口冲突回退（0.60.0）** | 默认端口被占时自动换空闲端口并同步 endpoint（显式 `spawn.port` 不动），不再静默降级成词法 |
@@ -195,7 +209,7 @@ bge-m3 1024 维，llama-server CPU 6 线程，2026-11-10）：
 | 批量嵌入（batch=8 vs 1） | 3.8 rec/s vs 2.8 rec/s（≈1.4×，CPU 上省的是调度） |
 | 回填 | batch=8 3.2 rec/s；单条失败只留 null，不拖垮整批 |
 | ANN（纯 JS HNSW，合成 128 维） | 2k：P50 1.3ms/召回 100%；10k：1.15ms/98%（10.4×）；20k：1.73ms/94%（14.6×） |
-| 测试 | **1120 例 / 1119 pass / 1 skip / 0 fail**（v0.63.0） |
+| 测试 | **1243 例 / 1242 pass / 1 skip / 0 fail**（v0.64.0） |
 | 检索评测（合成集 94 条 / 48 查询，真实 bge-m3） | base recall@5 0.7708 → **产品默认 0.9167**；MRR 0.7483 / nDCG 0.7912（方法见 [docs/benchmark.md](docs/benchmark.md)） |
 
 复现：`node tools/bench/run.mjs`（live 模式需本地嵌入服务；无服务时自动合成数据）。
@@ -218,12 +232,56 @@ bge-m3 1024 维，llama-server CPU 6 线程，2026-11-10）：
   没有响应时，不会把词法结果冒充成语义结果。嵌入完成后列表会自动刷新成语义结果。
 - 作用域下拉与新建 / 编辑 / 删除仍然照常工作；从审计页点记忆 ID 跳过来时会自动回到普通列表并展开该条。
 
-### 记忆树
+### 记忆图
+
+「记忆图」是这一个标签页的总称，顶部二级切换里有三个视图：**记忆图**（原记忆树）、
+**2D 星图**、**3D 星图**。三者共用同一份数据与同一套筛选状态，来回切换不重新取数、
+不丢搜索 / 筛选 / 选中，也不会让两个渲染器同时跑（非活动方暂停）。
+
+#### 记忆图（原记忆树）
 
 按 **作用域 → 类型 → 记录** 三层展开，根节点显示总数。`supersedes` 是关系而不是层级，
 所以不改树结构：金色虚线从修正版弯到旧版，悬停或选中任意一端，整条修正链一起点亮。
 
 ![记忆树](https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/preview/memory-tree.png)
+
+#### 2D 星图
+
+记忆树回答「这条记录挂在哪个作用域、哪个类型下面」，星图回答「记忆堆在哪儿、有多密」：
+每个作用域是一颗星，它下面的记忆按**黄金角螺旋**（2.39996 rad）铺成同心环 —— 无随机量，
+同样的数据永远得到同一张图。
+
+![星图](https://raw.githubusercontent.com/RestRegular/dsh-memory/main/preview/memory-graph.png)
+
+- **远近**：环越外层的点越小、越暗、带一点点模糊（`z` 值驱动 `--z-op` / `--z-blur` /
+  `z-index`），因此看起来有纵深，而不是一屏等大的散点。整张图按椭圆铺开以吃满宽画布，
+  簇之间用确定性斥力松弛 + 外扩收尾，保证不会互相压住。
+- **星**：大小跟着记忆数增长，圆环是这一簇的真实外沿；**点星心折叠 / 展开**它下面的记忆
+  （和记忆树共用同一份折叠状态，两边看到的一样）。折叠后星变暗、轨道环消失。
+- **悬停**：只点亮「这个点 + 它的星 + 修正关系另一端」，其余淡出；记忆树里选中一条记录，
+  星图里同一个点也是选中态。搜索命中单独高亮，但**不裁剪图形**（图要保持形状）。
+- **平移与缩放**：直接拖动画布平移；`Ctrl` + 滚轮**以鼠标位置为锚点**缩放（放大时光标下
+  那个点不动），缩放范围 `0.08`–`5` 集中在 `GRAPH_VIEW` 里配。`Fit` 会同时算缩放与平移，
+  但只要你手动调过视角，之后重渲染不再自动 Fit 覆盖你的视角。
+- 搜索、作用域筛选、类型筛选、修正连线开关、缩放**各视图共享**，来回切换不会丢上下文。
+
+#### 3D 星图
+
+真三维版本：作用域是中心恒星 + 环绕轨道，记忆是轨道上的星点，连线是真实的 3D 线段。
+坐标由 2D 的确定性布局派生，同样没有随机量 —— 同一份数据每次都是同一个星系。
+
+- **手势**：左键拖空白 = 平移；`Space` + 左键拖 = 整体旋转视角；拖作用域中心球 = 移动
+  整个星系；拖轨道环 = **只转这个星系**；拖记忆星 = 移动该节点；`Ctrl` + 滚轮 = 缩放；
+  双击星 = 聚焦；单击星 = 选中并打开详情抽屉。
+- **轨道**：`TorusGeometry` 做的真圆环，有厚度、有透视、会互相遮挡；旋转改的是
+  `quaternion` 而不是坐标，所以转起来是「绕自己的轴转」而不是「绕世界原点甩」。
+- **性能**：单个作用域下星数 ≥ 24 自动切 `InstancedMesh`；连线用 `BufferGeometry` 原地
+  更新顶点，不每帧重建几何；标签是 HTML 覆盖层，随相机投影实时定位，远处的次要标签会隐藏。
+- **持久化**：布局与视角存在 `localStorage` 的 `dsh-memory:graph-layout`（结构
+  `{version, scopes, records, views}`，以稳定 ID 为键）。坏数据静默回退，不炸面板；
+  「恢复默认」只清用户覆盖层再按确定性默认重算。
+- **降级**：没有 WebGL 时明确提示并自动退回 2D 星图。Three.js 走 `require.async` 懒加载，
+  只有第一次进 3D 才拉那个 chunk，不进记忆树 / 2D 的加载路径。
 
 ### 设置
 
@@ -346,7 +404,7 @@ try/catch——任何一半失败都只记一行日志，绝不让 DSH 启动失
 | 半边 | 作用 |
 | --- | --- |
 | `lib/provider` | 提供 `memory` 服务：JSONL 存储、双通道检索、向量回填、向量后端生命周期与一键安装 |
-| `lib/tools` | 注册六个模型工具 |
+| `lib/tools` | 注册八个模型工具 |
 | `lib/inject` | `agent/pre-step` 召回、摘要、策略、规则与行为触发 |
 | `lib/panel` | `/memory/api` 管理接口（含同源 / 登录围栏） |
 | `lib/client.js` | 设置页「记忆系统」区块与左侧栏入口（注册 id == 包名） |
@@ -413,7 +471,7 @@ memory_forget({ "id": "3f2a9c1d", "description": "删除过期的临时结论" }
 后会重新返回摘要。`memory_search` 里这些裸 ID 单独成块，与带摘要的条目之间**空一行**，不会看起来像
 上一条的续行。状态与召回/摘要共用同一份会话去重记录（`summary_injected` / `content_injected`）。
 
-**`description`（0.22.0）**：六个工具都新增 `description` 参数 —— 一句话说明这次调用要做什么。
+**`description`（0.22.0）**：所有 `memory_*` 工具都新增 `description` 参数 —— 一句话说明这次调用要做什么。
 本会话「记忆权限」为**普通限制**（默认）时**必填**，漏了会被 `DESCRIPTION_REQUIRED` 拒绝；
 绝对限制 / 无限制下可省略。它只用于范围外访问的审批卡（展示给用户判断是否放行），不写进记忆。
 
@@ -525,6 +583,42 @@ memory_scopes({
 宿主重启用历史里的规则行做种子，不会整批重提醒。关掉它只停提醒，常驻段与检索照旧。
 
 规则段注入的是**摘要**：每行是 ``- `<8位id>` <正文前240字>``。段头会明确说明这一点，模型需要完整规则或细节时用 `memory_get` 按 ID 取；因此规则再长也不会把整段正文常驻在系统提示里。
+
+### 规则代码（0.35.0）：让校验由代码强制
+
+「记忆内容必须是『概括：正文』格式」这类规则，光写进常驻段还靠模型自觉；能写成检查的，应该交给代码。给一条规则记忆附一段脚本，插件就会在固定时机替你跑：
+
+| 时机 | 触发点 | 能做什么 |
+| --- | --- | --- |
+| `before-save` | `memory_save` 落盘前 | 返回 `{ ok: false, message: '哪里错、怎么改' }` **拒绝这次保存**，理由原样回给模型，它改对后重试；报错自动带上关联规则 id |
+| `after-save` | 落盘后 | 只观察 / 附注，不改结果、不阻断 |
+| `before-inject` | 进入上下文前 | 返回 `{ content: '改写后' }` 改写正文，`{ drop: true }` 丢弃整条。覆盖**三条注入通道**：规则段、摘要、每轮自动召回 |
+
+钩子**不必挂在记忆上**：随 `memory_save.hookCode` 保存会关联到那条规则（记 `ruleId`）；用 `memory_hooks` 的 `action:"save"` 且不传 `ruleId` 则建成**通用钩子**，靠 `scopes` / `kinds` / `phase` 与脚本里的 `ctx` 决定何时自动执行。代码实际按作用域 + 类型匹配触发，`ruleId` 只作关联标注。
+
+随规则一起登记（`memory_save` 的 `hookCode` / `hookPhase`）：
+
+```
+memory_save({
+  kind: 'rule',
+  content: '记忆内容的规范：必须以「概括句：正文」的格式保存',
+  hookPhase: 'before-save',
+  hookCode: `
+    function verify(memory) {
+      if (!memory.content.includes('：')) {
+        return { ok: false, message: '必须用全角冒号分隔「概括句：正文」' }
+      }
+      return { ok: true }
+    }
+  `,
+})
+```
+
+- **写脚本前先加载随包技能**：Agent 用 `skill` 工具加载 `memory-hook-scripts`，里面有入口函数名、沙箱 API、返回约定和 8 个现成范例。别凭记忆写 —— 入口名错了脚本不会运行。
+- **首次保存或改代码要批准一次**：审批卡会展示完整代码。同一段代码不重复问，改一个字符就重新批准；没批准的代码**永远不会执行**。
+- **代码不进检索**：存在 `<storeDir>/hooks.json`，`memory_search` / 摘要 / 召回都看不到，只有 `memory_hooks` 工具和面板「规则代码」页能读。
+- **沙箱边界**：node:vm、无 `require` / `process` / 网络、禁用 `eval`、同步、默认 120ms 超时。脚本`throw` 只记告警并**放行**（写坏的校验器不能锁死记忆）；要拒绝就正常 `return { ok:false }`。
+- **面板**：「规则代码」标签页可逐行查看 / 编辑 / 拿样例试跑（`run` 不写记忆）/ 启停 / 删除；可关总开关、调超时、关掉"Agent 提交代码需我批准"。用户自己保存的代码视为已批准。
 
 ### 流程索引（procedure）
 
@@ -841,6 +935,7 @@ npm run verify  # 构建到 .verify/，不落 packages/
 
 ## 更新日志
 
+- **0.32.0** —— 作用域归档（会话 / 项目）+ Agent 主动屏蔽：项目作用域归档持久化在 `archive/project.json`，工作区被移除时转 `dormant`（记忆保留、不参与检索）、重新加入时**自动解除归档**；`global` / 自定义作用域拒绝归档。新增第 7 个工具 `memory_block`（`block` / `unblock` / `list`），可按作用域或记录 id / 前缀屏蔽，层级分会话级与工作区级；**审批矩阵**：按作用域 / 工作区级 / 目标是规则一律弹审批，只有「会话级 + 按记录 id + 非规则」静默生效。屏蔽在检索、注入、规则段、过程段与目录里全部生效，被屏蔽作用域拒绝 Agent 写入（`SCOPE_BLOCKED`）。面板新增 `/memory/api/archive`、`/memory/api/blocks` 与 `archived` / `blocked` 透传，记录页默认折叠这两类并给计数开关、行内「解除归档 / 解除屏蔽」。
 - **0.30.1** —— 修复 CUDA 运行时安装误选伴生包（issue #4）：`runtimeAssetPattern` 的主包正则补上开头锚定 `^llama-`（此前只锚结尾，release 资产顺序一变就会把共享后缀的 `cudart-llama-…` 当成运行时，解压后找不到 `llama-server.exe`）；伴生包仍只认 `^cudart-`，只有 cudart 的发行版会退回 CPU 包而不是装出缺 exe 的目录；已误下 cudart 的用户重试时该文件会直接复用为伴生包。
 - **0.30.0** —— 会话作用域绑定会话生命周期：会话创建时系统自动建立会话作用域（`ensureSessionScope`，只写 `scope-meta`，`createdBy: system`，幂等且不写记忆）；会话归档后该作用域与记忆**冻结**——`search` / `list` / `listSync` / `getByIds` 全部跳过，授权统一返回 `SCOPE_ARCHIVED`（不可申请、无审批路径），目录与面板标「已归档」，归档期间小时级过期清理与容量淘汰也跳过它；取消归档后自动复原（实时读宿主 `workspaceRegistry.archivedSessionIds`，不复制、不缓存，数据文件一个字节不动）。`memory_scopes` 目录项新增 `archived` 与 `accessStatus='archived'`；面板作用域行显示「已归档」徽标；`session/created` 监听失败绝不回滚会话创建，启动时给已存在的会话补建。
 - **0.29.0** —— 作用域用途 / 别名可编辑：`memory_scopes` 新增 `action="edit"`（`scope` + `scopeDescription?` / `scopeName?`，空串分别表示清空用途 / 移除别名，至少给一个，需要该作用域可写，范围外先走 `request` 申请写权限）；面板「记录 → 作用域」每行新增「编辑」，用途编辑框只预填手写的那句，默认描述不预填；`describeScope` 的空描述从报错改为**清空**（保留元数据与 generation，目录回退按类型默认描述），新增 `renameScope`（项目 / 自定义作用域可设别名，global / session 拒绝，重名 `SCOPE_NAME_TAKEN`）；`/memory/api/status` 新增 `descriptionSource`（custom / default）与别名 `name`，新增 `POST /memory/api/scope-meta`。

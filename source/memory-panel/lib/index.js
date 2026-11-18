@@ -47,6 +47,8 @@ const CLIENT_ERROR_CODES = new Set([
   'QUERY_EMPTY', 'QUERY_INVALID', 'SESSION_REQUIRED', 'SCOPE_EMPTY', 'SCOPE_NOT_VISIBLE',
   // 0.29.0：作用域用途 / 别名的编辑错误（名字非法 / 重名 / 不支持 / 用途过长）
   'SCOPE_NAME_INVALID', 'SCOPE_NAME_TAKEN', 'SCOPE_NAME_UNSUPPORTED', 'SCOPE_DESCRIPTION_TOO_LONG',
+  // 0.32.0：归档 / 屏蔽（归档不可写、屏蔽后不可写；解除是显式操作）
+  'SCOPE_ARCHIVED', 'SCOPE_NOT_ARCHIVABLE', 'SCOPE_BLOCKED',
 ])
 
 function writeError(res, error) {
@@ -1045,6 +1047,13 @@ async function handle(ctx, routePath, req, res) {
               ? { description: entry.description.trim(), descriptionSource: 'default' }
               : {}),
           ...(entry !== undefined && typeof entry.origin === 'string' ? { origin: entry.origin } : {}),
+          // 0.33.0：归档照实传（面板默认折叠，但仍可展开并解除）。
+          //
+          // 屏蔽**不传**：主面板没有 agent，`scopeCatalog(undefined)` 只反映兜底项目键
+          // 那一层，会话级屏蔽在这里根本看不见，传上去只会是一份"半真"的状态。
+          // 屏蔽的展示与解除都在会话面板的「记录」页（/session-records 带真实会话 id）。
+          ...(entry !== undefined && entry.archived === true ? { archived: true } : {}),
+          ...(entry !== undefined && typeof entry.archivedKind === 'string' ? { archivedKind: entry.archivedKind } : {}),
         }
       })
       // 删光记录不等于作用域消失：目录里有用途、却没有记录的作用域也列出来。
@@ -1069,6 +1078,7 @@ async function handle(ctx, routePath, req, res) {
           descriptionSource: customDescriptionOf(key) !== '' ? 'custom' : 'default',
           ...(typeof entry.origin === 'string' ? { origin: entry.origin } : {}),
           ...(entry.archived === true ? { archived: true } : {}),
+          ...(typeof entry.archivedKind === 'string' ? { archivedKind: entry.archivedKind } : {}),
         })
       }
       let embedServer = null
@@ -1079,8 +1089,241 @@ async function handle(ctx, routePath, req, res) {
       writeJson(res, { ok: true, value: { scopes, embedServer, rules } })
       return
     }
+    // 归档 / 屏蔽的列表与解除（0.32.0）。面板「记录」页默认把这两类折叠起来，
+    // 但用户要能看见并手动恢复：归档是生命周期事实（会话 / 项目），屏蔽是 Agent
+    // 主动降噪。两者都不是删除 —— 解除即刻复原，不碰任何记忆正文。
+    if (method === 'GET' && path === '/archive') {
+      const archived = typeof memory.archivedProjectScopes === 'function'
+        ? memory.archivedProjectScopes()
+        : []
+      // 会话归档是宿主生命周期驱动的（archivedSessionScopes 是 provider 内部状态），
+      // 面板从目录里读：目录已带 archived + archivedKind，这就是唯一权威来源。
+      let sessionArchived = []
+      if (typeof memory.scopeCatalog === 'function') {
+        try {
+          sessionArchived = (memory.scopeCatalog(undefined) ?? [])
+            .filter((item) => item?.archived === true && item?.archivedKind === 'session')
+            .map((item) => item.scope)
+        } catch { sessionArchived = [] }
+      }
+      writeJson(res, {
+        ok: true,
+        value: {
+          project: archived.map((entry) => ({
+            scope: entry.scope,
+            label: scopeDisplayName(entry.scope),
+            archivedAt: entry.archivedAt,
+            createdBy: entry.createdBy,
+            ...(typeof entry.note === 'string' && entry.note !== '' ? { note: entry.note } : {}),
+            ...(entry.dormant === true ? { dormant: true } : {}),
+          })),
+          session: sessionArchived,
+        },
+      })
+      return
+    }
+    if (method === 'POST' && path === '/archive') {
+      const body = await readJsonBody(req)
+      const scope = typeof body?.scope === 'string' ? body.scope.trim() : ''
+      if (scope === '') throw new ApiError(400, 'SCOPE_INVALID', 'scope 不能为空')
+      const restore = body?.restore === true
+      if (restore) {
+        if (typeof memory.restoreScope !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供归档解除接口（请升级 @restregular/dsh-memory）')
+        writeJson(res, { ok: true, value: { scope, restored: memory.restoreScope(scope) } })
+        return
+      }
+      if (typeof memory.archiveScope !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供归档接口（请升级 @restregular/dsh-memory）')
+      const entry = memory.archiveScope(scope, 'user', typeof body?.note === 'string' ? body.note : undefined)
+      writeJson(res, { ok: true, value: { scope, entry } })
+      return
+    }
+    if (method === 'GET' && path === '/blocks') {
+      if (typeof memory.listBlocks !== 'function') {
+        throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供屏蔽接口（请升级 @restregular/dsh-memory）')
+      }
+      // 面板不带 agent：会话级 / 工作区级分别按 session / workspace 参数查，
+      // 这样用户能看见「哪一层把这条藏起来了」，而不是只能看见合并后的结果。
+      const sessionId = (url.searchParams.get('session') ?? '').trim()
+      const workspace = (url.searchParams.get('workspace') ?? '').trim()
+      const value = {
+        session: sessionId !== '' && typeof memory.sessionBlocks === 'function' ? memory.sessionBlocks(sessionId) : [],
+        workspace: workspace !== '' && typeof memory.workspaceBlocks === 'function' ? memory.workspaceBlocks(workspace) : [],
+      }
+      writeJson(res, { ok: true, value })
+      return
+    }
+    if (method === 'POST' && path === '/blocks') {
+      const body = await readJsonBody(req)
+      const level = body?.level === 'workspace' ? 'workspace' : 'session'
+      const sessionId = typeof body?.session === 'string' ? body.session.trim() : ''
+      const workspace = typeof body?.workspace === 'string' ? body.workspace.trim() : ''
+      const target = level === 'session' ? sessionId : workspace
+      if (target === '') {
+        throw new ApiError(400, 'SESSION_REQUIRED', level === 'session' ? 'session 不能为空' : 'workspace 不能为空')
+      }
+      if (body?.restore === true) {
+        if (typeof memory.unblock !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供解除屏蔽接口（请升级 @restregular/dsh-memory）')
+        // 面板解除时直接用存储层：按 id / scope 精确匹配，key 明确指定是哪一层。
+        const match = {
+          level,
+          key: target,
+          ...(typeof body?.id === 'string' && body.id !== '' ? { id: body.id } : {}),
+          ...(typeof body?.scope === 'string' && body.scope !== '' ? { scope: body.scope } : {}),
+          ...(typeof body?.recordId === 'string' && body.recordId !== '' ? { recordId: body.recordId } : {}),
+        }
+        const removed = memory.unblock(undefined, match)
+        writeJson(res, { ok: true, value: { removed } })
+        return
+      }
+      if (typeof memory.requestBlock !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供屏蔽接口（请升级 @restregular/dsh-memory）')
+      // 面板是用户本人操作：审批在 UI 里已经点过一次，这里带一个已允许的审批答复。
+      const original = memory.requestOutOfScope
+      memory.requestOutOfScope = async () => ({ outcome: 'allowed-once' })
+      // workspace 参数是**作用域键**（project:<路径>）；provider 从会话 cwd 反推项目键，
+      // 所以这里必须脱掉 project: 前缀，否则会拼成 project:<cwd>/project:<路径>。
+      const workspacePath = workspace.startsWith('project:') ? workspace.slice('project:'.length) : workspace
+      let result
+      try {
+        result = await memory.requestBlock(
+          level === 'session'
+            ? { session: { header: { id: sessionId } } }
+            : { session: { header: { id: sessionId, cwd: workspacePath } } },
+          {
+            ...(typeof body?.scope === 'string' && body.scope !== '' ? { scope: body.scope } : {}),
+            ...(typeof body?.id === 'string' && body.id !== '' ? { id: body.id } : {}),
+            level,
+            tool: 'panel',
+            description: typeof body?.reason === 'string' ? body.reason : undefined,
+          },
+        )
+      } finally {
+        memory.requestOutOfScope = original
+      }
+      writeJson(res, { ok: true, value: result })
+      return
+    }
+    // 会话面板的「记录」页（0.33.0）：只列**这个会话权限范围内**的记忆。
+    //
+    // 与主面板的 /records 的关键区别是这里带着真实会话 id：能按 agent 口径解析
+    // 默认读取范围（会话 + 项目 + global + 工作区绑定），也拿得到该会话**生效**的
+    // 屏蔽（会话链含父会话 + 工作区级）。主面板没有 agent，按层级折叠屏蔽是做不
+    // 准的（会话级屏蔽根本不会出现在它的视角里），所以屏蔽感知只放在这里。
+    if (method === 'GET' && path === '/session-records') {
+      const sessionId = (url.searchParams.get('session') ?? '').trim()
+      if (sessionId === '') throw new ApiError(400, 'SESSION_REQUIRED', 'session 参数不能为空')
+      const includeBlocked = url.searchParams.get('blocked') === '1'
+      const query = url.searchParams.get('q') ?? ''
+      // 宿主里能查到会话对象就用它（cwd / parentSession 都在上面），查不到退化成
+      // 只有 id 的最小形状 —— resolveReadScopes 会按 id 解析出 session: 作用域。
+      let session
+      try { session = ctx.get('sessions')?.get?.(sessionId) } catch { session = undefined }
+      const agentLike = { session: session !== undefined ? session : { id: sessionId } }
+      // 这个会话实际能读的作用域集合 = 它的权限范围。显式「记忆范围」优先，否则是
+      // 默认三路 + 工作区绑定。
+      let scopes = []
+      try {
+        const resolved = typeof memory.resolveReadScopes === 'function' ? memory.resolveReadScopes(agentLike) : []
+        if (Array.isArray(resolved)) scopes = resolved.filter((scope) => typeof scope === 'string' && scope !== '')
+      } catch { scopes = [] }
+      const catalog = new Map()
+      try {
+        if (typeof memory.scopeCatalog === 'function') {
+          for (const entry of memory.scopeCatalog(agentLike) ?? []) {
+            if (entry && typeof entry.scope === 'string') catalog.set(entry.scope, entry)
+          }
+        }
+      } catch { /* 目录是增强：拿不到就只有名称与条数 */ }
+      // 归档的作用域不再参与检索与注入，这里也不列：会话作用域随会话归档、项目
+      // 作用域随工作区移除，都属于「生命周期已经结束」。
+      const archived = new Set()
+      for (const [key, entry] of catalog) if (entry.archived === true) archived.add(key)
+      const liveScopes = scopes.filter((scope) => !archived.has(scope))
+      // 该会话生效的屏蔽：工作区级更「重」，同一目标以工作区级为准；记录级按 id / 前缀。
+      // 每条都留着屏蔽自己的 id —— 解除时按 id 精确删那一条，不会顺手带走别的。
+      const blockedScopes = new Map()
+      const blockedRecords = new Map()
+      const blockedPrefixes = []
+      try {
+        const blocks = typeof memory.listBlocks === 'function' ? memory.listBlocks(agentLike) : []
+        for (const block of Array.isArray(blocks) ? blocks : []) {
+          if (!block) continue
+          const level = block.level === 'workspace' ? 'workspace' : 'session'
+          const hit = { id: typeof block.id === 'string' ? block.id : undefined, level }
+          if (typeof block.scope === 'string' && block.scope !== '') {
+            if (level === 'workspace' || !blockedScopes.has(block.scope)) blockedScopes.set(block.scope, hit)
+          } else if (typeof block.recordId === 'string' && block.recordId !== '') {
+            blockedRecords.set(block.recordId, hit)
+          } else if (typeof block.prefix === 'string' && block.prefix !== '') {
+            blockedPrefixes.push({ prefix: block.prefix, ...hit })
+          }
+        }
+      } catch { /* 屏蔽是增强：拿不到就当作没有屏蔽 */ }
+      const blockOf = (record) => {
+        const scopeHit = blockedScopes.get(record.scope)
+        if (scopeHit !== undefined) return scopeHit
+        const recordHit = blockedRecords.get(record.id)
+        if (recordHit !== undefined) return recordHit
+        for (const { prefix, ...hit } of blockedPrefixes) {
+          if (record.id.startsWith(prefix)) return hit
+        }
+        return undefined
+      }
+      const rows = []
+      let records = []
+      let blockedCount = 0
+      for (const scope of liveScopes) {
+        const scopeStore = store.peek(scope) // 只读：不创建作用域文件
+        const scopeHit = blockedScopes.get(scope)
+        rows.push({
+          scope,
+          label: scopeLabel(ctx, scope),
+          records: scopeStore !== undefined ? scopeStore.records.size : 0,
+          ...(scopeHit !== undefined ? { blocked: true, blockedLevel: scopeHit.level } : {}),
+        })
+        if (scopeStore === undefined) continue
+        for (const rec of collectScope(scopeStore)) {
+          const hit = blockOf(rec)
+          if (hit !== undefined) {
+            blockedCount += 1
+            if (!includeBlocked) continue
+            records.push({
+              ...rec,
+              blocked: true,
+              blockedLevel: hit.level,
+              ...(hit.id !== undefined ? { blockedId: hit.id } : {}),
+            })
+            continue
+          }
+          records.push(rec)
+        }
+      }
+      if (query !== '') {
+        const needle = query.trim().toLowerCase()
+        records = records.filter((r) =>
+          r.content.toLowerCase().includes(needle)
+          || r.kind.toLowerCase().includes(needle)
+          || r.tags.some((tag) => tag.toLowerCase().includes(needle)))
+      }
+      records.sort((a, b) => b.updatedAt - a.updatedAt)
+      let workspace = null
+      try {
+        if (typeof memory.projectKeyFor === 'function') workspace = memory.projectKeyFor(agentLike)
+      } catch { workspace = null }
+      writeJson(res, {
+        ok: true,
+        value: {
+          session: sessionId,
+          workspace,
+          scopes: rows,
+          records,
+          // 折叠开关要显示「有几个被藏起来了」，所以计数必须包含被折叠的那些。
+          blockedCount,
+        },
+      })
+      return
+    }
     if (method === 'POST' && path === '/scope-meta') {
-      // 用户编辑作用域的描述 / 别名(0.29.0)。面板是用户本人的操作,不带会话可见域;
+      // 用户编辑作用域的描述 / 别名（0.29.0）。面板是用户本人的操作，不带会话可见域；
       // 但只允许改**目录里看得见**的作用域,免得手滑把用途写到一条永远读不到的元数据上。
       if (typeof memory.describeScope !== 'function' && typeof memory.renameScope !== 'function') {
         throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供作用域编辑接口（请升级 @restregular/dsh-memory）')
@@ -1129,6 +1372,117 @@ async function handle(ctx, routePath, req, res) {
       if (typeof memory.updateInjectSettings !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供注入设置接口（请升级 @restregular/dsh-memory）')
       const body = await readJsonBody(req)
       writeJson(res, { ok: true, value: memory.updateInjectSettings(body) })
+      return
+    }
+
+    // 记忆钩子（0.35.0）：规则附带的代码。面板是**唯一**能看/改/批代码的地方 ——
+    // 工具那边只能让模型提交代码，而代码会在 DSH 进程里执行，用户必须能逐行审查。
+    if (method === 'GET' && path === '/hooks') {
+      if (typeof memory.listHooks !== 'function') {
+        throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供记忆钩子接口（请升级 @restregular/dsh-memory）')
+      }
+      const pending = typeof memory.hookPendingApproval === 'function'
+      writeJson(res, {
+        ok: true,
+        value: {
+          hooks: memory.listHooks().map((hook) => ({
+            ...hook,
+            pendingApproval: pending ? memory.hookPendingApproval(hook.id) : false,
+          })),
+          settings: typeof memory.hookSettings === 'function' ? memory.hookSettings() : undefined,
+        },
+      })
+      return
+    }
+
+    // 保存 / 审批 / 开关 / 删除 / 试跑：一个入口，按 body.action 分开。
+    if (method === 'POST' && path === '/hooks') {
+      const body = await readJsonBody(req)
+      const action = typeof body?.action === 'string' ? body.action : 'save'
+      const by = typeof body?.by === 'string' && body.by !== '' ? body.by : 'user'
+
+      if (action === 'approve') {
+        if (typeof memory.approveHook !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供记忆钩子审批接口')
+        const id = typeof body.id === 'string' ? body.id : ''
+        if (id === '') throw new ApiError(400, 'HOOK_ID_REQUIRED', 'id 不能为空')
+        writeJson(res, { ok: true, value: { approved: memory.approveHook(id) } })
+        return
+      }
+
+      if (action === 'revoke-approval') {
+        // 0.38.0：撤销批准 ≠ 停用 —— 代码保留、变回待批准；未批准不会运行。
+        if (typeof memory.revokeHookApproval !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供撤销批准接口（请升级 @restregular/dsh-memory）')
+        const id = typeof body.id === 'string' ? body.id : ''
+        if (id === '') throw new ApiError(400, 'HOOK_ID_REQUIRED', 'id 不能为空')
+        writeJson(res, { ok: true, value: { revoked: memory.revokeHookApproval(id) } })
+        return
+      }
+
+      if (action === 'delete') {
+        if (typeof memory.deleteHook !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供记忆钩子接口')
+        const id = typeof body.id === 'string' ? body.id : ''
+        if (id === '') throw new ApiError(400, 'HOOK_ID_REQUIRED', 'id 不能为空')
+        writeJson(res, { ok: true, value: { removed: memory.deleteHook(id) ? 1 : 0 } })
+        return
+      }
+
+      if (action === 'run') {
+        if (typeof memory.runHookTrial !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供记忆钩子试跑接口（请升级 @restregular/dsh-memory）')
+        const id = typeof body.id === 'string' ? body.id : ''
+        const content = typeof body.content === 'string' ? body.content : ''
+        if (content.trim() === '') throw new ApiError(400, 'HOOK_CONTENT_REQUIRED', 'content 不能为空（试跑要一段样例正文）')
+        const hook = typeof memory.getHook === 'function' ? memory.getHook(id) : undefined
+        if (hook === undefined) throw new ApiError(404, 'HOOK_NOT_FOUND', '没有找到这个钩子')
+        // 0.35.2：按 id 精确试跑、绕过审批门禁 —— 新脚本未批准时也要能先看判断结果。
+        const outcomes = memory.runHookTrial(id, {
+          memory: {
+            scope: hook.scopes[0] ?? 'global',
+            kind: hook.kinds[0] ?? 'rule',
+            content,
+            tags: [],
+            importance: 0.8,
+          },
+          tool: 'panel',
+        })
+        writeJson(res, { ok: true, value: { outcomes } })
+        return
+      }
+
+      if (action === 'settings') {
+        if (typeof memory.updateHookSettings !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供记忆钩子设置接口')
+        writeJson(res, { ok: true, value: memory.updateHookSettings(body.settings ?? {}) })
+        return
+      }
+
+      // 默认 = 保存（新建或更新）。面板里的代码是**用户本人**提交的，所以保存即记为
+      // 已批准：否则用户改完还得再点一次批准，纯属添堵。模型提交的代码走的是另一条
+      // 路径（memory_hooks / memory_save），那条必须经过审批。
+      if (typeof memory.saveHook !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供记忆钩子接口')
+      const code = typeof body.code === 'string' ? body.code : ''
+      if (code.trim() === '') throw new ApiError(400, 'HOOK_CODE_REQUIRED', 'code 不能为空')
+      const phase = body.phase === 'after-save' || body.phase === 'before-inject' || body.phase === 'before-save'
+        ? body.phase
+        : 'before-save'
+      let saved
+      try {
+        saved = memory.saveHook({
+          ...(typeof body.id === 'string' && body.id !== '' ? { id: body.id } : {}),
+          ...(typeof body.name === 'string' && body.name.trim() !== '' ? { name: body.name } : {}),
+          phase,
+          code,
+          ...(typeof body.enabled === 'boolean' ? { enabled: body.enabled } : {}),
+          ...(Array.isArray(body.scopes) ? { scopes: body.scopes.map(String) } : {}),
+          ...(Array.isArray(body.kinds) ? { kinds: body.kinds.map(String) } : {}),
+          ...(typeof body.description === 'string' ? { description: body.description } : {}),
+          ...(typeof body.ruleId === 'string' && body.ruleId !== '' ? { ruleId: body.ruleId } : {}),
+          createdBy: by,
+        })
+      } catch (error) {
+        throw new ApiError(400, 'HOOK_INVALID', error instanceof Error ? error.message : String(error))
+      }
+      if (typeof memory.approveHook === 'function') memory.approveHook(saved.id)
+      console.log(`[dsh-memory-panel] 记忆钩子已保存 ${saved.id} (${saved.phase})`)
+      writeJson(res, { ok: true, value: { hook: { ...saved, pendingApproval: false } } })
       return
     }
     if (method === 'POST' && path === '/create') {
@@ -1454,11 +1808,39 @@ async function handle(ctx, routePath, req, res) {
       const rawScope = url.searchParams.get('scope')
       const query = (url.searchParams.get('q') ?? '').trim().toLowerCase()
       const idQuery = (url.searchParams.get('id') ?? '').trim()
+      // 归档默认**不出现在列表里**（0.32.0）。这不是权限：用户点开开关就能看到，
+      // 只是日常浏览不该被"已经归档的旧会话"填满。
+      //
+      // 屏蔽**不再折叠**（0.33.0）：屏蔽按会话 / 工作区生效，而主面板没有 agent
+      // （`scopeCatalog(undefined)` 只能拿到兜底项目键那一层），在这里按屏蔽折叠
+      // 既漏会话级屏蔽、又会把用户本想看的记录藏起来。屏蔽感知挪到了会话面板的
+      // 「记录」页（/session-records，带着真实会话 id）。
+      const includeArchived = url.searchParams.get('archived') === '1'
       // scope 先过同一套规范化:非法 → 400(而不是当成一个陌生 scope 去建文件);
       // 合法但不存在的 scope → 空列表。`peek`/`peekScope`,**绝不通过 store.scope() 创建**。
       const stores = selectedStores(store, resolveScopeSelection(memory, rawScope))
+      // 目录一次拿全：归档状态与展示名同源，避免两次查询之间状态漂移。
+      const catalog = new Map()
+      try {
+        if (typeof memory.scopeCatalog === 'function') {
+          for (const entry of memory.scopeCatalog(undefined) ?? []) {
+            if (entry && typeof entry.scope === 'string') catalog.set(entry.scope, entry)
+          }
+        }
+      } catch { /* 目录拿不到就不过滤：宁可多显示，也不能凭空吞掉记录 */ }
+      const hiddenScopes = new Set()
+      // 用户**显式选了一个作用域**时不折叠：那一刻他就是要看这一份，藏起来等于点不动。
+      const explicitScope = typeof rawScope === 'string' && rawScope.trim() !== ''
+      if (catalog.size > 0 && !explicitScope) {
+        for (const [key, entry] of catalog) {
+          if (!includeArchived && entry.archived === true) hiddenScopes.add(key)
+        }
+      }
       let records = []
-      for (const s of stores) records.push(...collectScope(s))
+      for (const s of stores) {
+        if (hiddenScopes.has(s.scope)) continue
+        records.push(...collectScope(s))
+      }
       if (query) {
         records = records.filter((r) =>
           r.content.toLowerCase().includes(query)

@@ -41,7 +41,10 @@ function harness(
     search: async () => records,
     list: async () => records.map((item) => item.record),
     forget: async () => ({ removed: 0, ids: [] }),
-    getByIds: () => records.map((item) => item.record),
+    getByIds: (ids: string[]) => [
+      ...(ids.includes(OLD_ID) ? [{ id: OLD_ID, scope: 'global', kind: 'fact', content: '旧记录', tags: [], importance: 0.5, updatedAt: 0 }] : []),
+      ...records.filter((item) => ids.includes(item.record.id)).map((item) => item.record),
+    ],
     visibilityPolicy: () => policy,
     accessEvaluator: () => (request: { action: string; scope: string }) =>
       decisions[`${request.action}:${request.scope}`] ?? { allowed: true, requestable: false },
@@ -134,4 +137,41 @@ test('显式 write:false 不弹审批，直接 SCOPE_READ_ONLY', async () => {
     (error: Error & { code?: string }) => error.code === 'SCOPE_READ_ONLY',
   )
   assert.equal(h.asked, 0)
+})
+
+const OLD_ID = '12345678-aaaa-bbbb-cccc-ddddeeeeffff'
+
+test('supersedes 省略 scope 直接拒绝（SUPERSEDES_SCOPE_REQUIRED），不落盘', async () => {
+  const h = harness(NORMAL, {}, 'save')
+  await assert.rejects(
+    h.tool.execute({ content: '修正旧记忆', supersedes: OLD_ID, description: '修正测试' }, agentExec),
+    (error: Error & { code?: string }) => error.code === 'SUPERSEDES_SCOPE_REQUIRED',
+  )
+  assert.equal(h.saved.length, 0)
+  assert.equal(h.asked, 0)
+})
+
+test('supersedes 目标作用域无写权限直接拒绝（SUPERSEDES_SCOPE_NOT_WRITABLE），不弹审批', async () => {
+  const h = harness(NORMAL, {
+    'write:handbook': { allowed: false, reason: 'SCOPE_NOT_IN_RANGE', requestable: true },
+  }, 'save')
+  await assert.rejects(
+    h.tool.execute({ content: '修正旧记忆', scope: 'handbook', supersedes: OLD_ID, description: '修正测试' }, agentExec),
+    (error: Error & { code?: string }) => error.code === 'SUPERSEDES_SCOPE_NOT_WRITABLE',
+  )
+  assert.equal(h.saved.length, 0)
+  assert.equal(h.asked, 0, 'supersedes 不走范围外审批')
+})
+
+test('supersedes 有写权限时保存成功，返回值带目标作用域 key 与修正关系', async () => {
+  const h = harness(NORMAL, {}, 'save')
+  const result = await h.tool.execute(
+    { content: '修正旧记忆', scope: 'handbook', supersedes: OLD_ID, description: '修正测试' },
+    agentExec,
+  ) as { id: string; scope: string; supersedes?: { id: string; scope?: string } }
+  assert.equal(result.scope, 'handbook', '返回值带保存到的目标作用域 key')
+  assert.deepEqual(result.supersedes, { id: OLD_ID, scope: 'global' }, '返回值带修正关系（旧记录作用域可不同）')
+  const input = h.saved[0] as Record<string, unknown>
+  assert.equal(input.scope, 'handbook', 'scope 显式传给 provider')
+  assert.equal(input.supersedes, OLD_ID)
 })

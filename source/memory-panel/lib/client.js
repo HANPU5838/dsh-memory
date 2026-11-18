@@ -286,11 +286,14 @@ window.__ModuleLoader__.load({
       // 结构:统计 → 工具条/类型图例 → 画布(HTML 节点 + SVG 连线) → 右侧详情抽屉。
       // 节点用 HTML 而不是 SVG <text>:内容换行、省略号、悬停过渡都由浏览器排版,
       // SVG 只负责画连接线,缩放时整体 transform。
-      '.memp .tree-tab{display:flex;flex-direction:column;gap:12px}',
-      '.memp .tree-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}',
-      '.memp .tree-stats .stat{position:relative;overflow:hidden;padding:8px 12px 7px;border-radius:11px;background:linear-gradient(160deg,color-mix(in srgb,var(--dsw-alias-brand-primary) 8%,var(--dsw-alias-bg-layer-1)),var(--dsw-alias-bg-layer-1) 72%)}',
-      '.memp .tree-stats .stat::after{content:"";position:absolute;right:-14px;top:-20px;width:56px;height:56px;border-radius:50%;background:color-mix(in srgb,var(--dsw-alias-brand-primary) 9%,transparent);pointer-events:none}',
-      '.memp .tree-stats .stat b{font-size:18px}',
+      '.memp .tree-tab{display:flex;flex-direction:column;gap:10px}',
+      // 顶部一行:二级切换(记忆树 / 星图)+ 右侧紧凑统计胶囊。
+      // 统计不再单独占一行 —— 记忆一多,纵向空间要全留给画布。
+      '.memp .viz-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}',
+      '.memp .tree-stats{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-left:auto}',
+      '.memp .tree-stats .stat{position:relative;display:inline-flex;align-items:baseline;gap:5px;padding:3px 10px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);background:linear-gradient(150deg,color-mix(in srgb,var(--dsw-alias-brand-primary) 9%,var(--dsw-alias-bg-layer-1)),var(--dsw-alias-bg-layer-1) 78%)}',
+      '.memp .tree-stats .stat b{font-size:13px;font-weight:650;font-variant-numeric:tabular-nums}',
+      '.memp .tree-stats .stat span{font-size:10.5px;color:var(--dsw-alias-label-secondary)}',
       '.memp .tree-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}',
       '.memp .tree-toolbar input[type=text]{flex:1 1 190px;min-width:150px;max-width:300px}',
       '.memp .tree-toolbar .spacer{flex:1}',
@@ -476,7 +479,75 @@ window.__ModuleLoader__.load({
       '.memp .td-rel-btn{display:flex;align-items:flex-start;gap:6px;text-align:left;padding:6px 8px;border-radius:8px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);font-size:10.5px;line-height:1.45}',
       '.memp .td-rel-dir{flex:none;color:color-mix(in srgb,#D9A441 62%,var(--dsw-alias-label-primary));font-weight:600}',
       '.memp .td-rel-text{color:var(--dsw-alias-label-secondary);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}',
-      '@media (max-width:620px){.memp .tree-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.memp .tree-toolbar input[type=text]{max-width:none}}',
+      // ===== 星图(记忆的第二种可视化)=====
+      // 节点是绝对定位的圆点 + 可选标签,SVG 只画连线;缩放与记忆树共用 .tree-canvas。
+      // 层次感(远近)靠 --z-op / --z-blur / z-index 三件套:近的更大更亮更靠前,远的变暗微糊。
+      '.memp .graph-wrap{position:relative;height:min(56vh,560px);min-height:320px;border:1px solid var(--dsw-alias-border-l1);border-radius:14px;overflow:hidden;background:radial-gradient(circle at 50% 44%,color-mix(in srgb,var(--dsw-alias-brand-primary) 11%,transparent),transparent 62%),radial-gradient(circle at 1px 1px,color-mix(in srgb,var(--dsw-alias-label-secondary) 14%,transparent) 1px,transparent 0) 0 0/26px 26px,var(--dsw-alias-bg-layer-1)}',
+      '.mem-page .memp .graph-wrap{height:calc(100vh - 360px);min-height:420px}',
+      // stage 居中承载 zoomspace:星图不滚动,缩放后由 flex 居中,不会贴左上角。
+      '.memp .graph-stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;overflow:hidden}',
+      '.memp .graph-zoomspace{position:relative;flex:none}',
+      '.memp .graph-edges{position:absolute;inset:0;overflow:visible;pointer-events:none}',
+      // 缩放以中心为原点:zoomspace 的尺寸跟着 zoom 走,canvas 在它里面居中放大,
+      // 缩小时不会往左上角缩、把整张图甩出画布。
+      '.memp .graph-canvas{position:absolute;left:50%;top:50%;transform-origin:50% 50%;transition:transform .16s ease}',
+      '.memp .gnode{position:absolute;transform:translate(-50%,-50%);display:flex;align-items:center;justify-content:center;opacity:var(--z-op,1);filter:blur(var(--z-blur,0px));cursor:pointer;user-select:none;transition:opacity .16s ease,filter .16s ease}',
+      // 圆点自身撑满节点盒:span 默认没有尺寸,不写 inset 就只剩外面的光晕
+      '.memp .gnode .orb{position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle at 36% 30%,color-mix(in srgb,#fff 42%,var(--k)),var(--k) 58%,color-mix(in srgb,#000 22%,var(--k)));box-shadow:0 0 0 1px color-mix(in srgb,#000 14%,transparent),0 0 12px color-mix(in srgb,var(--k) 44%,transparent);transition:transform .16s ease,box-shadow .16s ease}',
+      '.memp .gnode .orb::after{content:"";position:absolute;inset:-5px;border-radius:50%;border:1px solid color-mix(in srgb,var(--k) 34%,transparent);opacity:0;transition:opacity .16s ease}',
+      '.memp .gnode:hover .orb::after,.memp .gnode.selected .orb::after{opacity:1}',
+      '.memp .gnode:hover .orb{transform:scale(1.16)}',
+      '.memp .gnode:hover,.memp .gnode.selected{opacity:1;filter:none}',
+      '.memp .gnode.selected .orb{box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary) 62%,transparent),0 0 20px color-mix(in srgb,var(--k) 66%,transparent)}',
+      '.memp .gnode .glabel{position:absolute;top:calc(100% + 3px);left:50%;transform:translateX(-50%);max-width:126px;padding:1px 7px;border-radius:999px;border:1px solid transparent;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 78%,transparent);backdrop-filter:blur(4px);font-size:10px;line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--dsw-alias-label-secondary);opacity:0;pointer-events:none;transition:opacity .14s ease,color .14s ease}',
+      // 常显标签沿半径朝外排(位置由行内 style 给),不会在星心挤成一堆
+      '.memp .gnode.lbl .glabel{opacity:1;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 62%,transparent)}',
+      '.memp .gnode:hover .glabel,.memp .gnode.selected .glabel{opacity:1}',
+      '.memp .gnode:hover .glabel,.memp .gnode.selected .glabel{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l1);background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 95%,transparent)}',
+      '.memp .gnode.miss{opacity:.16}',
+      '.memp .gnode.near{opacity:1;filter:none}',
+      '.memp .gnode.near .glabel{opacity:1;color:var(--dsw-alias-label-primary)}',
+      '.memp .gnode.match .orb{box-shadow:0 0 0 1px var(--dsw-alias-brand-primary),0 0 18px color-mix(in srgb,var(--k) 62%,transparent)}',
+      '.memp .gnode.hub{cursor:pointer;opacity:1;filter:none}',
+      '.memp .gnode.hub.closed .orb{box-shadow:0 0 0 1px color-mix(in srgb,var(--dsw-alias-brand-primary) 42%,transparent),0 0 22px color-mix(in srgb,var(--dsw-alias-brand-primary) 20%,transparent),inset 0 0 0 3px color-mix(in srgb,var(--dsw-alias-bg-layer-1) 55%,transparent)}',
+      '.memp .gnode.hub .orb{background:radial-gradient(circle at 38% 30%,color-mix(in srgb,var(--dsw-alias-label-primary) 22%,var(--dsw-alias-bg-layer-1)),color-mix(in srgb,var(--dsw-alias-label-primary) 10%,var(--dsw-alias-bg-layer-1)) 62%,color-mix(in srgb,var(--dsw-alias-label-secondary) 22%,var(--dsw-alias-bg-layer-1)));box-shadow:0 0 0 1px color-mix(in srgb,var(--dsw-alias-label-secondary) 45%,transparent),0 0 18px color-mix(in srgb,var(--dsw-alias-label-primary) 16%,transparent)}',
+      '.memp .gnode.hub .hglyph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--dsw-alias-label-primary);letter-spacing:.02em;pointer-events:none}',
+      // 星名放上方:星心正下方是记忆环,标签压上去会盖住点
+      '.memp .gnode.hub .glabel{opacity:1;font-weight:600;color:var(--dsw-alias-label-primary);font-size:11px;max-width:200px;top:auto;bottom:calc(100% + 5px);left:50%;transform:translateX(-50%);text-align:center;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 88%,transparent);border-color:color-mix(in srgb,var(--dsw-alias-border-l1) 100%,transparent)}',
+      '.memp .gnode.hub:hover .glabel{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}',
+      // 连线要能被看见(整张图默认缩到 ~0.8,1px/低透明度的线会直接消失),
+      // 但每条记忆都拉一根到星心,线条一多就成了"车轮",所以默认压淡、聚焦时才亮。
+      '.memp .glink{stroke:color-mix(in srgb,var(--dsw-alias-label-secondary) 42%,transparent);stroke-width:1.1;fill:none;vector-effect:non-scaling-stroke;transition:opacity .14s ease,stroke .14s ease,stroke-width .14s ease}',
+      '.memp .glink.near{stroke:color-mix(in srgb,var(--dsw-alias-label-primary) 82%,transparent);stroke-width:2;opacity:.95}',
+      '.memp .glink.corr{stroke:#D9A441;stroke-dasharray:5 3;opacity:.75;stroke-width:1.6}',
+      '.memp .glink.corr.near{opacity:1;stroke-width:2.4;stroke-dasharray:none}',
+      '.memp .graph-canvas.focused .glink:not(.near){opacity:.05}',
+      '.memp .graph-canvas.focused .gnode:not(.near):not(.hub){opacity:.2;filter:none}',
+      '.memp .graph-hud{position:absolute;left:10px;top:10px;z-index:3;display:flex;align-items:center;gap:8px;padding:3px 10px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 86%,transparent);backdrop-filter:blur(6px);font-size:10.5px;color:var(--dsw-alias-label-secondary);pointer-events:none}',
+      '.memp .graph-hud b{font-weight:600;color:var(--dsw-alias-label-primary);font-variant-numeric:tabular-nums}',
+      // 星团柔光:每颗星一团雾 + 一圈轨道环,把散点聚成有边界的"星团"
+      '.memp .graph-glow{position:absolute;inset:0;pointer-events:none}',
+      '.memp .graph-glow span{position:absolute;border-radius:50%;background:radial-gradient(circle,color-mix(in srgb,var(--dsw-alias-label-primary) 15%,transparent),transparent 66%)}',
+      '.memp .graph-glow span.orbit{border:1px dashed color-mix(in srgb,var(--dsw-alias-label-secondary) 22%,transparent);background:none}',
+      '.memp .graph-canvas.focused .graph-glow span{opacity:.16!important}',
+      // ===== 3D 星图(与 2D 并列的第二种星图渲染器)=====
+      // 3D 的层次感来自真实深度:透视投影 + 遮挡 + 光照。CSS 这里只负责容器、
+      // 标签层和状态提示,不参与三维计算。
+      '.memp .graph3-wrap{background:radial-gradient(circle at 50% 42%,color-mix(in srgb,var(--dsw-alias-brand-primary) 14%,transparent),transparent 58%),radial-gradient(circle at 50% 50%,#05070d,transparent 70%),#04060b}',
+      '.memp .graph3-stage{position:absolute;inset:0;overflow:hidden;touch-action:none}',
+      // canvas 与标签层都铺满 stage;标签层不吃指针事件,点击全部落到 canvas 上
+      '.memp .graph3-canvas{display:block;width:100%;height:100%;cursor:grab}',
+      '.memp .graph3-canvas.grabbing{cursor:grabbing}',
+      '.memp .graph3-canvas.dragging{cursor:crosshair}',
+      '.memp .graph3-labels{position:absolute;inset:0;pointer-events:none;overflow:hidden}',
+      '.memp .graph3-label{position:absolute;left:0;top:0;max-width:150px;padding:1px 7px;border-radius:999px;border:1px solid transparent;background:color-mix(in srgb,#04060b 74%,transparent);backdrop-filter:blur(4px);font-size:10px;line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#cfd8e8;will-change:transform;transition:opacity .12s ease}',
+      '.memp .graph3-label.hub{font-weight:600;font-size:11px;max-width:200px;color:#eef3ff;background:color-mix(in srgb,#04060b 82%,transparent);border-color:color-mix(in srgb,#9fc6ff 32%,transparent)}',
+      '.memp .graph3-label.star{color:var(--k,#cfd8e8);border-color:color-mix(in srgb,var(--k,#8b93a7) 40%,transparent)}',
+      '.memp .graph3-status{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);padding:8px 16px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 88%,transparent);font-size:11.5px;color:var(--dsw-alias-label-secondary);pointer-events:none}',
+      // 拖动时给画布一点反馈:光标变化由上面的 canvas 规则给,这里补 2D 的
+      '.memp .graph-stage{cursor:grab}',
+      '.memp .graph-stage.dragging{cursor:grabbing}',
+      '@media (max-width:620px){.memp .tree-stats{width:100%;margin-left:0}.memp .tree-toolbar input[type=text]{max-width:none}}',
       // ===== 审计 =====
       '.memp .audit{display:flex;flex-direction:column;gap:10px;min-height:0;height:calc(100vh - 210px);max-height:calc(100vh - 210px);overflow:hidden}',
       '.memp .audit-head{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap}',
@@ -584,6 +655,15 @@ window.__ModuleLoader__.load({
       '.mem-view .audit{height:100%;max-height:none;min-height:0;flex:1;overflow:hidden}',
       '.mem-view .audit-split{min-height:0}',
       '.mem-view .audit-detail{max-height:100%}',
+      // 会话视图的「记录」页（0.33.0）：作用域一览 + 记录列表，滚动只发生在列表里。
+      '.mem-recs{display:flex;flex-direction:column;gap:8px;min-height:0;height:100%;overflow:hidden}',
+      '.mem-recs-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:none}',
+      '.mem-recs-toolbar .muted{font-size:11.5px;color:var(--dsw-alias-label-secondary)}',
+      '.mem-recs-toolbar .spacer{flex:1}',
+      '.mem-recs-scopes{display:flex;gap:5px;flex-wrap:wrap;flex:none;max-height:60px;overflow-y:auto}',
+      '.mem-recs-scopes .badge.blocked{opacity:.72;text-decoration:line-through}',
+      '.mem-recs-scroll{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:2px 8px 2px 2px;margin-right:-2px}',
+      '.mem-recs-scroll.is-empty{overflow:visible}',
       // 轨迹详情面板的「记忆审计」页签。Trajectory 没有行级/页签级 slot，所以
       // 按钮和面板都放在 shell.overlay 里用 fixed 定位贴着详情面板；不在 React
       // 管理的 tabs 行里插 DOM，避免被轨迹的重渲染清掉。
@@ -734,6 +814,7 @@ window.__ModuleLoader__.load({
       '.mem-approval-bulk button:hover:not(:disabled){text-decoration:underline}',
       '.mem-approval-bulk button:disabled{color:var(--dsw-alias-label-secondary);opacity:.55;cursor:default;text-decoration:none}',
       '.mem-approval-summary{color:var(--dsw-alias-label-secondary);font-size:11.5px;line-height:1.5;word-break:break-word}',
+      '.mem-approval-code{margin:0;padding:8px 10px;max-height:260px;overflow:auto;white-space:pre-wrap;word-break:break-word;border-radius:8px;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-primary);font-family:var(--ds-font-family-code,ui-monospace,monospace);font-size:11px;line-height:1.55}',
       '.mem-approval-check{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;margin-top:1px;padding:0;border:none;background:transparent;flex:none;cursor:pointer}',
       '.mem-approval-check .box{display:flex;align-items:center;justify-content:center;width:16px;height:16px;border:1.5px solid color-mix(in srgb,var(--dsw-alias-label-secondary) 52%,var(--dsw-alias-border-l1));border-radius:5px;background:color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent);color:var(--dsw-alias-label-primary-foreground);transition:background .12s ease,border-color .12s ease}',
       '.mem-approval-check.on .box{background:var(--dsw-alias-state-business-primary,#4176e6);border-color:var(--dsw-alias-state-business-primary,#4176e6);color:var(--dsw-alias-label-primary-foreground)}',
@@ -747,6 +828,46 @@ window.__ModuleLoader__.load({
       '.mem-approval-allow:hover:not(:disabled){filter:brightness(1.06)}',
       '.mem-approval-reject:disabled,.mem-approval-allow:disabled{opacity:.5;cursor:default;filter:none}',
       '.mem-approval-allow:disabled{color:var(--dsw-alias-label-primary-foreground)}',
+      // ===== 规则代码（0.35.0） =====
+      '.memp .hooks{display:flex;flex-direction:column;gap:10px;padding:12px 14px 18px}',
+      '.memp .hooks-head{display:flex;align-items:flex-start;gap:14px}',
+      '.memp .hooks-head-text{flex:1;min-width:0}',
+      '.memp .hooks-head-title{font-size:13px;font-weight:600;line-height:1.4}',
+      '.memp .hooks-head-sub{font-size:11.5px;color:var(--dsw-alias-label-secondary);line-height:1.6;margin-top:3px}',
+      '.memp .hooks-head-actions{display:flex;align-items:center;gap:8px;flex:none}',
+      '.memp .hooks-settings{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:9px 11px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1);font-size:12px}',
+      '.memp .hook-list{display:flex;flex-direction:column;gap:10px}',
+      '.memp .hook-card{border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:var(--dsw-alias-bg-layer-1);overflow:hidden}',
+      '.memp .hook-card.folded .hook-card-head{border-bottom:none}',
+      '.memp .hook-caret{cursor:pointer;user-select:none;color:var(--dsw-alias-label-secondary);font-size:12px;width:14px;flex:none}',
+      '.memp .hook-pill.ok{color:var(--dsw-alias-state-success-primary,#2a8);border-color:color-mix(in srgb,var(--dsw-alias-state-success-primary,#2a8) 45%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#2a8) 8%,transparent)}',
+      '.memp .hook-filters{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 11px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;font-size:12px}',
+      '.memp .hook-filters label{display:flex;align-items:center;gap:5px;color:var(--dsw-alias-label-secondary)}',
+      '.memp .hook-trial-raw{margin:5px 0 0;padding:6px 8px;border-radius:6px;background:var(--dsw-alias-bg-layer-2);font-family:var(--ds-font-family-code,ui-monospace,monospace);font-size:11px;white-space:pre-wrap;word-break:break-all}',
+      '.memp .hook-trial-close{margin-left:auto}',
+      '.memp .hook-card-head{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--dsw-alias-border-l1);flex-wrap:wrap}',
+      '.memp .hook-card-title{display:flex;align-items:center;gap:7px;flex:1;min-width:0;flex-wrap:wrap}',
+      '.memp .hook-name{font-size:12.5px;font-weight:600}',
+      '.memp .hook-pill{font-size:10px;line-height:1.7;padding:0 7px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary);white-space:nowrap}',
+      '.memp .hook-pill.warn{color:var(--dsw-alias-state-warning-primary,#c80);border-color:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#c80) 45%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#c80) 8%,transparent)}',
+      '.memp .hook-card-actions{display:flex;align-items:center;gap:4px;flex:none;flex-wrap:wrap}',
+      '.memp .linkbtn.danger:hover{color:var(--dsw-alias-state-error-primary,#d33)}',
+      '.memp .hook-card-meta{padding:7px 12px;font-size:11px;line-height:1.6;color:var(--dsw-alias-label-secondary);border-bottom:1px solid var(--dsw-alias-border-l1)}',
+      '.memp .hook-code-preview{margin:0;padding:10px 12px;font-family:var(--ds-font-family-code,ui-monospace,monospace);font-size:11px;line-height:1.55;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);max-height:190px;overflow:auto;white-space:pre}',
+      '.memp .hook-edit{padding:10px 12px;display:flex;flex-direction:column;gap:8px}',
+      '.memp .hook-edit-head{display:flex;align-items:baseline;gap:8px}',
+      '.memp .hook-edit-title{font-size:12.5px;font-weight:600}',
+      '.memp .hook-edit-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}',
+      '.memp .hook-edit-hint{font-size:11px;color:var(--dsw-alias-label-secondary);line-height:1.5}',
+      '.memp .hook-edit-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}',
+      '.memp .hook-code{width:100%;box-sizing:border-box;min-height:190px;resize:vertical;padding:10px 11px;border:1px solid var(--dsw-alias-border-l1);border-radius:9px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-family:var(--ds-font-family-code,ui-monospace,monospace);font-size:11.5px;line-height:1.6;tab-size:2}',
+      '.memp .hook-code:focus{border-color:var(--dsw-alias-state-business-primary,#4176e6);outline:none}',
+      '.memp .hook-trial{padding:9px 12px;border-top:1px solid var(--dsw-alias-border-l1);display:flex;flex-direction:column;gap:6px;background:var(--dsw-alias-bg-layer-1)}',
+      '.memp .hook-trial input[type=text]{width:100%;box-sizing:border-box}',
+      '.memp .hook-trial-result{font-size:11.5px;line-height:1.55;padding:5px 8px;border-radius:8px;word-break:break-word}',
+      '.memp .hook-trial-result.ok{background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#1a7f37) 10%,transparent);color:var(--dsw-alias-state-success-primary,#1a7f37)}',
+      '.memp .hook-trial-result.rej{background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#c80) 12%,transparent);color:var(--dsw-alias-state-warning-primary,#c80)}',
+      '.memp .hook-trial-result.err{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d33) 10%,transparent);color:var(--dsw-alias-state-error-primary,#d33)}',
     ].join('')
 
     async function api(method, body) {
@@ -1116,6 +1237,12 @@ window.__ModuleLoader__.load({
       return `M${x1},${y1} C${x1 + bend},${y1} ${x2 + bend},${y2} ${x2},${y2}`
     }
 
+
+    // @@INLINE graph-layout.js @@
+    // @@INLINE graph-layout-storage.js @@
+    // @@INLINE graph-2d.js @@
+    // @@INLINE graph-3d.js @@
+
     function KindDot({ kind }) {
       return h('span', {
         className: 'tdot',
@@ -1124,7 +1251,14 @@ window.__ModuleLoader__.load({
       })
     }
 
-    function RecordCard({ rec, vectorOn, labels, onSaved, onDeleted, focus = false, score = null }) {
+    /**
+     * 一条记忆卡。
+     *
+     * `onUnblock` 只在会话面板的「记录」页传：屏蔽按会话 / 工作区生效，只有那里
+     * 拿得到真实会话 id，也只有那里该给「解除屏蔽」的入口（主面板一律列全部，
+     * 不判断、不展示屏蔽状态）。
+     */
+    function RecordCard({ rec, vectorOn, labels, onSaved, onDeleted, focus = false, score = null, onUnblock = null }) {
       // collapsed by default: the list stays scannable, full text on demand
       const [expanded, setExpanded] = React.useState(false)
       const [editing, setEditing] = React.useState(false)
@@ -1245,6 +1379,16 @@ window.__ModuleLoader__.load({
             : null,
           // 只在"待嵌入"时提示:已嵌入是常态,向量没启用时这条也没有行动价值。
           !rec.embedded && vectorOn ? h('span', { className: 'pending', title: '待嵌入:向量服务就绪后会自动补上' }, '待嵌入') : null,
+          // 被 Agent 屏蔽的记录：只有会话面板的「记录」页会标出来（它带着会话 id，
+          // 算得准会话级 / 工作区级）。屏蔽不是删除，解除后立刻回到检索与注入里。
+          rec.blocked
+            ? h('span', {
+                className: 'badge',
+                title: rec.blockedLevel === 'workspace'
+                  ? '工作区级屏蔽：这个工作区的所有会话都不会检索 / 注入它；解除后立刻复原'
+                  : '会话级屏蔽：只有本会话不会检索 / 注入它；解除后立刻复原',
+              }, rec.blockedLevel === 'workspace' ? '已屏蔽 · 工作区级' : '已屏蔽 · 会话级')
+            : null,
           h('span', { className: 'time', title: `更新于 ${fmtTime(rec.updatedAt)}` }, fmtTime(rec.updatedAt)),
         ),
         !open ? h('div', { className: 'preview' }, rec.content) : null,
@@ -1323,6 +1467,18 @@ window.__ModuleLoader__.load({
               rec.tombstoned
                 ? h('button', { disabled: busy, onClick: restore }, busy ? '…' : '恢复这条记忆')
                 : h('button', { onClick: () => setEditing(true) }, '编辑'),
+              // 解除屏蔽只在会话面板的「记录」页出现（见组件注释）。
+              typeof onUnblock === 'function' && rec.blocked
+                ? h('button', {
+                    className: 'linkbtn',
+                    disabled: busy,
+                    title: '解除屏蔽：这条记忆立刻重新参与检索与注入（正文一字不改）',
+                    onClick: async () => {
+                      setBusy(true); setError('')
+                      try { await onUnblock(rec) } catch (e) { setError(String(e.message || e)) } finally { setBusy(false) }
+                    },
+                  }, '解除屏蔽')
+                : null,
               rec.tombstoned
                 ? null
                 : h('button', { disabled: busy, onClick: del }, busy ? '…' : '删除'),
@@ -1557,11 +1713,16 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * 「记忆树」标签页。
+     * 「记忆树」标签页 —— 记忆的可视化入口。
      *
-     * 层级:记忆 → 作用域 → 类型 → 记录。三个维度正好对应记忆的归属(scope)、
-     * 语义(kind)与内容;修正关系是跨记录的点对点关系,用金色虚线单独画在树的右侧,
-     * 悬停/选中任意一端时两端与整条链一起点亮。
+     * 顶部一行:二级切换(记忆树 / 星图)+ 紧凑统计胶囊;下面是两种视图共用的工具条
+     * (搜索 / 作用域 / 修正连线 / 类型筛选),再往下是画布。
+     *
+     * 记忆树:记忆 → 作用域 → 类型 → 记录。三个维度正好对应记忆的归属(scope)、
+     * 语义(kind)与内容;修正关系是跨记录的点对点关系,用金色虚线单独画在树的右侧。
+     *
+     * 星图:每个作用域是一颗星,它的记忆按黄金角铺成同心环,越靠外的环越小越暗越模糊,
+     * 于是同一团记忆看起来像一颗有体积的球。看的是「密度与分布」,不是逐条精读。
      */
     /** 0.35.0：树上的"问题记忆"判定（删除/失效/休眠/冲突之一）。 */
     function isIssueRecord(rec) {
@@ -1720,6 +1881,12 @@ window.__ModuleLoader__.load({
     }
 
     function MemoryTreeTab({ records, scopes, loading, error, onRefresh }) {
+      // 同一个标签页里的三种可视化:树(结构清晰)、2D 星图、3D 星图(体积/遮挡)。
+      // 筛选、选中、修正连线开关是所有视图共用的 —— 切换视图不该丢掉你刚搜的那一半。
+      //
+      // 视图状态按模式**各自独立**:树只有 zoom,2D 有 zoom/panX/panY,3D 有相机。
+      // 共用一套缩放值会出现"在 2D 放大到 3× 再切回树,树也跟着糊掉"这种荒谬结果。
+      const [view, setView] = React.useState('tree')
       const [query, setQuery] = React.useState('')
       const [scopeFilter, setScopeFilter] = React.useState('')
       const [kindFilter, setKindFilter] = React.useState(null)
@@ -1732,8 +1899,21 @@ window.__ModuleLoader__.load({
       const [zoom, setZoom] = React.useState(loadTreeZoom())
       const zoomRef = React.useRef(zoom)
       zoomRef.current = zoom
+      // 2D 星图视图状态:zoom + panX/panY(屏幕像素)。3D 的相机状态由渲染器自己管,
+      // 通过 onView 回写到 layout.views['3d'],组件不重复持有。
+      const [graphView, setGraphView] = React.useState(graph2DDefaultView)
       const [autoFitDone, setAutoFitDone] = React.useState(false)
+      const [graphFitDone, setGraphFitDone] = React.useState(false)
+      // 布局覆盖层(用户拖过的节点 / 转过的轨道 / 各模式视角)。懒加载:localStorage
+      // 读取只做一次,之后就是纯内存的不可变更新。
+      const [layoutStore, setLayoutStore] = React.useState(loadGraphLayout)
+      // 3D 的运行时状态:未加载 / 加载中 / 就绪 / 失败(附原因)。失败时退回 2D,
+      // 并把原因显示给用户 —— 不能假装"3D 就是这样的"。
+      const [three3D, setThree3D] = React.useState({ status: 'idle', error: '' })
       const wrapRef = React.useRef(null)
+      const stageRef = React.useRef(null)
+      const graph3HostRef = React.useRef(null)
+      const graph3Ref = React.useRef(null)
 
       const labels = {}
       for (const entry of scopes) {
@@ -1764,6 +1944,39 @@ window.__ModuleLoader__.load({
       const layout = buildMemoryTree(treeRecords, {
         labels, collapsed, activeKinds, scopeFilter, query,
       })
+      const graph = buildMemoryGraph(records, {
+        labels, collapsed, activeKinds, scopeFilter, query,
+      })
+      // 3D 布局:在 2D 的确定性结果上派生。只在真的要看 3D 时才算 —— 树/2D 用户
+      // 不该为一份用不到的三维坐标付计算成本。
+      const graph3 = view === '3d' ? buildMemoryGraph3D(graph, { overlay: layoutStore }) : null
+
+      /** 读 stage 的实时尺寸。2D 的锚点缩放与适应画布都要它。 */
+      const stageSize = () => {
+        const stage = stageRef.current
+        if (!stage || !(stage.clientWidth > 0)) return { width: 1, height: 1 }
+        return { width: stage.clientWidth, height: stage.clientHeight }
+      }
+
+      /** 把某个模式的视图状态写回持久化层。 */
+      const persistView = (mode, next) => {
+        setLayoutStore((previous) => {
+          const merged = withViewState(previous, mode, next)
+          saveGraphLayout(merged)
+          return merged
+        })
+      }
+
+      // 星图不滚动:整张图缩放到画布内,普通滚轮留给宿主页面(Ctrl+滚轮才缩放)。
+      const fitGraph = () => {
+        try {
+          const next = graph2DFitView(graph, stageSize())
+          setGraphView(next)
+          persistView('2d', next)
+        } catch {
+          setGraphView(graph2DDefaultView())
+        }
+      }
 
       // 第一次拿到记录时把宽度缩到画布内:右侧的记录列默认不该被横向截断。
       // 高度方向仍可滚动 —— 记忆很多时把整棵树压到一屏里会小到看不清。
@@ -1806,6 +2019,28 @@ window.__ModuleLoader__.load({
         else if (bottom > viewBottom - 12) scroll.scrollTop = bottom - scroll.clientHeight + 12
       }, [selectedId])
 
+      // 星图第一次出现时缩到画布内。它不滚动,所以必须整张可见;之后用户自己缩放过
+      // 就不再动 —— 手动调过的视角绝不能被一次重渲染重新"适应"回去。
+      React.useEffect(() => {
+        if (view !== 'graph' || graphFitDone || graph.counts.records === 0) return
+        const stage = stageRef.current
+        if (!stage || !(stage.clientWidth > 0) || graph.width <= 0) return
+        // 有存下来的视角就恢复它,不要覆盖用户上次的调整。
+        const stored = layoutStore.views && layoutStore.views['2d']
+        if (stored && Number.isFinite(stored.zoom)) {
+          setGraphView({
+            zoom: graph2DClampZoom(stored.zoom),
+            panX: Number.isFinite(stored.panX) ? stored.panX : 0,
+            panY: Number.isFinite(stored.panY) ? stored.panY : 0,
+          })
+        } else {
+          const next = graph2DFitView(graph, stageSize())
+          setGraphView(next)
+          persistView('2d', next)
+        }
+        setGraphFitDone(true)
+      }, [view, graphFitDone, graph.counts.records, graph.width, graph.height])
+
       const focusId = hoverId || selectedId
       const related = new Set()
       if (focusId) {
@@ -1830,6 +2065,233 @@ window.__ModuleLoader__.load({
         if (edge.toType === 'kind' || edge.toType === 'scope') return pathKeys.has(edge.toKey)
         return false
       }
+
+      // 星图的「邻域」和树的路径高亮不是一回事:树要顺着父链点亮整条路径,
+      // 星图只关心焦点本身 + 它的作用域 hub + 修正对手 —— 多了就满屏都亮,等于没高亮。
+      const graphFocusKey = focusId === null ? null : `record:${focusId}`
+      const graphNear = new Set()
+      if (graphFocusKey !== null && graph.nodeByKey.has(graphFocusKey)) {
+        graphNear.add(graphFocusKey)
+        for (const edge of graph.edges) {
+          if (edge.fromKey === graphFocusKey) graphNear.add(edge.toKey)
+          else if (edge.toKey === graphFocusKey) graphNear.add(edge.fromKey)
+        }
+        for (const edge of graph.corrections) {
+          if (edge.fromKey === graphFocusKey) graphNear.add(edge.toKey)
+          else if (edge.toKey === graphFocusKey) graphNear.add(edge.fromKey)
+        }
+      }
+      const graphEdgeNear = (edge) => graphNear.has(edge.fromKey) || graphNear.has(edge.toKey)
+
+      // ===== 3D 渲染器的生命周期 =====
+      //
+      // 三条硬规则:
+      //   ① 只在 view === '3d' 时加载 three.js(2.5MB 的 chunk 不该拖累树/2D 用户);
+      //   ② 切走时 pause(停掉 rAF,不占 GPU),离开面板时 dispose(释放显存);
+      //   ③ 加载失败 / WebGL 不可用 → 退回 2D 并把原因说清楚,绝不假装加载成功。
+      React.useEffect(() => {
+        if (view !== '3d') {
+          // 切走:暂停渲染,但保留实例 —— 切回来时能接着用同一个相机,不闪一下
+          if (graph3Ref.current) graph3Ref.current.pause()
+          return
+        }
+        if (graph3Ref.current) {
+          graph3Ref.current.resume()
+          return
+        }
+        if (three3D.status === 'loading') return
+        // 环境不支持就直接退回 2D,别让用户对着黑屏猜
+        if (!graphWebGLAvailable()) {
+          setThree3D({ status: 'failed', error: '当前环境不支持 WebGL，已退回 2D 星图' })
+          setView('graph')
+          return
+        }
+        const host = graph3HostRef.current
+        if (!host) return
+        let cancelled = false
+        setThree3D({ status: 'loading', error: '' })
+        const controller = createMemoryGraph3D({
+          container: host,
+          onSelect: (id) => setSelectedId((current) => (current === id ? null : id)),
+          onHover: setHoverId,
+          onNodeMove: (id, position) => {
+            setLayoutStore((previous) => {
+              const next = withNodePosition(previous, 'record', id, position)
+              saveGraphLayout(next)
+              return next
+            })
+          },
+          onScopeMove: (scope, position) => {
+            setLayoutStore((previous) => {
+              const next = withNodePosition(previous, 'scope', scope, position)
+              saveGraphLayout(next)
+              return next
+            })
+          },
+          onScopeRotate: (scope, rotation) => {
+            setLayoutStore((previous) => {
+              const next = withScopeRotation(previous, scope, rotation)
+              saveGraphLayout(next)
+              return next
+            })
+          },
+          onView: (next) => persistView('3d', next),
+        })
+        graph3Ref.current = controller
+        const storedView = layoutStore.views && layoutStore.views['3d']
+        controller.mount(graph3, storedView).then((ok) => {
+          if (cancelled || !ok) return
+          setThree3D({ status: 'ready', error: '' })
+          // 没有存下来的视角时,第一次进入就把整张图框进视野
+          if (!storedView || !Array.isArray(storedView.cameraPosition)) {
+            controller.fit(graph3 ? graph3.radius : 400)
+          }
+        }).catch((err) => {
+          if (cancelled) return
+          graph3Ref.current = null
+          setThree3D({ status: 'failed', error: `3D 渲染器加载失败:${String(err && err.message ? err.message : err)}` })
+          setView('graph')
+        })
+        return () => {
+          // 注意:这里**不** dispose —— 切到树再切回来要复用同一个控制器。
+          // 真正的销毁在下面那个只在卸载时跑的 effect 里。
+          cancelled = true
+        }
+      }, [view, three3D.status])
+
+      // 数据变化(筛选 / 折叠 / 新记录)时重建场景,不重建相机。
+      React.useEffect(() => {
+        const controller = graph3Ref.current
+        if (!controller || three3D.status !== 'ready' || !graph3) return
+        controller.setData(graph3)
+      }, [three3D.status, graph3])
+
+      // 高亮状态同步:选中 / 悬停 / 邻域 / 搜索命中。
+      React.useEffect(() => {
+        const controller = graph3Ref.current
+        if (!controller || three3D.status !== 'ready') return
+        controller.setHighlight({
+          selectedId,
+          hoverId,
+          nearKeys: graphNear,
+          matchIds: graph3 ? new Set(graph3.matches) : new Set(),
+          hasQuery: query.trim() !== '',
+        })
+      }, [three3D.status, selectedId, hoverId, graphNear, graph3, query])
+
+      // 搜索命中在 3D 里也要"看得见":把第一颗命中的星移到视野中心。
+      // 只在查询变化时触发一次,拖动视角不会把镜头抢回去。
+      React.useEffect(() => {
+        const controller = graph3Ref.current
+        if (!controller || three3D.status !== 'ready' || !graph3 || view !== '3d') return
+        if (query.trim() === '' || graph3.matches.size === 0) return
+        const first = graph3.records.find((node) => graph3.matches.has(node.id))
+        if (first) controller.focusNode(first.key)
+      }, [three3D.status, query, view])
+
+      // 容器尺寸变化 → 同步相机宽高比。窗口缩放和侧栏开合都会触发。
+      React.useEffect(() => {
+        if (view !== '3d') return
+        const host = graph3HostRef.current
+        if (!host) return
+        const onResize = () => {
+          if (graph3Ref.current) graph3Ref.current.resize()
+        }
+        if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+          window.addEventListener('resize', onResize)
+        }
+        let observer = null
+        if (typeof ResizeObserver === 'function') {
+          observer = new ResizeObserver(onResize)
+          observer.observe(host)
+        }
+        return () => {
+          if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
+            window.removeEventListener('resize', onResize)
+          }
+          if (observer) observer.disconnect()
+        }
+      }, [view, three3D.status])
+
+      // 卸载:彻底销毁 3D(释放显存、摘掉 canvas、移除监听)。
+      React.useEffect(() => () => {
+        if (graph3Ref.current) {
+          graph3Ref.current.dispose()
+          graph3Ref.current = null
+        }
+      }, [])
+
+      // ===== 2D 画布交互:拖动平移 + Ctrl+滚轮锚点缩放 =====
+      // 用原生监听而不是 React 的 onWheel:React 的 wheel 是 passive 的,
+      // 拦不住浏览器缩放,而且拿不到 preventDefault。
+      React.useEffect(() => {
+        if (view !== 'graph') return
+        const stage = stageRef.current
+        if (!stage) return
+
+        let dragging = false
+        let lastX = 0
+        let lastY = 0
+
+        const onPointerDown = (event) => {
+          // 点在节点上时不接管:节点自己有点击语义(选中 / 折叠星团)。
+          if (event.target && typeof event.target.closest === 'function' && event.target.closest('.gnode')) return
+          if (event.button !== 0) return
+          dragging = true
+          lastX = event.clientX
+          lastY = event.clientY
+          stage.classList.add('dragging')
+          if (typeof stage.setPointerCapture === 'function' && event.pointerId !== undefined) {
+            try { stage.setPointerCapture(event.pointerId) } catch {}
+          }
+          if (typeof event.preventDefault === 'function') event.preventDefault()
+        }
+        const onPointerMove = (event) => {
+          if (!dragging) return
+          const dx = event.clientX - lastX
+          const dy = event.clientY - lastY
+          if (dx === 0 && dy === 0) return
+          lastX = event.clientX
+          lastY = event.clientY
+          setGraphView((previous) => {
+            const next = graph2DPan(previous, dx, dy, stageSize())
+            persistView('2d', next)
+            return next
+          })
+        }
+        const onPointerUp = (event) => {
+          if (!dragging) return
+          dragging = false
+          stage.classList.remove('dragging')
+          if (typeof stage.releasePointerCapture === 'function' && event && event.pointerId !== undefined) {
+            try { stage.releasePointerCapture(event.pointerId) } catch {}
+          }
+        }
+        const onWheel = (event) => {
+          // 只接管 Ctrl+滚轮;普通滚轮留给宿主页面滚动。
+          if (!event.ctrlKey && !event.metaKey) return
+          if (typeof event.preventDefault === 'function') event.preventDefault()
+          const anchor = graph2DPointerInStage(event, stage)
+          setGraphView((previous) => {
+            const next = graph2DWheelZoom(previous, event.deltaY, anchor, stageSize())
+            persistView('2d', next)
+            return next
+          })
+        }
+
+        stage.addEventListener('pointerdown', onPointerDown)
+        stage.addEventListener('pointermove', onPointerMove)
+        stage.addEventListener('pointerup', onPointerUp)
+        stage.addEventListener('pointercancel', onPointerUp)
+        stage.addEventListener('wheel', onWheel, { passive: false })
+        return () => {
+          stage.removeEventListener('pointerdown', onPointerDown)
+          stage.removeEventListener('pointermove', onPointerMove)
+          stage.removeEventListener('pointerup', onPointerUp)
+          stage.removeEventListener('pointercancel', onPointerUp)
+          stage.removeEventListener('wheel', onWheel)
+        }
+      }, [view])
 
       const toggleScope = (scope) => {
         const key = `scope:${scope}`
@@ -1871,6 +2333,15 @@ window.__ModuleLoader__.load({
         setShowCorrections(true)
       }
       const fitViewRef = React.useRef(null)
+      const stepZoom = (delta) => {
+        setZoom((value) => Math.max(0.45, Math.min(1.6, Math.round((value + delta) * 100) / 100)))
+      }
+      const stepGraphZoom = (delta) => {
+        const next = graph2DStepZoom(graphView, delta, stageSize())
+        if (graph2DSameView(next, graphView)) return
+        setGraphView(next)
+        persistView('2d', next)
+      }
       const fitView = () => {
         try {
           const wrap = wrapRef.current
@@ -1898,9 +2369,10 @@ window.__ModuleLoader__.load({
       for (const scope of presentScopes) scopeItems.push({ value: scope, label: scopeLabel(scope, labels) })
       const correctionsTotal = records.reduce((sum, rec) => sum + (rec.supersedes ? 1 : 0), 0)
       const scopeTotal = new Set(records.map((rec) => rec.scope)).size
+      const shownCount = view === 'tree' ? layout.counts.records : graph.counts.records
       const emptyText = records.length === 0
         ? (loading ? '正在加载记忆…' : '还没有记忆。去「记录」里新建一条，或让 Agent 用 memory_save 写一条。')
-        : layout.counts.records === 0
+        : shownCount === 0
           ? '当前筛选下没有记忆。'
           : ''
       const showEmpty = emptyText !== '' || (Boolean(error) && records.length === 0)
@@ -1991,12 +2463,37 @@ window.__ModuleLoader__.load({
       }, [showEmpty, layout.width, layout.height])
 
 
+      // 一级切换:记忆图(结构树)/ 2D 星图 / 3D 星图。放在统计左边,统计靠右 ——
+      // 一行同时给出「我在看哪种视图」和「图里有多少东西」。
+      //
+      // 2D 与 3D 是两个**并列**的渲染器,谁也不替换谁:2D 在超大图上有更好的
+      // 全局可读性,3D 提供真实的深度与遮挡。切过去不重新取数、不重排、不丢选中。
+      const vizTabs = h('div', { className: 'subtabs' },
+        h('button', {
+          className: 'subtab' + (view === 'tree' ? ' on' : ''),
+          title: '按 记忆 → 作用域 → 类型 → 记录 分层展开',
+          onClick: () => setView('tree'),
+        }, '记忆图'),
+        h('button', {
+          className: 'subtab' + (view === 'graph' ? ' on' : ''),
+          title: '每个作用域一颗星,记忆按类型着色铺成同心环',
+          onClick: () => setView('graph'),
+        }, '2D 星图'),
+        h('button', {
+          className: 'subtab' + (view === '3d' ? ' on' : ''),
+          title: '立体星图:拖动旋转、Ctrl+滚轮缩放、双击星聚焦',
+          onClick: () => setView('3d'),
+        }, '3D 星图'),
+      )
+
       const stats = h('div', { className: 'tree-stats' },
         h('div', { className: 'stat' }, h('b', null, String(records.length)), h('span', null, '条记忆')),
         h('div', { className: 'stat' }, h('b', null, String(scopeTotal)), h('span', null, '个作用域')),
         h('div', { className: 'stat' }, h('b', null, String(presentKinds.length)), h('span', null, '种类型')),
         h('div', { className: 'stat' }, h('b', null, String(correctionsTotal)), h('span', null, '处修正')),
       )
+
+      const vizHead = h('div', { className: 'viz-head' }, vizTabs, stats)
 
       const toolbar = h('div', { className: 'tree-toolbar' },
         h('input', {
@@ -2022,7 +2519,7 @@ window.__ModuleLoader__.load({
           onClick: () => setOnlyIssues((value) => !value),
         }, '只看问题', h('b', null, String(issueTotal))),
         query.trim() !== ''
-          ? h('span', { className: 'tree-matchinfo' }, `匹配 ${layout.matches.size} 条`)
+          ? h('span', { className: 'tree-matchinfo' }, `匹配 ${view === 'graph' ? graph.matches.size : layout.matches.size} 条`)
           : null,
         h('span', { className: 'spacer' }),
         h('button', { onClick: () => setCollapsed(new Set()) }, '全部展开'),
@@ -2049,6 +2546,24 @@ window.__ModuleLoader__.load({
         presentKinds.length > 0 && presentKinds.every((kind) => activeKinds.has(kind))
           ? null
           : h('button', { className: 'linkbtn', onClick: () => setKindFilter(null) }, '恢复全部类型'),
+      )
+
+      // 详情抽屉两种视图共用:从星图点开的记录,和从树上点开的是同一个抽屉。
+      const detail = selected
+        ? h(TreeDetail, {
+            rec: selected,
+            labels,
+            byId: recordById,
+            onClose: () => setSelectedId(null),
+            onJump: jumpTo,
+          })
+        : null
+      const emptyNode = (icon) => h('div', { className: 'tree-empty' },
+        h('span', { className: 'big' }, icon),
+        h('span', null, emptyText || String(error)),
+        emptyText === '当前筛选下没有记忆。'
+          ? h('button', { onClick: resetFilters }, '清空筛选')
+          : null,
       )
 
       const nodes = []
@@ -2165,24 +2680,210 @@ window.__ModuleLoader__.load({
         showCorrections && layout.corrections.length > 0 && !showEmpty
           ? h('div', { className: 'tree-legend' }, h('span', null, h('i', { className: 'line' }), '修正关系'))
           : null,
-        selected
-          ? h(TreeDetail, {
-              rec: selected,
-              labels,
-              byId: recordById,
-              onClose: () => setSelectedId(null),
-              onJump: jumpTo,
-            })
+        detail,
+      )
+
+      // ===== 星图画布 =====
+      // 节点是绝对定位的圆点,缩放只作用在 .graph-canvas 上;连线的坐标和节点同一个
+      // 坐标系,所以缩放后依然对齐。远近靠 z 值:近的大、亮、靠前,远的暗、微糊。
+      const graphNodes = []
+      for (const node of graph.nodes) {
+        if (node.type === 'scope') {
+          const size = Math.max(14, Math.round(node.r * 2))
+          graphNodes.push(h('div', {
+            key: node.key,
+            className: 'gnode hub' + (node.open ? '' : ' closed'),
+            style: { left: `${node.x}px`, top: `${node.y}px`, width: `${size}px`, height: `${size}px`, zIndex: 200 },
+            title: `${node.label} · ${node.count} 条记忆${node.open ? '' : '（已折叠，点击展开）'}`,
+            onClick: () => toggleScope(node.scope),
+          },
+            h('span', { className: 'orb' }),
+            h('span', { className: 'hglyph' }, scopeGlyph(node.scope)),
+            // 星名挂在轨道环外侧:压在簇里会盖住记忆点
+            h('span', {
+              className: 'glabel',
+              style: node.open && node.orbit > 0 ? { bottom: node.orbit + 6 } : null,
+            }, `${node.label} · ${node.count}`),
+          ))
+          continue
+        }
+        const rec = node.rec
+        const size = Math.max(5, Math.round(node.r * 2))
+        const miss = query.trim() !== '' && !graph.matches.has(rec.id)
+        const match = query.trim() !== '' && graph.matches.has(rec.id)
+        const near = graphNear.has(node.key)
+        // 标签只给"有意义的点":命中、邻域、选中、悬停。全显会把星团糊成一片,
+        // 这也是 Obsidian 图谱默认不标全部节点的原因。
+        const showLabel = match || near
+        const cls = 'gnode'
+          + (rec.id === selectedId ? ' selected' : '')
+          + (near ? ' near' : '')
+          + (miss ? ' miss' : '')
+          + (match ? ' match' : '')
+          + (showLabel ? ' lbl' : '')
+        graphNodes.push(h('div', {
+          key: node.key,
+          className: cls,
+          style: {
+            left: `${node.x}px`,
+            top: `${node.y}px`,
+            width: `${size}px`,
+            height: `${size}px`,
+            '--k': kindMeta(node.kind).color,
+            '--z-op': String(Math.round((1 - node.z * 0.44) * 100) / 100),
+            '--z-blur': node.z > 0.5 ? `${((node.z - 0.5) * 1.4).toFixed(2)}px` : '0px',
+            zIndex: 120 - Math.round(node.z * 90),
+          },
+          title: `${kindMeta(node.kind).label} · ${excerpt(rec.content, 60)}`,
+          onClick: () => setSelectedId((current) => current === rec.id ? null : rec.id),
+          onMouseEnter: () => setHoverId(rec.id),
+          onMouseLeave: () => setHoverId(null),
+        },
+          h('span', { className: 'orb' }),
+          // 标签沿半径朝外,四个方向各自贴边,避免压住圆心
+          h('span', {
+            className: 'glabel',
+            style: {
+              top: '50%',
+              left: '50%',
+              transform: `translate(${Math.cos(node.angle) >= 0 ? '6px' : 'calc(-100% - 6px)'}, -50%)`,
+              textAlign: Math.cos(node.angle) >= 0 ? 'left' : 'right',
+            },
+          }, excerpt(rec.content, 22)),
+        ))
+      }
+
+      const graphPaths = []
+      for (const edge of graph.edges) {
+        if (edge.x1 === undefined) continue
+        graphPaths.push(h('path', {
+          key: edge.key,
+          className: 'glink' + (graphEdgeNear(edge) ? ' near' : ''),
+          d: graphLinkPath(edge.x1, edge.y1, edge.x2, edge.y2),
+        }))
+      }
+      if (showCorrections) {
+        for (const edge of graph.corrections) {
+          if (edge.x1 === undefined) continue
+          graphPaths.push(h('path', {
+            key: edge.key,
+            className: 'glink corr' + (graphEdgeNear(edge) ? ' near' : ''),
+            d: graphLinkPath(edge.x1, edge.y1, edge.x2, edge.y2),
+          }))
+        }
+      }
+
+      const graphCanvas = h('div', {
+        className: 'graph-canvas' + (graphFocusKey !== null ? ' focused' : ''),
+        style: {
+          width: graph.width,
+          height: graph.height,
+          marginLeft: -graph.width / 2,
+          marginTop: -graph.height / 2,
+          // 平移在前、缩放在后:panX/panY 是屏幕像素,拖多少像素就走多少像素
+          transform: graph2DTransform(graphView),
+        },
+      },
+        // 每个作用域一团柔光 + 一圈轨道环:让"星团"有体积感,而不是一圈点撒在网格上
+        h('div', { className: 'graph-glow', 'aria-hidden': 'true' },
+          graph.nodes.filter((node) => node.type === 'scope').flatMap((node) => {
+            const halo = node.r * 2.6
+            const parts = [h('span', {
+              key: `glow:${node.key}`,
+              style: {
+                left: node.x - halo,
+                top: node.y - halo,
+                width: halo * 2,
+                height: halo * 2,
+                opacity: node.open ? 0.85 : 0.3,
+              },
+            })]
+            if (node.open && node.orbit > 0) {
+              parts.push(h('span', {
+                key: `orbit:${node.key}`,
+                className: 'orbit',
+                style: {
+                  left: node.x - node.orbit,
+                  top: node.y - node.orbit,
+                  width: node.orbit * 2,
+                  height: node.orbit * 2,
+                  opacity: 0.9,
+                },
+              }))
+            }
+            return parts
+          })),
+        h('svg', {
+          className: 'graph-edges',
+          width: graph.width,
+          height: graph.height,
+          viewBox: `0 0 ${graph.width} ${graph.height}`,
+          'aria-hidden': 'true',
+        }, graphPaths),
+        graphNodes,
+      )
+
+      const graphWrap = h('div', { className: 'graph-wrap', ref: wrapRef },
+        // stage 是拖动/滚轮的监听目标,也是锚点缩放的坐标系原点
+        h('div', { className: 'graph-stage', ref: stageRef },
+          h('div', {
+            className: 'graph-zoomspace',
+            style: { width: Math.ceil(graph.width * graphView.zoom), height: Math.ceil(graph.height * graphView.zoom) },
+          }, graphCanvas),
+        ),
+        showEmpty ? emptyNode('🌌') : null,
+        showEmpty ? null : h('div', { className: 'graph-hud' },
+          h('b', null, String(graph.counts.scopes)), ' 颗星 · ',
+          h('b', null, String(graph.counts.records)), ' 条记忆 · 拖动平移，Ctrl+滚轮缩放',
+        ),
+        showEmpty ? null : h('div', { className: 'tree-zoom' },
+          h('button', { title: '缩小', onClick: () => stepGraphZoom(-GRAPH_VIEW.zoomStep) }, '−'),
+          h('span', { className: 'zoomval' }, `${Math.round(graphView.zoom * 100)}%`),
+          h('button', { title: '放大', onClick: () => stepGraphZoom(GRAPH_VIEW.zoomStep) }, '+'),
+          h('button', { title: '适应画布', onClick: fitGraph }, '适应'),
+        ),
+        showCorrections && graph.corrections.length > 0 && !showEmpty
+          ? h('div', { className: 'tree-legend' }, h('span', null, h('i', { className: 'line' }), '修正关系'))
           : null,
+        detail,
+      )
+
+      // ===== 3D 星图 =====
+      // 容器由渲染器自己往里面塞 canvas 与标签层,React 不参与 DOM 细节 ——
+      // 否则每次 setState 都会跟 three 抢孩子节点。
+      const graph3Wrap = h('div', { className: 'graph-wrap graph3-wrap', ref: wrapRef },
+        h('div', {
+          className: 'graph3-stage',
+          ref: graph3HostRef,
+        }),
+        three3D.status === 'loading'
+          ? h('div', { className: 'graph3-status' }, '正在加载 3D 渲染器…')
+          : null,
+        showEmpty ? emptyNode('🌌') : null,
+        showEmpty ? null : h('div', { className: 'graph-hud' },
+          h('b', null, String(graph.counts.scopes)), ' 个星系 · ',
+          h('b', null, String(graph.counts.records)), ' 颗星 · 拖动旋转，Ctrl+滚轮缩放，双击星聚焦',
+        ),
+        showEmpty ? null : h('div', { className: 'tree-zoom' },
+          h('button', { title: '拉远', onClick: () => { if (graph3Ref.current) graph3Ref.current.fit(graph3 ? graph3.radius * 1.5 : 600) } }, '−'),
+          h('button', { title: '适应视野', onClick: () => { if (graph3Ref.current) graph3Ref.current.fit(graph3 ? graph3.radius : 400) } }, '适应'),
+        ),
+        showCorrections && graph.corrections.length > 0 && !showEmpty
+          ? h('div', { className: 'tree-legend' }, h('span', null, h('i', { className: 'line' }), '修正关系'))
+          : null,
+        detail,
       )
 
       return h('div', { className: 'tree-tab' },
-        stats,
+        vizHead,
         toolbar,
         kindbar,
         statusLegend,
         error && records.length > 0 ? h('div', { className: 'err' }, error) : null,
-        treeWrap,
+        three3D.status === 'failed' && three3D.error !== ''
+          ? h('div', { className: 'err' }, three3D.error)
+          : null,
+        view === '3d' ? graph3Wrap : view === 'graph' ? graphWrap : treeWrap,
       )
     }
 
@@ -2611,7 +3312,7 @@ window.__ModuleLoader__.load({
       },
       {
         key: 'policy', title: '记忆使用策略',
-        desc: '系统提示常驻段：什么时候该查记忆、查到后怎么用、查不到怎么办。',
+        desc: '系统提示常驻段：什么时候该查记忆、查到后怎么用、查不到怎么办、无关记忆什么时候该屏蔽。',
         fields: [
           { k: 'enabled', label: '启用', type: 'bool', hint: '关闭只移除这段提示，不影响记忆检索。' },
         ],
@@ -2776,6 +3477,408 @@ window.__ModuleLoader__.load({
             )
           : null,
         group.hint ? h('div', { className: 'setcard-note' }, group.hint) : null,
+      )
+    }
+
+    /**
+     * 「规则代码」标签页（0.35.0）：kind=rule 记忆附带的可执行脚本。
+     *
+     * 为什么它自成**一个标签页**而不是塞进「设置」：这里的每个对象都是会在 DSH
+     * 进程里跑的代码，用户需要逐行看清 —— 入口函数名、时机、什么时候跑过、跑出
+     * 过什么结果。塞进设置卡里会被"开关 + 数字"的观感淹没。
+     *
+     * 代码不进记忆检索，所以这个页面是**唯一**能看见它的地方。
+     */
+    function HooksTab() {
+      const [data, setData] = React.useState(null)
+      const [error, setError] = React.useState('')
+      const [notice, setNotice] = React.useState('')
+      const [draft, setDraft] = React.useState(null)
+      const [busy, setBusy] = React.useState(false)
+      const [trial, setTrial] = React.useState(null)
+      const [trialText, setTrialText] = React.useState('记忆内容规范：这段是合规样例')
+      // 0.38.0：卡片默认折叠；筛选维度 = 时机 / 生效作用域 / 是否批准。
+      const [expanded, setExpanded] = React.useState(new Set())
+      const [filterPhase, setFilterPhase] = React.useState('')
+      const [filterScope, setFilterScope] = React.useState('')
+      const [filterApproval, setFilterApproval] = React.useState('')
+      // 试跑输出可手动关闭：记录哪些卡片的试跑结果被用户关掉。
+      const [trialClosed, setTrialClosed] = React.useState(new Set())
+
+      const load = async () => {
+        setError('')
+        try {
+          const value = await api('hooks')
+          setData(value)
+        } catch (e) {
+          setError(String(e.message || e))
+        }
+      }
+      React.useEffect(() => { load() }, [])
+
+      const phaseText = {
+        'before-save': '保存前校验',
+        'after-save': '保存后观察',
+        'before-inject': '注入前解析',
+      }
+      const phaseHint = {
+        'before-save': 'memory_save 落盘之前运行；返回 { ok: false } 会拒绝这次保存。',
+        'after-save': '记录落盘之后运行；只能附注，不影响已经完成的结果。',
+        'before-inject': '记忆进入上下文之前运行；返回 { content } 改写正文，{ drop: true } 丢弃整条。',
+      }
+
+      const flash = (text) => {
+        setNotice(text)
+        setTimeout(() => setNotice(''), 2200)
+      }
+
+      const startNew = () => {
+        setTrial(null)
+        setDraft({
+          id: '',
+          name: '',
+          phase: 'before-save',
+          code: [
+            '// 记忆内容规范：必须以「概括句：正文」的格式保存',
+            'function verify(memory) {',
+            '  const text = memory.content',
+            '  const at = text.indexOf(\'：\')',
+            '  if (at < 0) {',
+            '    return { ok: false, message: \'必须以「概括句：正文」格式保存：缺少全角冒号「：」\' }',
+            '  }',
+            '  if (text.slice(0, at).trim() === \'\') {',
+            '    return { ok: false, message: \'冒号前是空的：概括句必须能独立看懂\' }',
+            '  }',
+            '  return { ok: true }',
+            '}',
+          ].join('\n'),
+          scopes: [],
+          kinds: [],
+          enabled: true,
+        })
+      }
+
+      const edit = (hook) => {
+        setTrial(null)
+        setDraft({
+          id: hook.id,
+          name: hook.name,
+          phase: hook.phase,
+          code: hook.code,
+          scopes: Array.isArray(hook.scopes) ? hook.scopes : [],
+          kinds: Array.isArray(hook.kinds) ? hook.kinds : [],
+          enabled: hook.enabled !== false,
+        })
+      }
+
+      const save = async () => {
+        if (draft === null) return
+        setBusy(true)
+        setError('')
+        try {
+          await api('hooks', {
+            action: 'save',
+            ...(draft.id !== '' ? { id: draft.id } : {}),
+            name: draft.name,
+            phase: draft.phase,
+            code: draft.code,
+            scopes: draft.scopes,
+            kinds: draft.kinds,
+            enabled: draft.enabled,
+            by: 'user',
+          })
+          setDraft(null)
+          await load()
+          flash('已保存（你保存的代码视为已批准）')
+        } catch (e) {
+          setError(String(e.message || e))
+        }
+        setBusy(false)
+      }
+
+      const remove = async (hook) => {
+        // 0.36.1：删除钩子不可逆（hooks.json 直接覆盖、无回收站），面板也加一道二次确认，
+        // 与工具层的 confirm 参数对齐 —— 用户误点不再瞬间丢掉写好的规则代码。
+        if (!window.confirm(`确定删除钩子「${hook.name || hook.id}」吗？\n\n这一步不可逆：规则代码会从 hooks.json 直接移除，没有回收站。若只是想让它停下，请点「撤销批准」（代码保留、不再运行）。`)) return
+        setBusy(true)
+        setError('')
+        try {
+          await api('hooks', { action: 'delete', id: hook.id })
+          if (draft !== null && draft.id === hook.id) setDraft(null)
+          await load()
+          flash('已删除')
+        } catch (e) {
+          setError(String(e.message || e))
+        }
+        setBusy(false)
+      }
+
+      // 0.38.0：启用/停用语义移除 —— 批准 = 代码会运行；撤销批准 = 代码保留但不再运行。
+      const approve = async (hook) => {
+        setBusy(true)
+        try {
+          await api('hooks', { action: 'approve', id: hook.id })
+          await load()
+          flash('已批准，这段代码从现在起会运行')
+        } catch (e) {
+          setError(String(e.message || e))
+        }
+        setBusy(false)
+      }
+
+      const revokeApproval = async (hook) => {
+        setBusy(true)
+        try {
+          await api('hooks', { action: 'revoke-approval', id: hook.id })
+          await load()
+          flash('已撤销批准，代码保留但不会运行')
+        } catch (e) {
+          setError(String(e.message || e))
+        }
+        setBusy(false)
+      }
+
+      /** 拿一段样例正文试跑：验证判断边界最快的办法，且不写任何记忆。 */
+      const run = async (hook) => {
+        setBusy(true)
+        setTrial(null)
+        setTrialClosed((prev) => { const next = new Set(prev); next.delete(hook.id); return next })
+        try {
+          const value = await api('hooks', { action: 'run', id: hook.id, content: trialText })
+          const outcome = Array.isArray(value.outcomes) ? value.outcomes[0] : undefined
+          setTrial({ hookId: hook.id, outcome })
+        } catch (e) {
+          setError(String(e.message || e))
+        }
+        setBusy(false)
+      }
+
+      const updateSettings = async (patch) => {
+        const next = { ...(data && data.settings ? data.settings : {}), ...patch }
+        setData({ ...(data || {}), settings: next })
+        try {
+          await api('hooks', { action: 'settings', settings: next })
+          flash('已保存')
+        } catch (e) {
+          setError(String(e.message || e))
+        }
+      }
+
+      if (data === null) return h('div', { className: 'empty' }, error || '加载规则代码…')
+
+      const hooks = Array.isArray(data.hooks) ? data.hooks : []
+      const settings = data.settings || {}
+      const pendingCount = hooks.filter((hook) => hook.pendingApproval).length
+
+      // 0.38.0：筛选维度取值（从数据里收集，保证下拉里不会出现空选项）。
+      const allScopes = [...new Set(hooks.flatMap((hook) => (Array.isArray(hook.scopes) ? hook.scopes : [])))]
+      const shownHooks = hooks.filter((hook) => {
+        if (filterPhase && hook.phase !== filterPhase) return false
+        if (filterScope && !(Array.isArray(hook.scopes) && hook.scopes.includes(filterScope))) return false
+        if (filterApproval === 'approved' && hook.pendingApproval) return false
+        if (filterApproval === 'pending' && !hook.pendingApproval) return false
+        return true
+      })
+
+      const phaseTrialLabel = (phase) => phase === 'before-save' ? '保存前校验' : phase === 'after-save' ? '保存后观察' : phase === 'before-inject' ? '注入前解析' : '脚本'
+
+      const renderEditor = () => h('div', { className: 'hook-edit' },
+        h('div', { className: 'hook-edit-head' },
+          h('span', { className: 'hook-edit-title' }, draft.id === '' ? '新建规则代码' : `编辑 ${draft.name || draft.id}`),
+          draft.id === '' ? null : h('span', { className: 'muted' }, draft.id),
+        ),
+        h('div', { className: 'hook-edit-row' },
+          h('label', { className: 'set-field' }, '名称 ',
+            h('input', {
+              type: 'text', style: { width: 220 },
+              placeholder: '例如 记忆内容规范',
+              value: draft.name,
+              onChange: (e) => setDraft({ ...draft, name: e.target.value }),
+            })),
+          h('label', { className: 'set-field' }, '运行时机 ',
+            h(Dropdown, {
+              items: [
+                { value: 'before-save', label: '保存前校验（可拒绝保存）' },
+                { value: 'after-save', label: '保存后观察（不阻断）' },
+                { value: 'before-inject', label: '注入前解析（可改写/丢弃）' },
+              ],
+              value: draft.phase,
+              onChange: (value) => setDraft({ ...draft, phase: value }),
+            })),
+          h('label', { className: 'set-field' }, '适用范围 ',
+            h('input', {
+              type: 'text', style: { width: 210 },
+              placeholder: '作用域 / 类型，逗号分隔；空 = 全部',
+              value: [...draft.scopes, ...draft.kinds].join(', '),
+              onChange: (e) => {
+                const parts = e.target.value.split(',').map((item) => item.trim()).filter((item) => item !== '')
+                // 简单约定：带 : 或等于 global/project/session 的算作用域，其余算类型。
+                const scopes = parts.filter((item) => item === 'global' || item === 'project' || item === 'session' || item.includes(':') || item.includes('*'))
+                const kinds = parts.filter((item) => !scopes.includes(item))
+                setDraft({ ...draft, scopes, kinds })
+              },
+            })),
+        ),
+        h('div', { className: 'hook-edit-hint' }, phaseHint[draft.phase] || ''),
+        h('textarea', {
+          className: 'hook-code',
+          rows: Math.min(26, Math.max(10, draft.code.split('\n').length + 2)),
+          spellCheck: false,
+          value: draft.code,
+          onChange: (e) => setDraft({ ...draft, code: e.target.value }),
+        }),
+        h('div', { className: 'hook-edit-actions' },
+          h('button', { onClick: save, disabled: busy || draft.code.trim() === '' }, busy ? '保存中…' : '保存'),
+          h('button', { className: 'linkbtn', onClick: () => setDraft(null), disabled: busy }, '取消'),
+          h('span', { className: 'muted' }, '保存后会以「已批准」状态生效，因为这是你本人写的代码。'),
+        ),
+        error ? h('div', { className: 'err' }, error) : null,
+      )
+
+      const renderCard = (hook) => {
+        const editing = draft !== null && draft.id === hook.id
+        const folded = !editing && !expanded.has(hook.id)
+        const toggleFold = () => setExpanded((prev) => {
+          const next = new Set(prev)
+          if (next.has(hook.id)) next.delete(hook.id); else next.add(hook.id)
+          return next
+        })
+        const trialOutcome = trial !== null && trial.hookId === hook.id ? trial.outcome : undefined
+        const showTrial = trialOutcome !== undefined && trialOutcome !== null && !trialClosed.has(hook.id)
+        const approved = !hook.pendingApproval
+        let rawText = ''
+        if (trialOutcome && trialOutcome.raw !== undefined) {
+          try { rawText = JSON.stringify(trialOutcome.raw) } catch { rawText = String(trialOutcome.raw) }
+        }
+        return h('div', { className: 'hook-card' + (folded ? ' folded' : ''), key: hook.id },
+          h('div', { className: 'hook-card-head' },
+            h('span', { className: 'hook-caret', role: 'button', tabIndex: 0, 'aria-expanded': !folded,
+              title: folded ? '展开代码' : '折叠代码', onClick: toggleFold,
+              onKeyDown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleFold() } } }, folded ? '▸' : '▾'),
+            h('div', { className: 'hook-card-title', onClick: toggleFold, style: { cursor: 'pointer' } },
+              h('span', { className: 'hook-name' }, hook.name),
+              h('span', { className: 'hook-pill' }, phaseText[hook.phase] || hook.phase),
+              approved
+                ? h('span', { className: 'hook-pill ok' }, '已批准 · 会运行')
+                : h('span', { className: 'hook-pill warn' }, '未批准 · 不会运行'),
+              hook.ruleId ? h('span', { className: 'hook-pill' }, `规则 ${String(hook.ruleId).slice(0, 8)}`) : null,
+            ),
+            h('div', { className: 'hook-card-actions' },
+              h('button', { className: 'linkbtn', onClick: () => (editing ? setDraft(null) : edit(hook)), disabled: busy }, editing ? '收起' : '编辑代码'),
+              h('button', { className: 'linkbtn', onClick: () => run(hook), disabled: busy }, '试跑'),
+              approved
+                ? h('button', { className: 'linkbtn', onClick: () => revokeApproval(hook), disabled: busy }, '撤销批准')
+                : h('button', { className: 'linkbtn', onClick: () => approve(hook), disabled: busy }, '批准'),
+              h('button', { className: 'linkbtn danger', onClick: () => remove(hook), disabled: busy }, '删除'),
+            ),
+          ),
+          folded ? null : h('div', null,
+            h('div', { className: 'hook-card-meta' },
+              (hook.scopes && hook.scopes.length > 0 ? `作用域 ${hook.scopes.join(' / ')}` : '作用域：全部'),
+              ' · ',
+              (hook.kinds && hook.kinds.length > 0 ? `类型 ${hook.kinds.join(' / ')}` : '类型：全部'),
+              hook.runCount > 0 ? ` · 运行 ${hook.runCount} 次` : ' · 还没运行过',
+              hook.rejectCount > 0 ? ` / 拒绝 ${hook.rejectCount}` : '',
+              hook.errorCount > 0 ? ` / 出错 ${hook.errorCount}` : '',
+              hook.lastOutcome === 'error' ? ` · 最近出错：${hook.lastMessage || '（无说明）'}` : '',
+              hook.lastOutcome === 'rejected' ? ` · 最近拒绝：${hook.lastMessage || '（无说明）'}` : '',
+            ),
+            editing ? renderEditor() : h('pre', { className: 'hook-code-preview' }, hook.code),
+            h('div', { className: 'hook-trial' },
+              h('input', {
+                type: 'text',
+                placeholder: '拿一段样例正文试跑（不写记忆）',
+                value: trialText,
+                onChange: (e) => setTrialText(e.target.value),
+              }),
+              showTrial
+                ? h('div', { className: 'hook-trial-result ' + (trialOutcome.error ? 'err' : trialOutcome.ok ? 'ok' : 'rej') },
+                    h('div', { style: { display: 'flex', alignItems: 'center' } },
+                      h('span', null,
+                        `${phaseTrialLabel(hook.phase)} · `,
+                        trialOutcome.error
+                          ? `运行失败：${trialOutcome.error}`
+                          : hook.phase === 'before-save'
+                            ? (trialOutcome.ok ? '允许保存（通过）' : `拒绝保存 · ${trialOutcome.message || '（无理由）'}`)
+                            : hook.phase === 'after-save'
+                              ? (trialOutcome.ok ? '观察通过（不阻断）' : `附注 · ${trialOutcome.message || '（无说明）'}`)
+                              : (trialOutcome.ok ? '保留并记录（通过）' : `不通过 · ${trialOutcome.message || '（无理由）'}`),
+                        ` （${trialOutcome.durationMs}ms）`,
+                        trialOutcome.drop === true ? ' · 整条丢弃' : '',
+                      ),
+                      h('button', { className: 'linkbtn hook-trial-close', onClick: () => setTrialClosed((prev) => new Set(prev).add(hook.id)), title: '关闭试跑输出' }, '×'),
+                    ),
+                    trialOutcome.content !== undefined ? h('div', null, `改写后正文：${trialOutcome.content}`) : null,
+                    trialOutcome.logs && trialOutcome.logs.length > 0 ? h('div', null, `日志：${trialOutcome.logs.join(' / ')}`) : null,
+                    rawText !== '' ? h('pre', { className: 'hook-trial-raw' }, `脚本真实输出：${rawText}`) : null,
+                  )
+                : null,
+            ),
+          ),
+        )
+      }
+
+      return h('div', { className: 'hooks' },
+        h('div', { className: 'hooks-head' },
+          h('div', { className: 'hooks-head-text' },
+            h('div', { className: 'hooks-head-title' }, '规则代码'),
+            h('div', { className: 'hooks-head-sub' },
+              '随规则记忆一起保存的校验脚本。代码存在 hooks.json，不进记忆检索；在 DSH 进程的沙箱里运行（无网络、无文件、同步、超时中断）。'),
+          ),
+          h('div', { className: 'hooks-head-actions' },
+            notice ? h('span', { className: 'sethead-saved' }, notice) : null,
+            h('button', { onClick: startNew, disabled: busy }, '新建代码'),
+          ),
+        ),
+        h('div', { className: 'hooks-settings' },
+          h('label', { className: 'set-field' },
+            h('input', {
+              type: 'checkbox',
+              checked: settings.enabled !== false,
+              onChange: (e) => updateSettings({ enabled: e.target.checked }),
+            }),
+            ' 启用规则代码'),
+          h('label', { className: 'set-field' }, '超时(ms) ',
+            h('input', {
+              type: 'number', min: 20, max: 5000, step: 10, style: { width: 90 },
+              value: settings.timeoutMs,
+              onChange: (e) => updateSettings({ timeoutMs: Number(e.target.value) || 120 }),
+            })),
+          h('label', { className: 'set-field' },
+            h('input', {
+              type: 'checkbox',
+              checked: settings.requireApproval !== false,
+              onChange: (e) => updateSettings({ requireApproval: e.target.checked }),
+            }),
+            ' Agent 提交的新代码需要我批准'),
+          pendingCount > 0
+            ? h('span', { className: 'warn' }, `${pendingCount} 条代码还在等批准，未批准不会运行`)
+            : null,
+        ),
+        h('div', { className: 'hook-filters' },
+          h('span', null, '筛选：'),
+          h('label', null, '时机 ', h(Dropdown, {
+            items: [{ value: '', label: '全部' }, { value: 'before-save', label: '保存前校验' }, { value: 'after-save', label: '保存后观察' }, { value: 'before-inject', label: '注入前解析' }],
+            value: filterPhase, onChange: setFilterPhase,
+          })),
+          h('label', null, '作用域 ', h(Dropdown, {
+            items: [{ value: '', label: '全部' }, ...allScopes.map((scope) => ({ value: scope, label: scope }))],
+            value: filterScope, onChange: setFilterScope,
+          })),
+          h('label', null, '批准状态 ', h(Dropdown, {
+            items: [{ value: '', label: '全部' }, { value: 'approved', label: '已批准' }, { value: 'pending', label: '未批准' }],
+            value: filterApproval, onChange: setFilterApproval,
+          })),
+          h('span', { className: 'muted' }, `${shownHooks.length} / ${hooks.length} 条`),
+        ),
+        draft !== null && draft.id === '' ? renderEditor() : null,
+        error && draft === null ? h('div', { className: 'err' }, error) : null,
+        shownHooks.length === 0
+          ? h('div', { className: 'empty' },
+              hooks.length === 0
+                ? '还没有规则代码。可以让 Agent 在 memory_save 时带 hookCode，或点右上角「新建代码」。'
+                : '没有符合筛选条件的规则代码。')
+          : h('div', { className: 'hook-list' }, shownHooks.map(renderCard)),
       )
     }
 
@@ -4405,6 +5508,14 @@ window.__ModuleLoader__.load({
       // 两个视图共用 /status 的那次拉取，切换不重新请求。
       const [dataView, setDataView] = React.useState('memories')
       const [scopeQuery, setScopeQuery] = React.useState('')
+      // 0.32.0：归档的作用域默认**折叠**（它们不该混在日常作用域清单里），
+      // 但用户要能一眼看到"有几个被藏起来了"，所以工具栏给一个计数开关。
+      //
+      // 0.33.0：屏蔽**不折叠、也不显示**。屏蔽按会话 / 工作区生效，而这个总面板
+      // 没有 agent（服务端 `scopeCatalog(undefined)` 只反映兜底项目键那一层），
+      // 在这里判断"是否被屏蔽"既漏会话级屏蔽、又会把用户本想看的记录藏起来。
+      // 总面板就老实列全部；屏蔽的展示与解除都在会话面板的「记录」页。
+      const [showArchived, setShowArchived] = React.useState(false)
       // 作用域编辑（0.29.0）：同一时间只编辑一行 —— 描述 / 别名都是全局共享的元数据，
       // 同时开多个编辑框只会让人不确定保存的是哪一条。
       const [editingScope, setEditingScope] = React.useState('')
@@ -4431,17 +5542,23 @@ window.__ModuleLoader__.load({
         }
       }, [audience])
 
-      const load = async (query, scopeF, semanticF) => {
+      const load = async (query, scopeF, semanticF, extraF) => {
         setLoading(true); setError('')
         try {
           const params = new URLSearchParams()
           const qq = query !== undefined ? query : q
           const ss = scopeF !== undefined ? scopeF : scopeFilter
           const sem = semanticF !== undefined ? semanticF : semantic
+          // 0.32.0：归档开关可以在同一次点击里翻转，此时 state 还没更新，
+          // 所以允许调用方把新值显式传进来（extraF）。
+          const withArchived = extraF?.archived !== undefined ? extraF.archived : showArchived
           // 空查询在语义模式下没有意义(embedding 空串),直接列全部记录。
           const semanticSearch = sem && qq.trim() !== ''
           if (ss) params.set('scope', ss)
           if (qq.trim()) params.set('q', qq.trim())
+          // 0.32.0：归档默认不出现在列表里，开关显式请求时才带上。
+          // 屏蔽没有开关：总面板一律列全部（屏蔽感知在会话面板的「记录」页）。
+          if (withArchived) params.set('archived', '1')
           const suffix = params.toString() ? `?${params}` : ''
           const [listVal, status] = await Promise.all([
             api(`${semanticSearch ? 'search' : 'records'}${suffix}`),
@@ -4522,6 +5639,28 @@ window.__ModuleLoader__.load({
           setEditingScope('')
           setScopeSaved(row.scope)
           // 重新拉 /status：用途、别名与展示名都由服务端算（别名影响 label 与下拉）。
+          await load()
+        } catch (e) {
+          setScopeError(String(e.message || e))
+        } finally {
+          setScopeBusy(false)
+        }
+      }
+      /**
+       * 解除归档（0.32.0）。
+       *
+       * 不是删除：解除后这个作用域的记忆**立刻**回到检索与注入里，正文一字不改。
+       * 归档是生命周期事实（工作区被移除 / 会话被归档）—— 面板只负责把「谁藏了它」
+       * 如实展示，并给一个一键复原的入口。
+       *
+       * 屏蔽（0.33.0）不在这个面板里：屏蔽按会话 / 工作区生效，总面板没有 agent，
+       * 展示与解除都挪到了会话面板的「记录」页（那里带着真实会话 id）。
+       */
+      const restoreArchivedScope = async (scope) => {
+        setScopeBusy(true); setScopeError(''); setScopeSaved('')
+        try {
+          await api('archive', { scope, restore: true })
+          setScopeSaved(scope)
           await load()
         } catch (e) {
           setScopeError(String(e.message || e))
@@ -4898,6 +6037,16 @@ window.__ModuleLoader__.load({
           onChange: setSupersededFilter,
         }),
         h('button', { onClick: () => setCreating((v) => !v), disabled: loading }, creating ? '收起' : '新建'),
+        // 0.32.0：归档默认不列。这个开关是"看得见"而不是"能读写"—— 归档本来就不
+        // 参与检索与注入，这里只是让用户能在面板里找回并恢复。
+        //
+        // 0.33.0：屏蔽没有开关。屏蔽按会话 / 工作区生效，总面板没有 agent 判不准；
+        // 这里一律列全部，屏蔽的展示与解除在会话面板的「记录」页。
+        h('button', {
+          className: 'linkbtn' + (showArchived ? ' on' : ''),
+          title: '已归档作用域（会话归档 / 工作区已移除）里的记录默认不列出来；勾上才显示',
+          onClick: () => { const next = !showArchived; setShowArchived(next); load(q, scopeFilter, semantic, { archived: next }) },
+        }, showArchived ? '隐藏已归档' : '显示已归档'),
         h('button', { onClick: () => load(q, scopeFilter), disabled: loading }, loading ? '刷新中…' : '刷新'),
         filtering ? h('button', { className: 'linkbtn', onClick: () => { setQ(''); setScopeFilter(''); setSupersededFilter('hide'); setSearchInfo(null); load('', '', semantic) } }, '清空筛选') : null,
       )
@@ -4984,8 +6133,13 @@ window.__ModuleLoader__.load({
             pendingEmbeds: Number(s.pendingEmbeds) || 0,
             updatedAt: Number(s.updatedAt) || 0,
             // 0.30.0：会话归档后作用域保留但读写冻结；恢复会话自动复原。
+            // 0.32.0：项目作用域同理（绑定工作区，工作区删掉时自动归档、重加时自动恢复）。
             archived: s.archived === true,
+            archivedKind: s.archivedKind === 'project' ? 'project' : (s.archivedKind === 'session' ? 'session' : undefined),
           }))
+          // 归档默认折叠：它不该混在日常清单里，但计数开关让人知道有东西被藏着。
+          // 屏蔽不参与折叠（0.33.0）：总面板一律列全部，屏蔽感知在会话面板的「记录」页。
+          .filter((row) => showArchived || !row.archived)
           .filter((row) => needle === ''
             || row.label.toLowerCase().includes(needle)
             || row.scope.toLowerCase().includes(needle)
@@ -4993,6 +6147,7 @@ window.__ModuleLoader__.load({
             || (row.name !== undefined && row.name.toLowerCase().includes(needle)))
           .sort((a, b) => b.records - a.records || b.updatedAt - a.updatedAt || a.label.localeCompare(b.label))
       })()
+      const archivedCount = scopes.filter((s) => s.archived === true).length
       const viewSwitch = h('div', { className: 'row' },
         h('div', { className: 'subtabs' },
           h('button', {
@@ -5013,6 +6168,13 @@ window.__ModuleLoader__.load({
           onChange: (e) => setScopeQuery(e.target.value),
         }),
         h('button', { onClick: () => load(), disabled: loading }, loading ? '刷新中…' : '刷新'),
+        archivedCount > 0
+          ? h('button', {
+              className: 'linkbtn' + (showArchived ? ' on' : ''),
+              title: '归档的作用域不参与检索与注入；勾上才能在清单里看到并解除归档',
+              onClick: () => setShowArchived((v) => !v),
+            }, `${showArchived ? '隐藏' : '显示'}已归档 ${archivedCount}`)
+          : null,
         scopeQuery.trim() !== '' ? h('button', { className: 'linkbtn', onClick: () => setScopeQuery('') }, '清空筛选') : null,
       )
       const scopeListBody = !loading && !error && scopeRows.length === 0
@@ -5027,7 +6189,9 @@ window.__ModuleLoader__.load({
                   row.archived
                     ? h('span', {
                         className: 'badge',
-                        title: '所属会话已归档：作用域与记忆被冻结，取消归档后自动恢复读写',
+                        title: row.archivedKind === 'project'
+                          ? '所属工作区已从侧边栏移除（或手动归档）：作用域与记忆被冻结；工作区重新加入时自动恢复，也可在这里解除归档'
+                          : '所属会话已归档：作用域与记忆被冻结，取消归档后自动恢复读写',
                       }, '已归档')
                     : null,
                   row.pendingEmbeds > 0
@@ -5086,6 +6250,13 @@ window.__ModuleLoader__.load({
                         title: '编辑这个作用域的用途与别名（别名可选）',
                         onClick: () => beginScopeEdit(row),
                       }, '编辑'),
+                      row.archived && row.archivedKind === 'project'
+                        ? h('button', {
+                            className: 'linkbtn',
+                            title: '解除归档：这个作用域的记忆立刻重新参与检索与注入',
+                            onClick: () => restoreArchivedScope(row.scope),
+                          }, '解除归档')
+                        : null,
                     ),
               )
             }),
@@ -5127,11 +6298,16 @@ window.__ModuleLoader__.load({
           h('button', {
             className: 'tab' + (tab === 'tree' ? ' on' : ''),
             onClick: () => { if (tab !== 'tree') load('', ''); setTab('tree') },
-          }, '记忆树'),
+          }, '记忆图'),
           h('button', {
             className: 'tab' + (tab === 'analysis' ? ' on' : ''),
             onClick: () => { if (tab !== 'analysis') load('', ''); setTab('analysis') },
           }, '关系分析'),
+          h('button', {
+            className: 'tab' + (tab === 'hooks' ? ' on' : ''),
+            onClick: () => setTab('hooks'),
+            title: '随规则记忆保存的校验脚本：保存前校验 / 保存后观察 / 注入前解析',
+          }, '规则代码'),
           h('button', { className: 'tab' + (tab === 'settings' ? ' on' : ''), onClick: () => setTab('settings') }, '设置'),
           h('button', { className: 'tab' + (tab === 'audit' ? ' on' : ''), onClick: () => setTab('audit') }, '审计'),
         ),
@@ -5139,32 +6315,154 @@ window.__ModuleLoader__.load({
           ? h(AnalysisTab, { api, records, scopes })
           : tab === 'settings'
           ? h(SettingsTab, {})
-          : tab === 'data'
-            ? dataBody
-            : tab === 'tree'
-              ? treeBody
-              : tab === 'audit'
-                ? h(AuditTab, {
-                    scopes,
-                    records,
-                    openRecord,
-                    openSession,
-                    sessionInfo,
-                    audience,
-                    lockSession,
-                  })
-                : overviewBody,
+          : tab === 'hooks'
+            ? h(HooksTab, {})
+            : tab === 'data'
+              ? dataBody
+              : tab === 'tree'
+                ? treeBody
+                : tab === 'audit'
+                  ? h(AuditTab, {
+                      scopes,
+                      records,
+                      openRecord,
+                      openSession,
+                      sessionInfo,
+                      audience,
+                      lockSession,
+                    })
+                  : overviewBody,
       )
     }
 
     /**
-     * 会话内的「记忆审计」视图：和 Chat/Trajectory 同一个 view ring。
+     * 会话面板的「记录」页（0.33.0）。
+     *
+     * 只列**这个会话权限范围内**的记忆：服务端 /session-records 带着真实会话 id
+     * 解析可见域（会话 + 项目 + global + 工作区绑定），并算出该会话生效的屏蔽。
+     * 这也是唯一该出现「显示已屏蔽 / 解除屏蔽」的地方 —— 主面板没有 agent，
+     * 按层级判断屏蔽只会给出一份"半真"的状态（会话级屏蔽它根本看不见）。
+     */
+    function SessionRecordsTab({ sessionId }) {
+      const [records, setRecords] = React.useState([])
+      const [scopes, setScopes] = React.useState([])
+      const [blockedCount, setBlockedCount] = React.useState(0)
+      const [showBlocked, setShowBlocked] = React.useState(false)
+      const [loading, setLoading] = React.useState(true)
+      const [error, setError] = React.useState('')
+      const [notice, setNotice] = React.useState('')
+
+      // 作用域键 → 展示名（服务端已按会话标题 / 别名算好）。
+      const labels = {}
+      for (const entry of scopes) {
+        if (entry && typeof entry.scope === 'string' && typeof entry.label === 'string') labels[entry.scope] = entry.label
+      }
+
+      const load = async (withBlocked) => {
+        const wantBlocked = withBlocked !== undefined ? withBlocked : showBlocked
+        setLoading(true); setError('')
+        try {
+          const params = new URLSearchParams({ session: sessionId })
+          if (wantBlocked) params.set('blocked', '1')
+          const value = await api(`session-records?${params}`)
+          setRecords(Array.isArray(value.records) ? value.records : [])
+          setScopes(Array.isArray(value.scopes) ? value.scopes : [])
+          setBlockedCount(Number(value.blockedCount) || 0)
+        } catch (e) {
+          setError(String(e.message || e))
+        }
+        setLoading(false)
+      }
+      React.useEffect(() => { load(false) }, [sessionId])
+
+      /**
+       * 解除一条屏蔽。
+       *
+       * 走 /blocks 的 restore 分支：层级与 key 都显式给（会话级 = 会话 id，
+       * 工作区级 = 该记录所属的 project: 键），并带上屏蔽自己的 id 做精确匹配。
+       * 面板不靠 agent 反推层级 —— 那条屏蔽可能来自父会话，反推会删错文件。
+       */
+      const unblock = async (rec) => {
+        const level = rec.blockedLevel === 'workspace' ? 'workspace' : 'session'
+        const workspace = typeof rec.scope === 'string' && rec.scope.startsWith('project:') ? rec.scope : ''
+        const value = await api('blocks', {
+          level,
+          session: sessionId,
+          workspace,
+          scope: rec.scope,
+          ...(typeof rec.blockedId === 'string' && rec.blockedId !== '' ? { id: rec.blockedId } : {}),
+          restore: true,
+        })
+        const removed = Array.isArray(value?.removed) ? value.removed.reduce((sum, item) => sum + (Number(item?.removed) || 0), 0) : 0
+        setNotice(removed > 0 ? '已解除屏蔽' : '这条屏蔽已经不在了')
+        setTimeout(() => setNotice(''), 2200)
+        await load()
+      }
+
+      const scopeRows = scopes
+        .filter((s) => s && typeof s.scope === 'string')
+        .sort((a, b) => (Number(b.records) || 0) - (Number(a.records) || 0) || a.scope.localeCompare(b.scope))
+
+      return h('div', { className: 'mem-recs' },
+        h('div', { className: 'mem-recs-toolbar' },
+          h('span', { className: 'muted' },
+            `本会话可见 ${scopeRows.length} 个作用域 · ${records.length} 条记忆`),
+          h('span', { className: 'spacer' }),
+          blockedCount > 0
+            ? h('button', {
+                className: 'linkbtn' + (showBlocked ? ' on' : ''),
+                title: '被 Agent 屏蔽的记录不参与检索与注入；勾上才显示，并可在卡片里解除',
+                onClick: () => { const next = !showBlocked; setShowBlocked(next); load(next) },
+              }, `${showBlocked ? '隐藏' : '显示'}已屏蔽 ${blockedCount}`)
+            : null,
+          h('button', { onClick: () => load(), disabled: loading }, loading ? '刷新中…' : '刷新'),
+          notice !== '' ? h('span', { className: 'meta-done' }, notice) : null,
+        ),
+        // 作用域一览：这里回答的是"本会话能读到哪些域"，与主面板的目录同源但按
+        // 会话可见域裁剪过。
+        scopeRows.length > 0
+          ? h('div', { className: 'mem-recs-scopes' },
+              scopeRows.map((row) => h('span', {
+                key: row.scope,
+                className: 'badge scope' + (row.blocked ? ' blocked' : ''),
+                title: scopeTitle(row.scope, scopeLabel(row.scope, labels))
+                  + (row.blocked ? `\n已屏蔽（${row.blockedLevel === 'workspace' ? '工作区级' : '会话级'}）：本会话不会检索 / 注入它` : ''),
+              }, `${scopeLabel(row.scope, labels)} · ${Number(row.records) || 0}`)),
+            )
+          : null,
+        error ? h('div', { className: 'err' }, error) : null,
+        h('div', { className: 'mem-recs-scroll' + (records.length > 0 || loading ? '' : ' is-empty') },
+          records.length === 0 && !loading
+            ? h('div', { className: 'empty' }, error === '' ? '这个会话的可见域里还没有记忆' : '加载失败')
+            : h('div', { className: 'list' },
+                records.map((rec) => h(RecordCard, {
+                  key: rec.id,
+                  rec,
+                  labels,
+                  vectorOn: false,
+                  onSaved: () => load(),
+                  onDeleted: () => load(),
+                  onUnblock: unblock,
+                }))),
+        ),
+      )
+    }
+
+    /**
+     * 会话内的「记忆」视图：和 Chat/Trajectory 同一个 view ring。
+     *
+     * 两个标签页（0.33.0）：
+     *   记录 —— 本会话权限范围内的记忆（可展开「显示已屏蔽」，并在卡片里解除）；
+     *   审计 —— 本会话的注入评估、投递与记忆工具调用。
+     * 记录在左、默认打开：日常真正要看的是"我这个会话记了什么"。
      *
      * 它拿到 owner 传下来的 `openView(view, focus)`，所以从这里跳轨迹是宿主
      * 官方支持的深链路径，不依赖任何内部字段。主面板（侧栏/设置）不在 view
      * ring 里，走 `conversationStoreFor` 的 bridge。
      */
     function MemoryAuditView({ sessionId, openView, sessionInfo }) {
+      // 默认「记录」：进来先看这个会话记得什么，而不是一堆投递事件。
+      const [view, setView] = React.useState('records')
       const openTrajectory = (focus) => {
         try {
           if (typeof openView === 'function') {
@@ -5181,8 +6479,20 @@ window.__ModuleLoader__.load({
         'data-conversation-composer-overlay': '',
       },
         h('div', { className: 'mem-view-head' },
-          h('b', null, '记忆审计'),
-          h('span', { className: 'muted' }, '本会话的注入评估、投递与记忆工具调用；选中一条可在轨迹里精确定位。'),
+          h('div', { className: 'subtabs' },
+            h('button', {
+              className: 'subtab' + (view === 'records' ? ' on' : ''),
+              onClick: () => setView('records'),
+            }, '记录'),
+            h('button', {
+              className: 'subtab' + (view === 'audit' ? ' on' : ''),
+              onClick: () => setView('audit'),
+            }, '审计'),
+          ),
+          h('span', { className: 'muted' },
+            view === 'records'
+              ? '本会话权限范围内的记忆；被屏蔽的可以点开「显示已屏蔽」再解除。'
+              : '本会话的注入评估、投递与记忆工具调用；选中一条可在轨迹里精确定位。'),
           h('span', { className: 'spacer' }),
           h('button', {
             className: 'linkbtn',
@@ -5190,14 +6500,16 @@ window.__ModuleLoader__.load({
           }, '打开完整面板'),
         ),
         h('div', { className: 'mem-view-body' },
-          h(AuditTab, {
-            scopes: [],
-            records: [],
-            sessionInfo,
-            lockSession: sessionId,
-            audience: 'view',
-            openTrajectory,
-          }),
+          view === 'records'
+            ? h(SessionRecordsTab, { sessionId })
+            : h(AuditTab, {
+                scopes: [],
+                records: [],
+                sessionInfo,
+                lockSession: sessionId,
+                audience: 'view',
+                openTrajectory,
+              }),
         ),
       )
     }
@@ -6584,14 +7896,25 @@ window.__ModuleLoader__.load({
       const action = pending.action === 'write' || pending.action === 'delete' ? pending.action : 'read'
       // 0.24.0：grant 模式 = 作用域权限申请，不是记忆条目审批。
       const grantMode = pending.mode === 'grant'
-      const actionLabel = grantMode ? '访问' : action === 'write' ? '写入' : action === 'delete' ? '删除' : '读取'
-      const actionHint = grantMode
-        ? 'Agent 申请访问可见域外的作用域。勾选要授予的权限（默认只读）；授权仅在本会话有效，子 Agent 会继承。'
-        : action === 'write'
-          ? 'Agent 想把一条记忆写入可见域外的作用域。允许只对本次调用生效；拒绝则不写入。'
-          : action === 'delete'
-            ? 'Agent 想删除可见域外的记忆。允许只对本次调用生效；拒绝则不删除。'
-            : '以下记忆不在本会话的可见域内。勾选要允许的条目（默认全选）；允许只对本次调用生效，其余条目不会返回。'
+      // 0.32.0：block 模式 = Agent 请求「屏蔽」某条记忆 / 某个作用域。它不改权限，
+      // 只是让这些东西不再出现在检索、注入与目录里；可随时解除，所以文案要说清可逆。
+      const blockMode = pending.mode === 'block'
+      // 0.35.0：hook 模式 = Agent 提交了一段要在 DSH 进程里运行的规则脚本。
+      // 这比普通的"写入可见域外"危险得多：用户必须逐行看清代码再决定，绝不能套用
+      // 那套"写入 / 读取"的文案（既误导，又把代码压成一行看不清）。
+      const hookMode = pending.mode === 'hook'
+      const actionLabel = hookMode ? '运行代码' : blockMode ? '屏蔽' : grantMode ? '访问' : action === 'write' ? '写入' : action === 'delete' ? '删除' : '读取'
+      const actionHint = hookMode
+        ? 'Agent 提交了一段脚本，批准后它会在 DSH 进程里运行（在沙箱内，无网络 / 文件访问）。请先逐行看清下面的代码和运行时机，再决定是否允许。代码改动后会再次征求你的同意。'
+        : blockMode
+        ? 'Agent 想把下列记忆从检索、注入与作用域目录里藏起来（不删除、可随时解除）。按作用域屏蔽、工作区级屏蔽，或目标是硬性规则时都需要你确认。'
+        : grantMode
+          ? 'Agent 申请访问可见域外的作用域。勾选要授予的权限（默认只读）；授权仅在本会话有效，子 Agent 会继承。'
+          : action === 'write'
+            ? 'Agent 想把一条记忆写入可见域外的作用域。允许只对本次调用生效；拒绝则不写入。'
+            : action === 'delete'
+              ? 'Agent 想删除可见域外的记忆。允许只对本次调用生效；拒绝则不删除。'
+              : '以下记忆不在本会话的可见域内。勾选要允许的条目（默认全选）；允许只对本次调用生效，其余条目不会返回。'
       const items = Array.isArray(pending.items) ? pending.items : []
       // 模型写的用途说明(0.22.0;普通限制下工具层强制提供)。
       const description = typeof pending.description === 'string' ? pending.description.trim() : ''
@@ -6601,7 +7924,8 @@ window.__ModuleLoader__.load({
         ? items.filter((item) => item.grantPermission !== 'write').map((item) => item.id)
         : allIds
       // 多条目才有逐条勾选的意义；grant 模式下 even 1 条也走勾选以明确权限。
-      const selectable = grantMode ? allIds.length > 0 : action === 'read' && allIds.length > 1
+      // block 模式同样逐条：用户可能只想藏其中一条，其余留着。
+      const selectable = grantMode ? allIds.length > 0 : blockMode ? allIds.length > 1 : action === 'read' && allIds.length > 1
       const stored = Array.isArray(picked[pending.id]) ? picked[pending.id].filter((id) => allIds.includes(id)) : null
       const selectedIds = stored === null ? defaultIds : stored
       const selectedSet = new Set(selectedIds)
@@ -6672,20 +7996,26 @@ window.__ModuleLoader__.load({
 
       const allowLabel = busy === pending.id
         ? '处理中…'
-        : grantMode && selectable && selectedCount !== allIds.length
-          ? `允许选中的 ${selectedCount} 项（本会话）`
-          : grantMode
-            ? '允许授权（本会话）'
-            : selectable && selectedCount !== allIds.length
-              ? `允许选中的 ${selectedCount} 条`
-              : '允许一次'
+        : hookMode
+          ? '批准这段代码'
+          : blockMode
+          ? selectable && selectedCount !== allIds.length
+            ? `屏蔽选中的 ${selectedCount} 项`
+            : '确认屏蔽'
+          : grantMode && selectable && selectedCount !== allIds.length
+            ? `允许选中的 ${selectedCount} 项（本会话）`
+            : grantMode
+              ? '允许授权（本会话）'
+              : selectable && selectedCount !== allIds.length
+                ? `允许选中的 ${selectedCount} 条`
+                : '允许一次'
 
       return h('div', {
         className: 'mem-approval',
         'data-approval-id': pending.id,
         onKeyDown: keydown,
       },
-        h('div', { className: 'mem-approval-card', role: 'dialog', 'aria-label': grantMode ? '记忆访问授权审批' : `记忆${actionLabel}审批`, 'aria-busy': busy === pending.id },
+        h('div', { className: 'mem-approval-card', role: 'dialog', 'aria-label': hookMode ? '规则代码运行审批' : blockMode ? '记忆屏蔽审批' : grantMode ? '记忆访问授权审批' : `记忆${actionLabel}审批`, 'aria-busy': busy === pending.id },
           h('div', { className: 'mem-approval-strip' },
             h('span', { className: 'mem-approval-dot' }),
             h('span', null, busy === pending.id ? '处理中…' : '等待审批'),
@@ -6705,13 +8035,19 @@ window.__ModuleLoader__.load({
           isCollapsed
             ? null
             : h('div', { className: 'mem-approval-body' },
-                h('div', { className: 'mem-approval-headline' }, grantMode
-                  ? `工具 ${pending.tool || 'memory'} 申请访问可见域外的作用域`
-                  : `工具 ${pending.tool || 'memory'} 请求${actionLabel}可见域外的记忆`),
+                h('div', { className: 'mem-approval-headline' }, hookMode
+                  ? `工具 ${pending.tool || 'memory'} 提交了一段规则代码，需要你批准后才能运行`
+                  : blockMode
+                  ? `工具 ${pending.tool || 'memory'} 请求屏蔽这些记忆 / 作用域`
+                  : grantMode
+                    ? `工具 ${pending.tool || 'memory'} 申请访问可见域外的作用域`
+                    : `工具 ${pending.tool || 'memory'} 请求${actionLabel}可见域外的记忆`),
                 h('div', { className: 'mem-approval-hint' }, actionHint),
-                h('div', { className: 'mem-approval-command' }, grantMode
-                  ? `申请理由：${pending.query || '（未提供）'}`
-                  : `Agent 查询：${pending.query || '（未提供）'}`),
+                h('div', { className: 'mem-approval-command' }, blockMode
+                  ? `屏蔽目标：${pending.query || '（未提供）'}`
+                  : grantMode
+                    ? `申请理由：${pending.query || '（未提供）'}`
+                    : `Agent 查询：${pending.query || '（未提供）'}`),
                 description !== ''
                   ? h('div', { className: 'mem-approval-desc', title: description }, `Agent 说明：${description}`)
                   : null,
@@ -6753,7 +8089,7 @@ window.__ModuleLoader__.load({
                           className: 'mem-approval-check' + (checked ? ' on' : ''),
                           role: 'checkbox',
                           'aria-checked': checked,
-                          'aria-label': grantMode ? `允许这项权限 ${item.id}` : `允许这条记忆 ${item.id}`,
+                          'aria-label': blockMode ? `屏蔽这项 ${item.id}` : grantMode ? `允许这项权限 ${item.id}` : `允许这条记忆 ${item.id}`,
                           onClick: (event) => {
                             if (event && typeof event.stopPropagation === 'function') event.stopPropagation()
                             toggle(item.id)
@@ -6774,23 +8110,37 @@ window.__ModuleLoader__.load({
                                 openMemoryRecordPanel(item.id, item.scope, item)
                               },
                             }, String(item.id).length > 12 ? `${item.id.slice(0, 8)}…${item.id.slice(-4)}` : String(item.id))
-                            : h('span', { className: 'mem-approval-id', title: item.id }, grantMode
-                              ? (item.grantPermission === 'write' ? '可写' : '只读')
-                              : (String(item.id).length > 12 ? `${item.id.slice(0, 8)}…${item.id.slice(-4)}` : String(item.id))),
-                          // 作用域显示名带类型前缀;title 里给出「显示名 → 真实键」。
-                          h('span', { className: 'audit-pill mute', title: scopeTitle(item.scope, scopeLabel(item.scope)) }, scopeLabel(item.scope)),
-                          grantMode
+                            : h('span', { className: 'mem-approval-id', title: item.id }, blockMode && item.kind === 'scope'
+                              ? '整个作用域'
+                              : grantMode
+                                ? (item.grantPermission === 'write' ? '可写' : '只读')
+                                : (String(item.id).length > 12 ? `${item.id.slice(0, 8)}…${item.id.slice(-4)}` : String(item.id))),
+                          // hook 模式的 scope 是 '*' 或逗号分隔的列表，不是记忆作用域键。
+                          hookMode
+                            ? null
+                            : h('span', { className: 'audit-pill mute', title: scopeTitle(item.scope, scopeLabel(item.scope)) }, scopeLabel(item.scope)),
+                          hookMode
+                            ? h('span', { className: 'audit-pill mute' }, '规则代码')
+                            : grantMode
                             ? h('span', { className: 'audit-pill mute' }, item.grantPermission === 'write' ? '写入 / 删除' : '只读访问')
                             : h('span', { className: 'audit-pill mute' }, item.kind ? kindMeta(item.kind).label : '未知'),
-                          grantMode
-                            ? h('span', { className: 'audit-pill warn' }, '本会话授权')
-                            : item.reason === 'kind'
-                              ? h('span', { className: 'audit-pill warn' }, '类型受限')
-                              : h('span', { className: 'audit-pill warn' }, '范围外'),
+                          blockMode
+                            ? h('span', { className: 'audit-pill warn' }, '屏蔽')
+                            : grantMode
+                              ? h('span', { className: 'audit-pill warn' }, '本会话授权')
+                              : hookMode
+                                ? h('span', { className: 'audit-pill warn' }, '待批准 · 批准后运行')
+                                : item.reason === 'kind'
+                                  ? h('span', { className: 'audit-pill warn' }, '类型受限')
+                                  : h('span', { className: 'audit-pill warn' }, '范围外'),
                         ),
-                        h('div', { className: 'mem-approval-summary' }, grantMode
-                          ? (item.grantPermission === 'write' ? '允许新增、修改与删除该作用域的记录' : '允许查询与读取该作用域的正文')
-                          : String(item.content || '').replace(/\s+/g, ' ').slice(0, 180)),
+                        hookMode
+                          ? h('pre', { className: 'mem-approval-code' }, String(item.content || ''))
+                          : h('div', { className: 'mem-approval-summary' }, blockMode
+                          ? '确认后它将不再出现在检索、注入与作用域目录里；数据不删除，随时可以解除。'
+                          : grantMode
+                            ? (item.grantPermission === 'write' ? '允许新增、修改与删除该作用域的记录' : '允许查询与读取该作用域的正文')
+                            : String(item.content || '').replace(/\s+/g, ' ').slice(0, 180)),
                       ),
                     )
                   }),
@@ -7102,6 +8452,35 @@ window.__ModuleLoader__.load({
       clampTreeZoom: clampTreeZoom,
       TREE_ZOOM_MIN: TREE_ZOOM_MIN,
       TREE_ZOOM_MAX: TREE_ZOOM_MAX,
+      buildMemoryGraph: buildMemoryGraph,
+      graphLinkPath: graphLinkPath,
+      GRAPH_METRICS: GRAPH_METRICS,
+      // 视图配置(缩放上下限、灵敏度、相机参数)集中在这里,测试直接核对口径
+      GRAPH_VIEW: GRAPH_VIEW,
+      // 3D 布局:在 2D 的确定性结果上派生,同样是纯函数
+      buildMemoryGraph3D: buildMemoryGraph3D,
+      // 2D 视图数学:平移 / 锚点缩放 / 适应画布,全是纯函数
+      graph2DDefaultView: graph2DDefaultView,
+      graph2DClampZoom: graph2DClampZoom,
+      graph2DAnchorZoom: graph2DAnchorZoom,
+      graph2DWheelZoom: graph2DWheelZoom,
+      graph2DStepZoom: graph2DStepZoom,
+      graph2DPan: graph2DPan,
+      graph2DFitView: graph2DFitView,
+      graph2DTransform: graph2DTransform,
+      graph2DPointerInStage: graph2DPointerInStage,
+      // 布局持久化(测试用假 localStorage 驱动)
+      GRAPH_LAYOUT_KEY: GRAPH_LAYOUT_KEY,
+      GRAPH_LAYOUT_VERSION: GRAPH_LAYOUT_VERSION,
+      loadGraphLayout: loadGraphLayout,
+      saveGraphLayout: saveGraphLayout,
+      clearGraphLayout: clearGraphLayout,
+      withNodePosition: withNodePosition,
+      withScopeRotation: withScopeRotation,
+      withViewState: withViewState,
+      // 3D 渲染器的两个能力探测(测试只核对判定逻辑,不建 WebGL 上下文)
+      graphWebGLAvailable: graphWebGLAvailable,
+      createMemoryGraph3D: createMemoryGraph3D,
       // 会话作用域展示名:取会话 id 前 16 位(前 8 位恒为 `session-`)
       sessionShortId: sessionShortId,
       scopeDisplayName: scopeDisplayName,
@@ -7117,6 +8496,7 @@ window.__ModuleLoader__.load({
       paintNavIcon: paintNavIcon,
       // 审计 ↔ 轨迹桥（测试只覆盖纯解析/焦点总线，不碰宿主 slot 实例）
       MemoryAuditView: MemoryAuditView,
+      SessionRecordsTab: SessionRecordsTab,
       TrajectoryMemoryBadge: TrajectoryMemoryBadge,
       TrajectoryMemoryMarks: TrajectoryMemoryMarks,
       TrajectoryDetailAudit: TrajectoryDetailAudit,
@@ -7131,3 +8511,4 @@ window.__ModuleLoader__.load({
     return module.exports
   },
 })
+

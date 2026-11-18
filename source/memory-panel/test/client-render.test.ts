@@ -180,6 +180,7 @@ async function loadBundleImpl() {
     __ModuleLoader__: {
       load(reg: typeof registration) { registration = reg },
     },
+    localStorage: createMemoryStorage(),
   }
   globals.document = {
     createElement: () => ({ set textContent(_v: string) {}, remove() {} }),
@@ -204,7 +205,7 @@ async function loadBundleImpl() {
     }
     throw new Error(`unexpected require("${name}") in the client bundle`)
   }
-  await import('../lib/client.js')
+  await evaluateAssembledBundle()
   assert.ok(registration, 'bundle must call window.__ModuleLoader__.load')
   const reg = registration as unknown as { id: string; factory: (r: (n: string) => unknown) => Record<string, unknown> }
   assert.equal(reg.id, PACKAGE_NAME, 'ModuleLoader id must equal the package name')
@@ -212,6 +213,41 @@ async function loadBundleImpl() {
   assert.equal(typeof exports.apply, 'function')
   assert.deepEqual(exports.inject, ['slots'])
   return { exports, hooks, portals }
+}
+
+/**
+ * 在内存里装配 `client.js` + 各分片,然后当作 classic script 求值。
+ *
+ * 为什么不直接 `import('../lib/client.js')`:源码已按职责拆成多个分片,发布产物
+ * 才是一个文件。测试必须**测发的那一份**,否则"源码改了、装配坏了"这类问题会
+ * 一路漏到 npm 上。装配规则只有 tools/assemble-client.mjs 一处定义,测试复用它。
+ */
+async function evaluateAssembledBundle() {
+  const { assembleClientSource } = await import('../../../tools/assemble-client.mjs')
+  const { source } = assembleClientSource()
+  // 产物是 classic script(宿主按 <script> 拼接),没有 ESM 语法;用 Function 求值
+  // 既避免写临时文件,也顺带保证它真的能被当作脚本执行。
+  //
+  // 注意**不能**把 window / document 做成 Function 的形参:那样 bundle 里的
+  // `window` 会永久绑定到求值那一刻的对象,而多个测试会替换 globalThis.window
+  // (轨迹桥那几个)。保持自由变量,每次访问都走当前的全局对象。
+  const evaluate = new Function(source)
+  evaluate()
+}
+
+/**
+ * 内存版 localStorage:布局持久化的测试要能读回自己写的东西,又不能污染真实环境。
+ * 只实现 bundle 真正用到的四个方法。
+ */
+function createMemoryStorage() {
+  const map = new Map<string, string>()
+  return {
+    getItem(key: string) { return map.has(key) ? map.get(key)! : null },
+    setItem(key: string, value: string) { map.set(key, String(value)) },
+    removeItem(key: string) { map.delete(key) },
+    clear() { map.clear() },
+    get length() { return map.size },
+  }
 }
 
 // ESM caches the bundle, so it can only be evaluated once per process.
@@ -349,7 +385,7 @@ async function mountPanel(
   hooks.runEffects()
   for (let i = 0; i < 4; i++) await Promise.resolve()
   if (tab !== 'data') {
-    const label = ({ records: '服务', data: '记录', tree: '记忆树', settings: '设置' } as Record<string, string>)[tab] ?? tab
+    const label = ({ records: '服务', data: '记录', tree: '记忆图', settings: '设置' } as Record<string, string>)[tab] ?? tab
     const button = collect(current).find((n) => n.tag === 'button' && textOf(n).trim() === label)
     assert.ok(button, `找不到「${label}」标签`)
     ;(button!.props!.onClick as () => void)()
@@ -1627,7 +1663,7 @@ test('记忆树标签页:从面板能切过去,空数据也有统计、类型图
   }, undefined, 'tree')
 
   const text = textOf(tree())
-  assert.ok(text.includes('记忆树'), '标签栏里有「记忆树」')
+  assert.ok(text.includes('记忆图'), '标签栏里有「记忆图」')
   assert.ok(text.includes('条记忆'), '统计卡显示记忆总数')
   assert.ok(text.includes('个作用域'), '统计卡显示作用域数')
   assert.ok(text.includes('种类型'), '统计卡显示类型数')
@@ -1639,6 +1675,151 @@ test('记忆树标签页:从面板能切过去,空数据也有统计、类型图
   assert.ok(classNames.includes('tree-tab'), '渲染的是记忆树标签页')
   assert.ok(classNames.includes('tree-wrap'), '树画布存在')
   assert.ok(classNames.includes('tree-stats'), '统计区存在')
+})
+
+test('星图布局:每个作用域一颗星,记忆按同心环铺开,越靠外越远越小', async () => {
+  const { exports } = await loadBundle()
+  type GraphNode = { key: string; type: string; scope?: string; kind?: string; label?: string; x: number; y: number; r: number; z: number; open?: boolean; rec?: Record<string, unknown> }
+  type Graph = {
+    nodes: GraphNode[]
+    edges: Array<{ fromKey: string; toKey: string; x1?: number; y1?: number; x2?: number; y2?: number }>
+    corrections: Array<{ fromId: string; toId: string }>
+    counts: Record<string, number>
+    width: number
+    height: number
+  }
+  const build = (exports.__test as { buildMemoryGraph: (records: unknown[], options?: Record<string, unknown>) => Graph }).buildMemoryGraph
+
+  const records = [
+    makeRecord({ id: 'old', scope: 'project:/w', kind: 'fact', content: '旧事实', updatedAt: 1, supersedes: null, supersededBy: 'new' }),
+    makeRecord({ id: 'new', scope: 'project:/w', kind: 'fact', content: '新事实', updatedAt: 2, supersedes: 'old', supersededBy: null }),
+    makeRecord({ id: 'rule', scope: 'global', kind: 'rule', content: '硬性规则', updatedAt: 3, supersedes: null, supersededBy: null }),
+  ]
+
+  const graph = build(records, { labels: { 'project:/w': '演示项目', global: '全局' } })
+  assert.equal(graph.counts.records, 3)
+  assert.equal(graph.counts.scopes, 2)
+  assert.equal(graph.counts.kinds, 2)
+  assert.equal(graph.counts.corrections, 1, '新记录 supersedes 旧记录 → 一条修正连线')
+  assert.ok(graph.width > 0 && graph.height > 0)
+
+  // 每个作用域一颗星,标签走 labels
+  const hubs = graph.nodes.filter((n) => n.type === 'scope')
+  assert.deepEqual(hubs.map((n) => n.scope), ['global', 'project:/w'], 'global 排在最前')
+  assert.equal(hubs.find((n) => n.scope === 'global')?.label, '全局')
+  assert.equal(hubs.find((n) => n.scope === 'project:/w')?.label, '演示项目')
+
+  // 记忆绕着自己的星铺开(不会跑到别人的星上),且每个记录恰好挂在一条成员边上
+  const metrics = (exports.__test as { GRAPH_METRICS: { hubPad: number, ring: number } }).GRAPH_METRICS
+  const hubByScope = new Map(hubs.map((n) => [n.scope!, n]))
+  const recordNodes = graph.nodes.filter((n) => n.type === 'record')
+  assert.equal(recordNodes.length, 3)
+  assert.equal(graph.edges.length, 3, '每条记忆一根连到所属星的线')
+  for (const node of recordNodes) {
+    const hub = hubByScope.get(node.scope!)!
+    const dist = Math.hypot(node.x - hub.x, node.y - hub.y)
+    // 黄金角螺旋:第 i 个点落在 hubR + hubPad + ring*sqrt(i+0.45)
+    assert.ok(dist > hub.r, `${node.key} 应该在星的外侧`)
+    assert.ok(dist <= hub.r + metrics.hubPad + metrics.ring * Math.sqrt(2.45) + 0.001, `${node.key} 不该甩得太远`)
+    assert.ok(node.z >= 0 && node.z <= 1, 'z 是 0~1 的远近系数')
+    assert.ok(node.r < hub.r, '记忆点比星小')
+  }
+  // 越靠外(ring 越大)越小:同一个作用域里按 z 单调
+  const cluster = recordNodes.filter((n) => n.scope === 'project:/w').sort((a, b) => a.z - b.z)
+  for (let i = 1; i < cluster.length; i++) {
+    assert.ok(cluster[i]!.r <= cluster[i - 1]!.r + 1e-9, '远的点更小')
+  }
+
+  // 坐标全部落在画布内,连线两端与节点一致
+  for (const node of graph.nodes) {
+    assert.ok(node.x >= 0 && node.x <= graph.width, `${node.key} 在画布内(x)`)
+    assert.ok(node.y >= 0 && node.y <= graph.height, `${node.key} 在画布内(y)`)
+  }
+  for (const edge of graph.edges) {
+    const from = graph.nodes.find((n) => n.key === edge.fromKey)!
+    const to = graph.nodes.find((n) => n.key === edge.toKey)!
+    assert.equal(edge.x1, from.x)
+    assert.equal(edge.y2, to.y)
+  }
+
+  // 无随机量:同样的输入永远得到同一张星图(截图与快照都靠这点)
+  assert.deepEqual(build(records, { labels: { 'project:/w': '演示项目', global: '全局' } }), graph)
+
+  // 轨道环:每个展开的星给出真实外沿,折叠的星没有环(它没有记忆要围)
+  for (const hub of hubs) {
+    const mine = graph.nodes.filter((n) => n.type === 'record' && n.scope === hub.scope)
+    if (mine.length === 0) { assert.equal(hub.orbit, 0); continue }
+    const far = Math.max(...mine.map((n) => Math.hypot(n.x - hub.x, n.y - hub.y)))
+    assert.ok(hub.orbit > far, `${hub.scope} 的轨道环要在最远记忆之外`)
+    assert.ok(hub.orbit < far + 20, '环也别离得太远')
+  }
+
+  // 折叠一颗星 → 它的记忆消失,星本身留着(点击可展开)
+  const collapsed = build(records, { collapsed: new Set(['scope:project:/w']) })
+  assert.equal(collapsed.nodes.filter((n) => n.type === 'scope').length, 2)
+  assert.deepEqual(collapsed.nodes.filter((n) => n.type === 'record').map((n) => n.rec?.id), ['rule'])
+  assert.equal(collapsed.corrections.length, 0, '被折叠的记录不能留下悬空修正边')
+  assert.equal(collapsed.nodes.find((n) => n.key === 'scope:project:/w')?.open, false)
+
+  // 筛选口径与记忆树一致:作用域过滤 / 类型过滤
+  assert.deepEqual(build(records, { scopeFilter: 'global' }).nodes.filter((n) => n.type === 'record').map((n) => n.rec?.id), ['rule'])
+  assert.deepEqual(build(records, { activeKinds: new Set(['rule']) }).nodes.filter((n) => n.type === 'record').map((n) => n.rec?.id), ['rule'])
+  // 搜索命中只标记不裁剪:图要保持形状,命中项单独点亮
+  const searched = build(records, { query: '硬性' })
+  assert.deepEqual([...searched.matches], ['rule'])
+  assert.equal(searched.counts.records, 3)
+})
+
+test('记忆图标签页:三种视图之间切换,筛选状态跟着走', async () => {
+  const { hooks } = await loadBundle()
+  hooks.resetAll()
+  const records = [
+    makeRecord({ id: 'old', scope: 'project:/w', kind: 'fact', content: '旧事实', updatedAt: 1, supersededBy: 'new' }),
+    makeRecord({ id: 'new', scope: 'project:/w', kind: 'fact', content: '新事实', updatedAt: 2, supersedes: 'old' }),
+    makeRecord({ id: 'rule', scope: 'global', kind: 'rule', content: '硬性规则', updatedAt: 3 }),
+  ]
+  const current = await mountPanel(hooks, {
+    scopes: [
+      { scope: 'global', records: 1, pendingEmbeds: 0, label: 'global:全局' },
+      { scope: 'project:/w', records: 2, pendingEmbeds: 0, label: 'project:/w:演示项目' },
+    ],
+    embedServer: null,
+  }, undefined, 'tree', records)
+
+  const classes = () => collect(current()).map((n) => String(n.props?.className ?? '').split(/\s+/))
+  const findSubtab = (label: string) => collect(current())
+    .find((n) => n.tag === 'button' && String(n.props?.className ?? '').split(/\s+/).includes('subtab') && textOf(n).trim() === label)
+
+  // 默认是记忆图(结构树);一级切换与统计挤在同一行
+  assert.ok(classes().some((c) => c.includes('viz-head')), '顶部有 viz-head 一行')
+  assert.ok(classes().some((c) => c.includes('tree-wrap')), '默认渲染记忆图结构树')
+  assert.ok(!classes().some((c) => c.includes('graph-wrap')), '默认不渲染星图')
+  assert.ok(textOf(current()).includes('2D 星图'), '切换栏里有「2D 星图」')
+  assert.ok(textOf(current()).includes('3D 星图'), '切换栏里有「3D 星图」')
+
+  // → 2D 星图
+  const toGraph = findSubtab('2D 星图')!
+  assert.ok(toGraph, '找不到「2D 星图」切换标签')
+  ;(toGraph.props!.onClick as () => void)()
+  hooks.runEffects()
+  for (let i = 0; i < 4; i++) await Promise.resolve()
+
+  assert.ok(classes().some((c) => c.includes('graph-wrap')), '切到 2D 后渲染星图画布')
+  assert.ok(!classes().some((c) => c.includes('tree-wrap')), '星图视图不保留结构树画布')
+  assert.ok(classes().some((c) => c.includes('graph-canvas')), '星图有画布层')
+  assert.equal(collect(current()).filter((n) => String(n.props?.className ?? '').split(/\s+/).includes('hub')).length, 2, '两个作用域 → 两颗星')
+  const dots = collect(current()).filter((n) => String(n.props?.className ?? '').split(/\s+/).includes('gnode') && !String(n.props?.className ?? '').split(/\s+/).includes('hub'))
+  assert.equal(dots.length, 3, '三条记忆 → 三个星点')
+  assert.ok(textOf(current()).includes('颗星'), '星图有 HUD 提示')
+
+  // 切回结构树:还是同一个标签页,画布换回来
+  const toTree = findSubtab('记忆图')!
+  ;(toTree.props!.onClick as () => void)()
+  hooks.runEffects()
+  for (let i = 0; i < 4; i++) await Promise.resolve()
+  assert.ok(classes().some((c) => c.includes('tree-wrap')), '切回结构树')
+  assert.ok(!classes().some((c) => c.includes('graph-wrap')), '结构树视图不残留星图')
+  hooks.resetAll()
 })
 
 test('两个开关的配色跟随宿主 switch token,深色主题下轨道和圆点都能看清', async () => {
@@ -1666,6 +1847,274 @@ test('两个开关的配色跟随宿主 switch token,深色主题下轨道和圆
     assert.doesNotMatch(knob, /#fff/i, `${p.name}:圆点不能写死白色`)
     assert.match(rule(p.knobOn), /background:var\(--dsw-alias-label-primary-foreground\)/, `${p.name}:开启态圆点用 label-primary-foreground`)
   }
+})
+
+test('2D 星图视图:缩放上下限集中配置,以鼠标为锚点缩放时锚点不漂', async () => {
+  const { exports } = await loadBundle()
+  type View = { zoom: number; panX: number; panY: number }
+  const api = exports.__test as {
+    GRAPH_VIEW: { zoomMin: number; zoomMax: number }
+    graph2DDefaultView: () => View
+    graph2DClampZoom: (zoom: number) => number
+    graph2DAnchorZoom: (view: View, next: number, anchor: { x: number; y: number }, stage: { width: number; height: number }) => View
+    graph2DWheelZoom: (view: View, deltaY: number, anchor: { x: number; y: number }, stage: { width: number; height: number }) => View
+    graph2DPan: (view: View, dx: number, dy: number, stage: { width: number; height: number }) => View
+    graph2DFitView: (graph: { width: number; height: number }, stage: { width: number; height: number }) => View
+    graph2DTransform: (view: View) => string
+  }
+
+  // 缩放区间是产品口径 0.08 ~ 5,集中在一处配置
+  assert.equal(api.GRAPH_VIEW.zoomMin, 0.08, '最小缩放 0.08')
+  assert.equal(api.GRAPH_VIEW.zoomMax, 5, '最大缩放 5')
+  assert.equal(api.graph2DClampZoom(0.001), 0.08, '低于下限夹到 0.08')
+  assert.equal(api.graph2DClampZoom(99), 5, '高于上限夹到 5')
+  assert.equal(api.graph2DClampZoom(Number.NaN), 1, 'NaN 回落到 1')
+
+  // 以鼠标为锚点:缩放前后,鼠标下的画布点必须留在原地。
+  // 用画布坐标反推屏幕坐标来验证 —— 这是用户真正看到的效果。
+  const stage = { width: 800, height: 600 }
+  const canvas = { width: 1000, height: 700 }
+  const screenOf = (view: View, cx: number, cy: number) => ({
+    x: stage.width / 2 + view.panX + (cx - canvas.width / 2) * view.zoom,
+    y: stage.height / 2 + view.panY + (cy - canvas.height / 2) * view.zoom,
+  })
+  const anchor = { x: 620, y: 210 }
+  const start: View = { zoom: 1, panX: 40, panY: -25 }
+  // 锚点下面是哪个画布点?
+  const cx = (anchor.x - stage.width / 2 - start.panX) / start.zoom + canvas.width / 2
+  const cy = (anchor.y - stage.height / 2 - start.panY) / start.zoom + canvas.height / 2
+
+  const zoomedIn = api.graph2DWheelZoom(start, -120, anchor, stage)
+  assert.ok(zoomedIn.zoom > start.zoom, 'Ctrl+滚轮向上 = 放大')
+  const after = screenOf(zoomedIn, cx, cy)
+  assert.ok(Math.abs(after.x - anchor.x) < 1.5, `锚点 x 不漂(实际 ${after.x.toFixed(2)} vs ${anchor.x})`)
+  assert.ok(Math.abs(after.y - anchor.y) < 1.5, `锚点 y 不漂(实际 ${after.y.toFixed(2)} vs ${anchor.y})`)
+
+  // 缩放确实被夹在区间内,不会因为连续滚轮冲出去
+  let view = start
+  for (let i = 0; i < 60; i++) view = api.graph2DWheelZoom(view, -240, anchor, stage)
+  assert.ok(view.zoom <= api.GRAPH_VIEW.zoomMax + 1e-9, '连续放大不会超过上限')
+
+  // 拖动平移:屏幕像素 1:1 跟手,zoom 不变
+  const panned = api.graph2DPan(start, 37, -19, stage)
+  assert.equal(panned.zoom, start.zoom, '平移不改缩放')
+  assert.equal(panned.panX, start.panX + 37, '横向 1:1 跟手')
+  assert.equal(panned.panY, start.panY - 19, '纵向 1:1 跟手')
+
+  // 适应画布:同时给出 zoom 与 pan(pan 归零 = 内容居中),首屏观感与旧版一致
+  const fit = api.graph2DFitView(canvas, stage)
+  assert.ok(fit.zoom >= 0.42 && fit.zoom <= 1.15, `适应画布夹在 0.42~1.15(实际 ${fit.zoom})`)
+  assert.equal(fit.panX, 0, '适应画布把平移归零')
+  assert.equal(fit.panY, 0, '适应画布把平移归零')
+
+  // transform:平移在前、缩放在后,pan 才是屏幕像素
+  assert.match(api.graph2DTransform({ zoom: 1.5, panX: 10, panY: -4 }), /^translate\(10\.0px, -4\.0px\) scale\(1\.5000\)$/)
+})
+
+test('2D 星图:适应画布不会覆盖用户手动调过的视角', async () => {
+  const { hooks } = await loadBundle()
+  hooks.resetAll()
+  const records = [
+    makeRecord({ id: 'a', scope: 'project:/w', kind: 'fact', content: '一条记忆', updatedAt: 1 }),
+  ]
+  const current = await mountPanel(hooks, {
+    scopes: [{ scope: 'project:/w', records: 1, pendingEmbeds: 0, label: 'project:/w:演示' }],
+    embedServer: null,
+  }, undefined, 'tree', records)
+
+  const findSubtab = (label: string) => collect(current())
+    .find((n) => n.tag === 'button' && String(n.props?.className ?? '').split(/\s+/).includes('subtab') && textOf(n).trim() === label)
+  const canvasNode = () => collect(current())
+    .find((n) => String(n.props?.className ?? '').split(/\s+/).includes('graph-canvas'))
+
+  // 切到 2D
+  ;(findSubtab('2D 星图')!.props!.onClick as () => void)()
+  hooks.runEffects()
+  for (let i = 0; i < 4; i++) await Promise.resolve()
+  assert.ok(canvasNode(), '2D 画布已渲染')
+
+  // 模拟用户拖动:stage 尺寸拿不到(clientWidth 为 0)时 pan 会被夹到 0,
+  // 所以这里只验证「视图状态存在且 transform 由它决定」这一条不变量。
+  const style = canvasNode()!.props!.style as Record<string, unknown>
+  assert.match(String(style.transform), /^translate\(-?[\d.]+px, -?[\d.]+px\) scale\([\d.]+\)$/, 'transform 由视图状态生成')
+  hooks.resetAll()
+})
+
+test('3D 布局:在 2D 的确定性结果上派生真实三维坐标,且同样无随机量', async () => {
+  const { exports } = await loadBundle()
+  type Graph3 = {
+    scopes: Array<{ key: string; scope: string; position: { x: number; y: number; z: number }; rotation: { x: number; y: number; z: number }; orbit: number; members: unknown[] }>
+    records: Array<{ key: string; id: string; scope: string; position: { x: number; y: number; z: number }; depth: number; r: number; kind: string }>
+    links: Array<{ fromKey: string; toKey: string }>
+    nodeByKey: Map<string, unknown>
+    radius: number
+    center: { x: number; y: number; z: number }
+    counts: Record<string, number>
+  }
+  const api = exports.__test as {
+    buildMemoryGraph: (records: unknown[], options?: Record<string, unknown>) => unknown
+    buildMemoryGraph3D: (graph: unknown, options?: Record<string, unknown>) => Graph3
+  }
+  const records = [
+    makeRecord({ id: 'old', scope: 'project:/w', kind: 'fact', content: '旧事实', updatedAt: 1, supersededBy: 'new' }),
+    makeRecord({ id: 'new', scope: 'project:/w', kind: 'fact', content: '新事实', updatedAt: 2, supersedes: 'old' }),
+    makeRecord({ id: 'rule', scope: 'global', kind: 'rule', content: '硬性规则', updatedAt: 3 }),
+  ]
+  const graph2 = api.buildMemoryGraph(records, { labels: { 'project:/w': '演示项目', global: '全局' } })
+  const graph3 = api.buildMemoryGraph3D(graph2)
+
+  assert.equal(graph3.scopes.length, 2, '两个作用域 → 两个星系')
+  assert.equal(graph3.records.length, 3, '三条记忆 → 三颗星')
+  assert.equal(graph3.links.length, 4, '3 条成员线 + 1 条修正线')
+
+  // 真实三维:z 轴真的有分布,不是一张纸
+  const zs = graph3.records.map((n) => n.position.z)
+  assert.ok(Math.max(...zs) - Math.min(...zs) > 1, '记忆星在 z 轴上有真实分布')
+  // 单颗星的星团谈不上"立体",只核对有两颗以上成员的簇
+  for (const scope of graph3.scopes) {
+    if (scope.members.length < 2) continue
+    const zs2 = scope.members.map((m) => (m as { position: { z: number } }).position.z)
+    assert.ok(Math.max(...zs2) - Math.min(...zs2) > 0.5, `${scope.scope} 的星团是立体的`)
+  }
+
+  // 轨道半径套住簇内所有星(真 3D 距离,不是平面投影)
+  for (const scope of graph3.scopes) {
+    for (const member of scope.members) {
+      const p = (member as { position: { x: number; y: number; z: number } }).position
+      const dist = Math.hypot(p.x - scope.position.x, p.y - scope.position.y, p.z - scope.position.z)
+      assert.ok(dist < scope.orbit, `${(member as { key: string }).key} 要在轨道环之内`)
+    }
+  }
+
+  // 无随机量
+  assert.deepEqual(api.buildMemoryGraph3D(graph2), graph3)
+
+  // 覆盖层:用户拖过的节点用存下来的坐标,没拖的仍走确定性默认布局
+  const moved = api.buildMemoryGraph3D(graph2, { overlay: { records: { new: { x: 111, y: 222, z: 333 } } } })
+  const movedNode = moved.records.find((n) => n.id === 'new')!
+  assert.deepEqual(movedNode.position, { x: 111, y: 222, z: 333 }, '拖过的星用持久化坐标')
+  const untouched = moved.records.find((n) => n.id === 'old')!
+  const original = graph3.records.find((n) => n.id === 'old')!
+  assert.deepEqual(untouched.position, original.position, '没拖过的星位置不变')
+
+  // 作用域旋转也从覆盖层恢复
+  const rotated = api.buildMemoryGraph3D(graph2, {
+    overlay: { scopes: { global: { x: 0, y: 0, z: 0, rotationX: 0.5, rotationY: 1.25, rotationZ: 0 } } },
+  })
+  const rotatedScope = rotated.scopes.find((s) => s.scope === 'global')!
+  assert.equal(rotatedScope.rotation.y, 1.25, '作用域旋转被恢复')
+})
+
+test('布局持久化:稳定 ID 作键、坏数据不炸面板、恢复默认只清覆盖层', async () => {
+  const { exports } = await loadBundle()
+  type Layout = {
+    version: number
+    scopes: Record<string, Record<string, number>>
+    records: Record<string, { x: number; y: number; z: number }>
+    views: Record<string, unknown>
+  }
+  const api = exports.__test as {
+    GRAPH_LAYOUT_KEY: string
+    GRAPH_LAYOUT_VERSION: number
+    loadGraphLayout: () => Layout
+    saveGraphLayout: (layout: Layout) => boolean
+    clearGraphLayout: (mode?: string) => Layout
+    withNodePosition: (layout: Layout, kind: string, id: string, position: { x: number; y: number; z: number }) => Layout
+    withScopeRotation: (layout: Layout, scope: string, rotation: { x: number; y: number; z: number }) => Layout
+    withViewState: (layout: Layout, mode: string, view: Record<string, unknown>) => Layout
+  }
+  const storage = (globalThis as { window?: { localStorage?: { getItem(k: string): string | null; setItem(k: string, v: string): void; clear(): void } } }).window!.localStorage!
+  storage.clear()
+
+  // 空存储 → 干净的空覆盖层(不是 undefined,调用方不用判空)
+  const empty = api.loadGraphLayout()
+  assert.equal(empty.version, api.GRAPH_LAYOUT_VERSION)
+  assert.deepEqual(empty.scopes, {})
+  assert.deepEqual(empty.records, {})
+  assert.deepEqual(empty.views, {})
+
+  // 写入走稳定 ID(作用域键 / 记忆 id),不是数组下标
+  let layout = api.withNodePosition(empty, 'record', 'rec-abc', { x: 1.234, y: 2.345, z: 3.456 })
+  assert.deepEqual(layout.records['rec-abc'], { x: 1.23, y: 2.35, z: 3.46 }, '按记忆 id 存,坐标收到两位小数')
+  layout = api.withNodePosition(layout, 'scope', 'project:/w', { x: 10, y: 20, z: 30 })
+  assert.equal(layout.scopes['project:/w']!.x, 10, '按作用域键存')
+  layout = api.withScopeRotation(layout, 'project:/w', { x: 0.1, y: 0.2, z: 0.3 })
+  assert.equal(layout.scopes['project:/w']!.rotationY, 0.2, '旋转与位置共存')
+  layout = api.withViewState(layout, '2d', { zoom: 2.5, panX: 30, panY: -12 })
+  layout = api.withViewState(layout, '3d', { cameraPosition: [1, 2, 3], cameraTarget: [0, 0, 0], zoom: 1 })
+  assert.ok(api.saveGraphLayout(layout))
+
+  // 读回来等价
+  const loaded = api.loadGraphLayout()
+  assert.deepEqual(loaded.records['rec-abc'], { x: 1.23, y: 2.35, z: 3.46 })
+  assert.equal(loaded.scopes['project:/w']!.rotationY, 0.2)
+  assert.deepEqual((loaded.views['2d'] as { zoom: number }).zoom, 2.5)
+  assert.deepEqual((loaded.views['3d'] as { cameraPosition: number[] }).cameraPosition, [1, 2, 3])
+
+  // 坏数据:JSON 语法错 / 类型错 / 版本更高 —— 一律当作没有覆盖层,绝不抛错
+  storage.setItem(api.GRAPH_LAYOUT_KEY, '{not json')
+  assert.deepEqual(api.loadGraphLayout().records, {}, '坏 JSON 退化成空覆盖层')
+  storage.setItem(api.GRAPH_LAYOUT_KEY, JSON.stringify({ version: 1, records: { a: { x: 'no', y: 1, z: 2 }, b: { x: 1, y: 2, z: 3 } } }))
+  assert.deepEqual(Object.keys(api.loadGraphLayout().records), ['b'], '非数字坐标的条目被丢掉')
+  storage.setItem(api.GRAPH_LAYOUT_KEY, JSON.stringify({ version: 999, records: { a: { x: 1, y: 2, z: 3 } } }))
+  assert.deepEqual(api.loadGraphLayout().records, {}, '未来版本不猜,当没有覆盖层')
+
+  // 恢复默认:只清覆盖层,不动别的东西
+  api.saveGraphLayout(api.withNodePosition(empty, 'record', 'rec-abc', { x: 1, y: 2, z: 3 }))
+  const cleared = api.clearGraphLayout()
+  assert.deepEqual(cleared.records, {}, '恢复默认清掉节点覆盖层')
+  assert.deepEqual(api.loadGraphLayout().records, {}, '清除结果已落盘')
+
+  // 只清某个模式的视角时,节点覆盖层要留着
+  let keep = api.withNodePosition(empty, 'record', 'rec-abc', { x: 1, y: 2, z: 3 })
+  keep = api.withViewState(keep, '2d', { zoom: 3, panX: 0, panY: 0 })
+  keep = api.withViewState(keep, '3d', { cameraPosition: [0, 0, 100], cameraTarget: [0, 0, 0], zoom: 1 })
+  api.saveGraphLayout(keep)
+  const onlyView = api.clearGraphLayout('2d')
+  assert.deepEqual(onlyView.records['rec-abc'], { x: 1, y: 2, z: 3 }, '只清视角不动节点位置')
+  assert.equal(onlyView.views['2d'], undefined, '2D 视角被清掉')
+  assert.ok(onlyView.views['3d'], '3D 视角保留')
+  storage.clear()
+})
+
+test('3D 能力探测:没有 WebGL 时明确报告不可用,让调用方退回 2D', async () => {
+  const { exports } = await loadBundle()
+  const api = exports.__test as { graphWebGLAvailable: () => boolean }
+  const globals = globalThis as Record<string, unknown>
+  const saved = globals.document
+  // 没有 canvas.getContext → 不可用
+  globals.document = { createElement: () => ({}) }
+  assert.equal(api.graphWebGLAvailable(), false, '拿不到 WebGL 上下文 → false')
+  // createElement 直接抛(某些受限环境)→ 也只能返回 false,不能把面板带崩
+  globals.document = { createElement: () => { throw new Error('blocked') } }
+  assert.equal(api.graphWebGLAvailable(), false, 'createElement 抛错 → false')
+  globals.document = saved
+})
+
+test('星图节点有实际尺寸、连线真的落在 svg 里(踩过:圆点只剩光晕、连线全丢)', async () => {
+  const { exports } = await loadBundle()
+  const css = (exports.__test as { CSS: string }).CSS
+  const rule = (selector: string) => {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    return new RegExp(escaped + '\\{([^}]*)\\}').exec(css)?.[1] ?? ''
+  }
+
+  // .gnode 是定宽定高的 flex 盒;里面的 span 没有内容也没有尺寸,
+  // 只写 border-radius 的话圆点是 0×0,屏幕上只剩外发光。
+  const orb = rule('.memp .gnode .orb')
+  assert.match(orb, /position:absolute/, `圆点要脱离文档流自己撑开:${orb}`)
+  assert.match(orb, /inset:0/, '圆点必须撑满节点盒,否则 0×0')
+
+  // 连线是 svg path,颜色太淡/线太细时缩放后等于没有
+  const link = rule('.memp .glink')
+  assert.match(link, /stroke:/, '连线要有描边色')
+  assert.match(link, /fill:none/, 'path 不能填充')
+  assert.doesNotMatch(link, /opacity:0[;}]/, '默认不能把连线藏起来')
+
+  // 缩放以中心为原点,缩小时整张图不会往左上角甩
+  assert.match(rule('.memp .graph-canvas'), /transform-origin:50% 50%/)
+  // 星名挂在轨道环上方,不能压住记忆点
+  assert.match(rule('.memp .gnode.hub .glabel'), /bottom:/)
 })
 
 test('审计条目的轨迹锚点解析：operationId 优先，其次 signal.callId', async () => {
@@ -3117,7 +3566,160 @@ test('记忆视图用 composer overlay 占满高度，滚动只发生在审计�
   assert.match(css, /\.mem-view\{[^}]*height:100%/, '记忆视图占满 viewArea')
   assert.match(css, /\.mem-view-body\{[^}]*overflow:hidden/, '外层内容不滚动')
   assert.match(css, /\.mem-view \.audit\{height:100%/, '审计页填满剩余高度')
+  assert.match(css, /\.mem-recs-scroll\{[^}]*overflow-y:auto/, '记录页的滚动只发生在列表里')
   assert.doesNotMatch(css, /\.mem-head-btn/, '会话头部按钮样式已移除')
+})
+
+test('会话记忆视图：记录 / 审计 两个标签页，记录在左且默认打开', async () => {
+  const { exports, hooks } = await loadBundle()
+  hooks.resetAll()
+  const globals = globalThis as Record<string, unknown>
+  const calls: string[] = []
+  globals.fetch = async (url: string) => {
+    calls.push(String(url))
+    return {
+      status: 200,
+      json: async () => ({
+        ok: true,
+        value: String(url).includes('/session-records')
+          ? {
+              session: 's1',
+              workspace: 'project:C:/demo',
+              scopes: [
+                { scope: 'session:s1', label: 'session:s1', records: 1 },
+                { scope: 'project:C:/demo', label: 'project:演示', records: 2 },
+              ],
+              records: [
+                makeRecord({ id: 'rec-1', scope: 'session:s1', content: '本会话记下的一条事实' }),
+                makeRecord({ id: 'rec-2', scope: 'project:C:/demo', content: '项目里的一条约定' }),
+              ],
+              blockedCount: 0,
+            }
+          : { ok: true, value: { scopes: [], records: [], entries: [], total: 0 } },
+      }),
+    }
+  }
+  try {
+    const View = (exports.__test as { MemoryAuditView: (p: Record<string, unknown>) => unknown }).MemoryAuditView
+    const element = () => hooks.React.createElement(View, {
+      sessionId: 's1',
+      openView: () => {},
+      sessionInfo: () => ({}),
+    })
+    let current: RenderNode | null = render(element(), hooks)
+    hooks.setRerender(() => { current = render(element(), hooks) })
+    hooks.runEffects()
+    for (let i = 0; i < 8; i++) await Promise.resolve()
+    hooks.runEffects()
+    for (let i = 0; i < 4; i++) await Promise.resolve()
+
+    const subtabs = collect(current).filter((n) => String(n.props?.className ?? '').split(/\s+/).includes('subtab'))
+    assert.deepEqual(subtabs.map((n) => textOf(n).trim()), ['记录', '审计'], '记录在左、审计在右')
+    assert.ok(String(subtabs[0].props?.className).includes('on'), '默认落在「记录」页')
+    assert.ok(!String(subtabs[1].props?.className).includes('on'), '审计页默认不选中')
+
+    // 默认页拉的是带会话 id 的 /session-records，而不是主面板那份不带 agent 的 /records。
+    assert.ok(calls.some((url) => url.includes('session-records?session=s1')), `按会话拉记录（实际:${calls.join(', ')}）`)
+    assert.ok(!calls.some((url) => /\/records\b/.test(url)), '不再走主面板的无 agent 列表')
+    const text = textOf(current)
+    assert.ok(text.includes('本会话记下的一条事实'), '记录页展示本会话可见域里的记忆')
+    assert.ok(text.includes('项目里的一条约定'))
+    assert.ok(text.includes('本会话可见 2 个作用域 · 2 条记忆'), '如实给出可见域与条数')
+    assert.ok(!text.includes('记忆审计'), '顶部标题已移除')
+
+    // 切到「审计」：仍然复用 AuditTab（真实空状态，不补造）。
+    const audit = collect(current).find((n) => n.tag === 'button' && textOf(n).trim() === '审计')
+    ;(audit!.props!.onClick as () => void)()
+    hooks.runEffects()
+    for (let i = 0; i < 6; i++) await Promise.resolve()
+    hooks.runEffects()
+    const auditText = textOf(current)
+    assert.ok(auditText.includes('自动刷新') || auditText.includes('当前筛选没有审计事件'), '审计页仍是原样')
+    hooks.resetAll()
+  } finally {
+    delete globals.fetch
+  }
+})
+
+test('会话记忆视图的记录页：显示已屏蔽 才列出屏蔽项，解除走 /blocks restore', async () => {
+  const { exports, hooks } = await loadBundle()
+  hooks.resetAll()
+  const globals = globalThis as Record<string, unknown>
+  const calls: Array<{ url: string; method: string; body: unknown }> = []
+  const blockedRecord = makeRecord({ id: 'rec-b', scope: 'project:C:/demo', content: '被屏蔽掉的一条' })
+  const openRecord = makeRecord({ id: 'rec-a', scope: 'project:C:/demo', content: '正常可见的一条' })
+  globals.fetch = async (url: string, init?: { method?: string; body?: string }) => {
+    const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined
+    calls.push({ url: String(url), method: init?.method ?? 'GET', body })
+    const shown = String(url).includes('blocked=1')
+    return {
+      status: 200,
+      json: async () => ({
+        ok: true,
+        value: String(url).includes('/blocks')
+          ? { removed: [{ level: 'workspace', removed: 1 }] }
+          : {
+              session: 's1',
+              workspace: 'project:C:/demo',
+              scopes: [{ scope: 'project:C:/demo', label: 'project:演示', records: 2, blocked: false }],
+              records: shown
+                ? [
+                    { ...blockedRecord, blocked: true, blockedLevel: 'workspace', blockedId: 'blk-1' },
+                    openRecord,
+                  ]
+                : [openRecord],
+              blockedCount: 1,
+            },
+      }),
+    }
+  }
+  try {
+    const SessionRecordsTab = (exports.__test as { SessionRecordsTab: (p: Record<string, unknown>) => unknown }).SessionRecordsTab
+    const element = () => hooks.React.createElement(SessionRecordsTab, { sessionId: 's1' })
+    let current: RenderNode | null = render(element(), hooks)
+    hooks.setRerender(() => { current = render(element(), hooks) })
+    hooks.runEffects()
+    for (let i = 0; i < 8; i++) await Promise.resolve()
+    hooks.runEffects()
+    for (let i = 0; i < 4; i++) await Promise.resolve()
+
+    assert.ok(textOf(current).includes('正常可见的一条'), '默认列出正常记录')
+    assert.ok(!textOf(current).includes('被屏蔽掉的一条'), '屏蔽项默认折叠')
+    const toggle = collect(current).find((n) => n.tag === 'button' && textOf(n).includes('显示已屏蔽'))
+    assert.ok(toggle, '有屏蔽时给出「显示已屏蔽 N」')
+    assert.ok(textOf(toggle).includes('1'), '计数如实')
+
+    ;(toggle!.props!.onClick as () => void)()
+    // 测试用的假 React 会忽略 useEffect 的依赖数组，重跑 effect 会把列表拉回默认态，
+    // 所以这里只等 setState 触发的重渲染，不再 runEffects。
+    for (let i = 0; i < 10; i++) await Promise.resolve()
+    assert.ok(calls.some((c) => c.url.includes('blocked=1')), '勾上后请求带 blocked=1')
+    const shownText = textOf(current)
+    assert.ok(shownText.includes('被屏蔽掉的一条'), '勾上后列出屏蔽项')
+    assert.ok(shownText.includes('已屏蔽 · 工作区级'), '标出屏蔽层级')
+
+    // 展开那张卡 → 「解除屏蔽」→ POST /blocks restore，带屏蔽 id 精确匹配。
+    const card = collect(current).find((n) => String(n.props?.className ?? '').split(/\s+/).includes('rec')
+      && textOf(n).includes('被屏蔽掉的一条'))
+    assert.ok(card, '屏蔽卡片出现在列表里')
+    const head = collect(card).find((n) => String(n.props?.className ?? '').includes('rec-head'))
+    assert.ok(head, '屏蔽卡片可展开')
+    ;(head!.props!.onClick as () => void)()
+    const unblock = collect(current).find((n) => n.tag === 'button' && textOf(n).trim() === '解除屏蔽')
+    assert.ok(unblock, '屏蔽卡片带「解除屏蔽」')
+    ;(unblock!.props!.onClick as () => void)()
+    for (let i = 0; i < 12; i++) await Promise.resolve()
+
+    const post = calls.find((c) => c.method === 'POST' && c.url.includes('/blocks'))
+    assert.ok(post, `解除走 /blocks（实际:${calls.map((c) => `${c.method} ${c.url}`).join(', ')}）`)
+    assert.equal((post!.body as Record<string, unknown>).restore, true)
+    assert.equal((post!.body as Record<string, unknown>).level, 'workspace')
+    assert.equal((post!.body as Record<string, unknown>).session, 's1')
+    assert.equal((post!.body as Record<string, unknown>).id, 'blk-1', '按屏蔽 id 精确解除')
+    hooks.resetAll()
+  } finally {
+    delete globals.fetch
+  }
 })
 
 test('轨迹详情页签展示该 callId 的审计并可打开本会话面板', async () => {

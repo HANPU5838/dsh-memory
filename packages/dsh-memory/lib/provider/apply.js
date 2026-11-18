@@ -53,6 +53,39 @@ export class CordisMemoryService extends Service {
     // 0.31.0：记忆事件总线。宿主有 `emit` 就转发成宿主事件（其他插件可 ctx.on 订阅），
     // 没有就只做进程内广播 —— 事件是旁路，不能因为宿主缺 API 让记忆加载失败。
     this.impl.setEventBus(new MemoryEventBus(hostEventSink(ctx)))
+
+    // 0.32.0：项目作用域归档绑定工作区 —— 工作区从侧边栏删除时归档转 dormant
+    // （记忆仍保留、仍不参与检索），重新加入时自动解除归档。宿主没有可靠的
+    // workspace 删除事件（`workspace/delete` 是 UI 层 emit），所以按需对账：
+    // 装配期一次 + 每次目录/统计查询前一次（带节流，见 LocalMemoryService）。
+    this.impl.setWorkspaceExistsLookup((scope) => {
+      try {
+        const registry = ctx.get('workspaceRegistry')     
+                                                        
+                                                   
+                     
+        if (registry === undefined) return undefined
+        const path = scope.startsWith('project:') ? scope.slice('project:'.length) : ''
+        if (path === '') return undefined
+        if (typeof registry.resolveByPath === 'function') {
+          return registry.resolveByPath(path) !== undefined
+        }
+        const list = registry.list?.()
+        if (!Array.isArray(list)) return undefined
+        const wanted = path.replace(/[\\/]+/g, '/').replace(/\/+$/, '').toLowerCase()
+        return list.some((item) => {
+          const itemPath = typeof item?.path === 'string' ? item.path : ''
+          return itemPath.replace(/[\\/]+/g, '/').replace(/\/+$/, '').toLowerCase() === wanted
+        })
+      } catch {
+        return undefined
+      }
+    })
+    try {
+      this.impl.reconcileArchivedScopesNow()
+    } catch {
+      // 对账失败不影响加载：归档状态保持原样，下次查询再试。
+    }
     // 0.11.1:同一个目录因为 `D:/x` 与 `D:\x` 写法不同而分叉成两个 scope 的历史数据,
     // 在装配期合并一次(每进程一次;失败只影响合并,不影响读写)。
     try {
@@ -349,9 +382,140 @@ export class CordisMemoryService extends Service {
     return this.impl.scopeCatalog(agent)
   }
 
+  /**
+   * 归档 / 屏蔽（0.32.0）。
+   *
+   * 面板通过 `ctx.get('memory')` 拿到的是**这个包装实例**，不是 LocalMemoryService。
+   * 0.32.0 的实现只加在 LocalMemoryService 上，包装层没转发，于是真实 profile 里
+   * `memory.listBlocks` / `memory.unblock` / `memory.archiveScope` 全是 undefined ——
+   * 面板的「解除归档 / 解除屏蔽」和 `/status` 的 blocked 字段于是静默失效，
+   * 而单测直接 new LocalMemoryService 所以完全看不见。这一组必须显式转发。
+   */
+  archiveScope(scope        , by        , note         )                                                 {
+    return this.impl.archiveScope(scope, by, note)
+  }
+
+  /** 解除项目作用域归档；返回是否真的解除了一条。 */
+  restoreScope(scope        )                                                 {
+    return this.impl.restoreScope(scope)
+  }
+
+  /** 已归档的项目作用域清单（面板 / 目录用）。 */
+  archivedProjectScopes()                                                          {
+    return this.impl.archivedProjectScopes()
+  }
+
+  /** 当前 agent 生效的**全部**屏蔽（会话链 + 工作区级）。 */
+  blocksFor(agent         )                                              {
+    return this.impl.blocksFor(agent)
+  }
+
+  /** 面板 / 诊断：当前 agent 生效的屏蔽清单。 */
+  listBlocks(agent         )                                               {
+    return this.impl.listBlocks(agent)
+  }
+
+  /** 面板：某会话自己的会话级屏蔽（不含父链、不含工作区级）。 */
+  sessionBlocks(sessionId        )                                                  {
+    return this.impl.sessionBlocks(sessionId)
+  }
+
+  /** 面板：某工作区的工作区级屏蔽。 */
+  workspaceBlocks(workspace        )                                                    {
+    return this.impl.workspaceBlocks(workspace)
+  }
+
+  /** 这个作用域当前是否被屏蔽（会话级或工作区级）。 */
+  isScopeBlocked(agent         , scope        )          {
+    return this.impl.isScopeBlocked(agent, scope)
+  }
+
+  /** 这条记录当前是否被屏蔽（作用域级屏蔽也算）。 */
+  isRecordBlocked(agent         , record                               )          {
+    return this.impl.isRecordBlocked(agent, record)
+  }
+
+  /** 解除一条屏蔽（面板 / 工具共用）。 */
+  unblock(agent         , match                                              )                                            {
+    return this.impl.unblock(agent, match)
+  }
+
+  /** 清空某一层级的全部屏蔽。 */
+  clearBlocks(agent         , level                                                  )         {
+    return this.impl.clearBlocks(agent, level)
+  }
+
+  /** Agent 请求屏蔽（0.32.0；审批矩阵在 provider 里）。 */
+  requestBlock(agent         , input                                                   )                                                 {
+    return this.impl.requestBlock(agent, input)
+  }
+
   /** 注入设置(面板「设置」标签页读它)。 */
   injectSettings()                                                   {
     return this.impl.injectSettings()
+  }
+
+  // ---------------------------------------------------------------- 记忆钩子（0.35.0）
+  /**
+   * 钩子能力必须在这里**逐个转发**：面板与工具拿到的都是本包装实例，
+   * 少转一个方法就是 undefined（0.32.0 的归档/屏蔽就整体这样失效过，
+   * 而单测直接 new LocalMemoryService 完全看不见）。
+   */
+  hookSettings()                                                 {
+    return this.impl.hookSettings()
+  }
+
+  updateHookSettings(patch         )                                                       {
+    return this.impl.updateHookSettings(patch)
+  }
+
+  listHooks()                                              {
+    return this.impl.listHooks()
+  }
+
+  getHook(id        )                                            {
+    return this.impl.getHook(id)
+  }
+
+  saveHook(input                                               )                                             {
+    return this.impl.saveHook(input)
+  }
+
+  deleteHook(id        )          {
+    return this.impl.deleteHook(id)
+  }
+
+  approveHook(id        )          {
+    return this.impl.approveHook(id)
+  }
+
+  revokeHookApproval(id        )          {
+    return this.impl.revokeHookApproval(id)
+  }
+
+  hookPendingApproval(id        )          {
+    return this.impl.hookPendingApproval(id)
+  }
+
+  requestHookApproval(
+    agent         ,
+    id        ,
+    options                                                           ,
+  )                                                        {
+    return this.impl.requestHookApproval(agent, id, options)
+  }
+
+  runHooks(phase                                               , input                                               )                                             {
+    return this.impl.runHooks(phase, input)
+  }
+
+  /** 试跑指定钩子（绕过审批门禁，不写记忆、不记统计）。 */
+  runHookTrial(id        , input                                                   )                                                 {
+    return this.impl.runHookTrial(id, input)
+  }
+
+  parseForInject(records                                                     , sessionId         )                                                   {
+    return this.impl.parseForInject(records, sessionId)
   }
 
   /** 面板改设置:落盘后广播,注入半边下一步就能按新设置跑。 */

@@ -21,6 +21,7 @@ import { apply as providerApply } from './provider/apply.js'
 import { apply as toolsApply,                       } from './tools/apply.js'
 import { apply as injectApply,                         } from './inject/apply.js'
 import { apply as panelApply } from './panel.js'
+import { mountBundledSkills } from './skills.js'
 
 export const name = 'dsh-memory'
 
@@ -60,7 +61,17 @@ export function apply(ctx         , config                     = {})       {
   // 3) 面板服务端路由:内部 ctx.inject(['webServer']),没有 webServer 就只是没有 UI。
   part(ctx, 'panel', () => panelApply(ctx, config.panel ?? {}))
 
-  // 4) 模型工具:同时需要工具注册表与本插件提供的 memory 服务。
+  // 4) 随包技能:记忆钩子的脚本 API 文档必须和代码同版本(0.35.0)。
+  //    skills 服务由宿主核心提供,可能在本插件 apply 之后才提供 —— 用 ctx.inject
+  //    等它就绪再挂,不能在 apply 里 `ctx.get('skills')` 一次性取样(取到 undefined
+  //    就永久丢失,表现为「插件启用着但技能目录里没有」,重启或 toggle 才恢复)。
+  //    和 tools 一样放在独立 inject 回调里:技能是增强,缺它绝不能把整条 entry
+  //    拖成 PENDING(那会连 provider / 工具 / 面板一起起不来)。
+  ctx.inject(['skills'], (c         ) => {
+    part(c, 'skills', () => mountBundledSkills(c                                                       ))
+  })
+
+  // 5) 模型工具:同时需要工具注册表与本插件提供的 memory 服务。
   //    用 ctx.inject 而不是模块级 inject —— 缺服务时只是这四个工具不出现,
   //    而不是让整条 entry 挂在 PENDING 上(那会连 provider 一起拖住)。
   ctx.inject(['tools', 'memory'], (c         ) => {

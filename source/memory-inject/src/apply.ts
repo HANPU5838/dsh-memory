@@ -116,6 +116,15 @@ interface MemoryWithInject extends InjectMemoryService {
   } | undefined
   /** 当前生效的可见策略（0.25.0：授权变更时交代边界）。 */
   visibilityPolicy?(agent: unknown): { level?: string; scopes?: Array<{ scope?: string; kinds?: string[] }> } | undefined
+  /**
+   * 注入前解析钩子（0.35.0）：按 before-inject 脚本改写正文 / 丢弃整条。
+   * 老 provider 没有这个方法时，注入链路原样使用记录（不做任何改写）。
+   */
+  parseForInject?(records: readonly MemoryRecord[], sessionId?: string): {
+    records: MemoryRecord[]
+    changed: Array<{ id: string; hook: string; option: 'rewritten' | 'dropped' }>
+    warnings: string[]
+  }
 }
 
 /** 轮末提醒的文案:短、祈使句,不占预算。 */
@@ -233,7 +242,24 @@ export function apply(ctx: Context, config: MemoryInjectConfig = {}) {
   }
   const impressionCfg = (): RecallRenderOptions => {
     const settings = settingsOf().impression
-    return { impression: settings.enabled, chars: settings.chars }
+    return {
+      impression: settings.enabled,
+      chars: settings.chars,
+      // 0.35.4：自动召回也走 before-inject 钩子 —— 之前只有规则段与摘要接了，
+      // 每轮按用户问题召回的正文没过钩子，是三个注入通道里的漏网之鱼。
+      // sessionId 由 injector 在渲染时传入（注入半边没有 agent 对象）。
+      transform: (records, sid) => {
+        const mem = ctx.get('memory') as MemoryWithInject | undefined
+        if (records.length === 0 || typeof mem?.parseForInject !== 'function') return { records }
+        try {
+          const parsed = mem.parseForInject(records, sid)
+          return { records: parsed.records, droppedIds: new Set(parsed.changed.filter((c) => c.option === 'dropped').map((c) => c.id)) }
+        } catch {
+          // 解析失败 = 没解析：记录原样进上下文，不能因为钩子坏掉就少注入记忆。
+          return { records }
+        }
+      },
+    }
   }
 
   const extraScopes = normalizeExtraScopes(config.extraScopes ?? [])
@@ -400,12 +426,39 @@ export function apply(ctx: Context, config: MemoryInjectConfig = {}) {
     agent?: unknown,
   ): { ok: true; render: RulesRender } | { ok: false; errorCode: string } => {
     try {
-      return {
-        ok: true,
-        render: renderRules(memory.listSync?.({ scopes: [...scopes], kind: 'rule', limit: 100, ...(agent !== undefined ? { agent } : {}) }) ?? [], cfg),
-      }
+      const raw = memory.listSync?.({
+        scopes: [...scopes],
+        kind: 'rule',
+        limit: 100,
+        ...(agent !== undefined ? { agent } : {}),
+        // 0.32.0：规则段也走屏蔽过滤 —— 被屏蔽的规则不再每轮注入。
+        ...(sessionIdOf(agent) !== undefined ? { sessionId: sessionIdOf(agent)! } : {}),
+      }) ?? []
+      // 0.35.0：注入前解析钩子 —— 规则段是"模型一定会读到"的地方，
+      // 让规则自带的脚本在这里改写摘要（比如补一句"违规示例"）或整条丢弃。
+      return { ok: true, render: renderRules(withInjectHooks(memory, raw, agent), cfg) }
     } catch {
       return { ok: false, errorCode: 'source_load_failed' }
+    }
+  }
+
+  /**
+   * 把一批记录过一遍 before-inject 钩子（0.35.0）。
+   *
+   * provider 不支持（老版本）或钩子关掉时原样返回 —— 注入链路不能因为钩子不可用
+   * 就少注入记忆。解析失败也只是"没解析"，记录原样进上下文。
+   */
+  const withInjectHooks = (
+    memory: MemoryWithInject,
+    records: readonly MemoryRecord[],
+    agent?: unknown,
+  ): readonly MemoryRecord[] => {
+    if (records.length === 0 || typeof memory.parseForInject !== 'function') return records
+    try {
+      const parsed = memory.parseForInject(records, sessionIdOf(agent))
+      return parsed.records
+    } catch {
+      return records
     }
   }
 
@@ -499,9 +552,11 @@ export function apply(ctx: Context, config: MemoryInjectConfig = {}) {
     procedureTools.set(sessionId, recent)
   }
 
-  const excludedIds = (memory: InjectMemoryService, scopes: readonly string[] | undefined): ReadonlySet<string> => {
+  const excludedIds = (memory: InjectMemoryService, _scopes: readonly string[] | undefined): ReadonlySet<string> => {
     try {
-      return new Set(memory.supersededIds?.(scopes === undefined ? undefined : [...scopes]) ?? [])
+      // 0.36.0：supersedes 支持跨作用域，修正版可能不在本次注入的 scopes 里；
+      // 退役 id 必须扫全部 scope（省略参数），否则 global 里的修正版挡不住 project 旧记录。
+      return new Set(memory.supersededIds?.() ?? [])
     } catch {
       return new Set()
     }
@@ -568,7 +623,7 @@ export function apply(ctx: Context, config: MemoryInjectConfig = {}) {
     }
     for (const tag of configured) add(tag)
     try {
-      const records = memory.listSync({ scopes: [...scopes], limit: 1000 })
+      const records = memory.listSync({ scopes: [...scopes], limit: 1000, sessionId })
       for (const record of records) for (const tag of record.tags ?? []) add(String(tag))
     } catch { /* 读不到记忆标签就只用配置标签 */ }
     const limited = tags.slice(0, 200)
@@ -613,7 +668,7 @@ export function apply(ctx: Context, config: MemoryInjectConfig = {}) {
   }
 
   /** 记忆工具自身的调用:不属于注入评估,但它是审计里最有用的轨迹锚点。 */
-  const MEMORY_TOOL_NAMES = new Set(['memory_save', 'memory_search', 'memory_forget', 'memory_list', 'memory_get', 'memory_scopes'])
+  const MEMORY_TOOL_NAMES = new Set(['memory_save', 'memory_search', 'memory_forget', 'memory_list', 'memory_get', 'memory_scopes', 'memory_block'])
   const rememberMemoryToolCall = (
     sessionId: string,
     data: Record<string, unknown>,
@@ -639,7 +694,7 @@ export function apply(ctx: Context, config: MemoryInjectConfig = {}) {
   }
 
   const injector = new MemoryInjector(
-    async (query, signal, scopes, kinds) => {
+    async (query, signal, scopes, kinds, sessionId) => {
       const memory = ctx.get('memory') as MemoryWithInject | undefined
       if (!memory?.search) return []
       return memory.search({
@@ -648,6 +703,9 @@ export function apply(ctx: Context, config: MemoryInjectConfig = {}) {
         topK: recallCfg().topK,
         ...(scopes !== undefined ? { scopes: [...scopes] } : {}),
         ...(kinds !== undefined ? { kinds } : {}),
+        // 0.32.0：注入侧没有 agent 对象，但有会话 id —— provider 用它合并会话级
+        // 屏蔽（工作区级由 scopes 里的 project: 键确定）。
+        ...(sessionId !== undefined ? { sessionId } : {}),
       })
     },
     recallCfg,
@@ -663,6 +721,7 @@ export function apply(ctx: Context, config: MemoryInjectConfig = {}) {
       ...(scopes !== undefined ? { scopes: [...scopes] } : {}),
       limit: 200,
       ...(agent !== undefined ? { agent } : {}),
+      ...(sessionIdOf(agent) !== undefined ? { sessionId: sessionIdOf(agent)! } : {}),
     })
   })
   // 持久化状态恢复后，把「摘要已做过」同步给摘要器，避免插件重载后重复注入。
@@ -863,7 +922,13 @@ export function apply(ctx: Context, config: MemoryInjectConfig = {}) {
           const sessionId = sessionIdOf(context?.agent)
           let records: MemoryRecord[] = []
           try {
-            records = memory.listSync({ scopes: [...scopes], kind: 'procedure', limit: 200, ...(context?.agent !== undefined ? { agent: context.agent } : {}) })
+            records = memory.listSync({
+              scopes: [...scopes],
+              kind: 'procedure',
+              limit: 200,
+              ...(context?.agent !== undefined ? { agent: context.agent } : {}),
+              ...(sessionId !== undefined ? { sessionId } : {}),
+            })
           } catch {
             return ''
           }
@@ -1104,7 +1169,9 @@ export function apply(ctx: Context, config: MemoryInjectConfig = {}) {
     if (settings.digest.enabled) {
       let digestStats: DigestStats | undefined
       const outcome = await digester.maybeDigestOutcome(sessionId, scopes, (records) => {
-        const rendered = renderDigest(records, settings.digest)
+        // 0.35.0：摘要也走注入前解析 —— 正文可能被规则脚本改写，
+        // 所以渲染的必须是解析后的那一份，否则改了等于没改。
+        const rendered = renderDigest(withInjectHooks(memory, records, agent), settings.digest)
         digestStats = rendered?.stats
         return rendered
       }, agent)

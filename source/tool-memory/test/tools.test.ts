@@ -9,7 +9,7 @@ import {
   resolveGetFields,
   summarize,
 } from '../src/index.ts'
-import { DEDUPE_NOTE, renderGetResult, renderListResult, renderSearchResult } from '../src/render.ts'
+import { DEDUPE_NOTE, renderGetResult, renderHooksResult, renderListResult, renderSearchResult } from '../src/render.ts'
 
 const LONG = '长'.repeat(300)
 
@@ -228,6 +228,34 @@ test('上下文去重:memory_list 返回过的正文第二次只回 id', async (
   assert.equal(renderListResult(second, label), `abcdef12\n\n${DEDUPE_NOTE}`)
 })
 
+test('memory_list fields=full_time：给出精确到秒的完整时间戳且渲染出来 (0.37.0)', async () => {
+  const ts = {
+    ...record,
+    createdAt: Date.UTC(2026, 0, 2, 3, 4, 5, 678),
+    updatedAt: Date.UTC(2026, 5, 6, 7, 8, 9, 123),
+    expiresAt: Date.UTC(2027, 0, 1, 0, 0, 0, 0),
+  }
+  const listService = { ...service, list: async () => [ts] }
+  const tool = memoryListTool({ getService: () => listService })
+
+  // 不传 fields：不带 fullTime 字段
+  const plain = await tool.execute({})
+  assert.equal(plain.records[0]!.fullTime, undefined)
+  assert.ok(!renderListResult(plain, label).includes('创建 '))
+
+  // fields=full_time：三个时间戳都到秒（无毫秒）
+  const full = await tool.execute({ fields: ['full_time'] })
+  assert.deepEqual(full.records[0]!.fullTime, {
+    createdAt: '2026-01-02T03:04:05Z',
+    updatedAt: '2026-06-06T07:08:09Z',
+    expiresAt: '2027-01-01T00:00:00Z',
+  })
+  const text = renderListResult(full, label)
+  assert.ok(text.includes('创建 2026-01-02T03:04:05Z'), '渲染含创建时间到秒')
+  assert.ok(text.includes('更新 2026-06-06T07:08:09Z'))
+  assert.ok(text.includes('过期 2027-01-01T00:00:00Z'))
+})
+
 test('memory_search 范围外命中默认只给索引,不弹审批;requestApproval=true 才逐条允许', async () => {
   const outside = {
     id: 'outside-1',
@@ -390,8 +418,7 @@ test('memory_search 范围外索引:绝对限制不出现,拒绝/超时后索引
   assert.deepEqual(rejected.outOfScope?.scopes.map((entry) => [entry.scope, entry.records]), [['other-project', 1]], '拒绝后清单仍在,模型能再判断')
 })
 
-test('renderListResult:去重条目只给 id,提示用 memory_get 取全文', () => {
-  const text = renderListResult({
+test('renderListResult:去重条目只给 id,提示用 memory_get 取全文', () => {  const text = renderListResult({
     records: [
       { id: record.id, scope: 'global', kind: 'fact', updatedAt: 1, content: '正文一' },
       { id: bare.id, scope: 'session:s1', kind: 'note', updatedAt: 2, content: '', deduped: true },
@@ -548,6 +575,30 @@ test('普通限制:绝对限制 / 无限制下不要求 description', async () =
  * 直接传进来，只会换到一个 SUPERSEDES_UNKNOWN。这条守卫锁住说明里的三件事：
  * 「完整 id」、「不能用 8 位短 id」、「怎么拿到完整 id(memory_get)」。
  */
+test('renderHooksResult:试跑按时机分开展示并回显脚本真实输出 (0.38.0)', () => {
+  const hook = {
+    id: 'hook-12345678', name: '规范校验', phase: 'before-save' as const,
+    code: 'function verify(){}', enabled: true, scopes: [], kinds: [],
+    createdBy: 'user', createdAt: 1, updatedAt: 1, runCount: 0, errorCount: 0, rejectCount: 0,
+  }
+  const text = renderHooksResult({
+    action: 'run', hooks: [hook],
+    outcomes: [{ hook: { id: hook.id, name: hook.name, phase: 'before-save' }, ok: true, raw: { ok: true, note: 'via log' }, durationMs: 2 }],
+  }, label)
+  assert.ok(text.includes('保存前校验'), '带时机标签')
+  assert.ok(text.includes('允许保存'), '校验器显示允许/拒绝，而不是笼统的通过')
+  assert.ok(text.includes('脚本真实输出：'), '回显真实输出')
+  assert.ok(text.includes('"note":"via log"'), '真实输出含脚本原始字段')
+
+  const parseText = renderHooksResult({
+    action: 'run', hooks: [{ ...hook, phase: 'before-inject' as const }],
+    outcomes: [{ hook: { id: hook.id, name: hook.name, phase: 'before-inject' }, ok: true, drop: true, content: '概括句', durationMs: 1 }],
+  }, label)
+  assert.ok(parseText.includes('注入前解析'))
+  assert.ok(parseText.includes('整条丢弃'))
+  assert.ok(parseText.includes('改写后正文：概括句'))
+})
+
 test('memory_save.supersedes 的参数说明要求完整 id，并禁止 8 位短 id', () => {
   const tool = memorySaveTool({ getService: () => service })
   const params = tool.parameters as Record<string, { description?: string }>
@@ -557,5 +608,7 @@ test('memory_save.supersedes 的参数说明要求完整 id，并禁止 8 位短
   assert.ok(text.includes('8 位短 id'), '必须明确禁止 8 位短 id')
   assert.ok(text.includes('memory_get'), '必须给出拿完整 id 的办法（memory_get）')
   assert.ok(text.includes('36 位 UUID'), '必须给出完整 id 的形状')
+  assert.ok(text.includes('必须显式带 scope'), '必须写明 supersedes 时 scope 不能省略')
+  assert.ok(text.includes('写权限'), '必须写明目标作用域要有写权限')
 })
 

@@ -2,6 +2,19 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.64.0 — 合并上游 0.31.0–0.39.0：记忆图（2D/3D 星图）、作用域归档、主动屏蔽、规则代码钩子、跨作用域修正（2026-11-18）
+
+- **合并上游主分支**（RestRegular/dsh-memory 0.31.0–0.39.0，16 个提交）到本仓库增强线，冲突按「保留本仓库增强 + 完整吸收上游新能力」原则解决。
+- **记忆图**：面板「记忆图」页新增 2D 星图与 3D 星图（Three.js 懒加载，无 WebGL 自动退回 2D），与记忆树三视图并存；布局确定性、视角持久化、拖动/缩放/聚焦手势。
+- **作用域归档 + 主动屏蔽**：会话/项目作用域可归档（工作区删除自动 dormant、重新加入自动解除）；新增 `memory_block` 工具（会话级/工作区级屏蔽，被屏蔽记录不参与检索与注入，面板可解除）。
+- **规则代码钩子**：新增 `memory_hooks` 工具与 `memory_save.hookCode`；脚本在保存前校验、保存后观察、注入前解析三个时机由插件强制校验；批准即开关，支持通用钩子、试跑真实输出、删除二次确认、沙箱可读设置。
+- **跨作用域修正**：`memory_save.supersedes` 支持跨作用域按完整 id 查找；带 supersedes 时必须显式带 scope 且当前会话对该作用域有写权限。
+- **安装体验**：GitHub API 限流修复（issue #5）+ `token` 注入，匿名限流会提示恢复时间并尽量用缓存完成安装。
+- **工具数量**：六个 → **八个**（新增 `memory_block`、`memory_hooks`）。
+- **保留本仓库既有增强**：FSRS 强度/生命周期、语义去重与冲突裁决、智能关系分析（关系发现/冲突/聚类/演化/推理）、ANN 索引、跨平台自动适配与零配置自举、保底召回、全功能验收等全部保留。
+
+**测试**：1243 例 / 1242 pass / 1 skip / 0 fail；`npm run verify:all` 全功能验收 PASS（单元/集成 + 单包构建 + 面板 API 冒烟 16/16 + 向量后端实测）。
+
 ## 0.63.0 — 恢复自动检测/自动安装，并修复 Termux 装错运行时（2026-11-14）
 
 - **恢复默认**：`retrieval.vector.autoBootstrap` 默认值从 `'off'` 改回 **`'auto'`**。
@@ -871,6 +884,151 @@ CPU/内存/磁盘/权限探测统一到 `platform.ts`。
 **文档**：修正 7 处「五个模型工具」为「六个」；镜像横幅如实说明相对上游的改进。
 
 测试：**575 例 / 574 pass / 1 skipped**（跳过的是需要真实 Windows 发行包的 fixture）。
+
+---
+
+## 附录：上游分支同期更新明细（0.31.0–0.39.0，已并入 0.64.0）
+
+## 0.39.0 — 记忆图：新增 3D 星图，与 2D 星图并存
+
+- **新增 3D 星图（Three.js）**：面板「记忆图」页签下现有三种视图——**记忆图**（原记忆树）/ **2D 星图** / **3D 星图**。2D 星图**保留原样**，3D 是纯增量；`buildMemoryGraph()` 的确定性布局逻辑一字未改，3D 坐标由它派生（`buildMemoryGraph3D()` 是纯函数，无随机量，同样输入必得同样输出）。
+- **统一业务数据层**：`graph-layout.js` 持有布局算法与 `GRAPH_VIEW` 集中配置（缩放上下限 `0.08`–`5`、相机参数、手势灵敏度都在这里，不再散落在 `client.js`）；`graph-2d.js` / `graph-3d.js` 只负责各自渲染，互不知道对方存在。切换视图**不重新取数**、不丢搜索/筛选/选中、不重新随机布局、也不会让两个渲染器同时活着（非活动方 `pause()`）。
+- **真实 3D 场景**：作用域轨道用 `TorusGeometry`（真厚度、有透视、会遮挡，旋转改 `quaternion` 不改 position，中心是作用域局部原点）；中心球 `SphereGeometry`；记忆星按种类着色，单作用域星数 ≥ 24 自动走 `InstancedMesh`；连线用 `BufferGeometry` 原地更新顶点，不每帧重建；标签是 HTML 覆盖层，随相机投影实时定位。光照 `AmbientLight` + 方向光 + `MeshStandardMaterial`，保持深空观感。
+- **手势**（按规格书 §八）：左键拖空白=平移、`Space`+左键拖=整体旋转视角、拖作用域中心球=移动该星系、拖轨道环=只转该星系、拖记忆星=移动该节点、`Ctrl`+滚轮=缩放、双击星=聚焦、单击星=选中并开详情抽屉。轨道环另加了不可见的**拾取代理**（视觉上保持细，射线有足够粗的目标），否则细环几乎点不中。
+- **2D 星图改进**：支持指针拖动平移、`Ctrl`+滚轮**以鼠标为锚点**缩放（锚点不漂）、`Fit` 同时算缩放与 `panX/panY`，且用户手动调过视角后重渲染不再自动 Fit 覆盖。
+- **布局持久化**：`localStorage` 键 `dsh-memory:graph-layout`，结构 `{version, scopes, records, views}`，以稳定 ID 为键；坏数据静默回退不炸面板；「恢复默认」只清用户覆盖层再按确定性默认重算。三种视图的视角状态互相隔离。
+- **降级**：无 WebGL 时明确报告不可用并自动退回 2D 星图，不留白屏。Three.js 走 `require.async('./client.three.js')` **懒加载**，只有第一次进 3D 才拉这 2.5 MB，绝不进入记忆树/2D 路径。
+- **构建**：新增 `tools/vendor-three.mjs`（ESM → classic script chunk，保留 MIT 许可头）与 `tools/assemble-client.mjs`（把 `lib/*.js` 按标记装配回单文件 `client.js`）。`client.three.js` 是独立 chunk，满足宿主"每个包只有一个同步入口"的约束。Three.js 为 vendor 依赖（r187，MIT），未新增 npm 依赖、未引入 React Three Fiber 或额外状态库。
+- 回归守卫：`client-render.test.ts` 从 67 例增到 69 例（2D 锚点缩放与上下限、Fit 不覆盖手动视角、3D 布局确定性、持久化坏数据容错、无 WebGL 降级）。全套 62 个测试文件 **664 例 0 失败**。
+
+## 0.38.0 — 规则代码卡片重做：批准即开关、折叠、筛选、真实试跑输出
+
+- **批准成为唯一开关，移除启用/停用**：provider 新增 `revokeHookApproval()`（清 `approvedHash`，代码保留、变回待批准），面板 API 加 `action:'revoke-approval'`，`memory_hooks` 加同名 action（`enable`/`disable` 降级为旧别名）。`HookStore.forRun` 不再看 `enabled`；老数据里 `enabled:false` 一次性迁成"未批准"（清指纹），不会突然开始运行。未批准不运行、批准后运行。
+- **试跑结果按运行时机分开展示**：保存前校验显示"允许保存 / 拒绝保存"、保存后观察显示"观察 / 附注"、注入前解析显示"改写后正文 / 整条丢弃"；并新增 `HookOutcome.raw` 回显脚本**真实返回值**（连同 `log()` 输出），不再只给规范化结论。
+- **面板规则代码卡片**：批准 / 撤销批准按钮替代启用停用；卡片**默认折叠**（点标题或箭头展开）；顶部按**时机 / 生效作用域 / 是否批准**筛选；试跑输出可点「×」手动关闭。试验新输出再次点试跑会重新打开。
+- 回归守卫：`hooks.test.ts` 加撤销批准与 raw 两例，`hooks-tool.test.ts` 加 revoke 用例，`tools.test.ts` 加分时机渲染用例，`bundled-skills.test.ts` 静态守卫面板卡片四项交互。全套 62 个测试文件 0 失败，`client.js` 通过 node --check。
+
+## 0.37.0 — 钩子可读设置数据 + memory_list 完整时间戳 + 去掉冗余 key
+
+- **钩子沙箱可读设置（ctx.settings）**：`HookRunInput` 新增可选 `settings`（只读快照：`digestChars` / `impressionChars` / `recallChars`），经 `runHookCode` 序列化进沙箱 `ctx.settings`；`parseForInject` 从实时 `injectSettings()` 取值（摘要 160 字、印象字数面板可改、召回 300 字）传入，`memory_hooks run` 试跑也带默认快照。before-inject 规则代码从此能按"当前摘要字数限制"截断，不写死数字。
+- **新增规则代码**：挂了一条 `before-inject` 钩子「注入摘要只取概括句」——注入摘要时只保留记忆里第一个全角冒号「：」前的内容，没有冒号就用全文，超长按 `ctx.settings` 里的摘要字数上限截断。已试跑验证。
+- **memory_list fields=full_time**：`fields` 参数新增 `full_time`，传了就给每条记录 `fullTime:{createdAt,updatedAt,expiresAt?}`（ISO 8601 精确到秒，无毫秒），渲染文案同步显示「创建/更新/过期」。不传则不带时间字段，保持旧行为。
+- **去掉 save 提示里冗余的作用域 key**：`memory_save` 结果文案此前既在头部 `@ <scope>`、又追加一行「保存到的目标作用域 key：」说同一件事；现在只在头部 `@ <原始 key>` 出现一次，开头格式不变（`memorySaveResultIds` 按 UUID 抽取不受影响）。
+- 回归守卫：`hooks.test.ts` 加 ctx.settings 透传与跟随实时设置两例，`tools.test.ts` 加 full_time 数据与渲染一例，`apply-registration.test.ts` 守卫 key 不再重复。全套 62 个测试文件 0 失败。
+
+## 0.36.1 — 删除钩子加二次确认
+
+- **问题**：用户误点面板「删除」把「记忆内容规范（概括句：正文）」校验钩子删掉了——`memory_hooks delete` 与面板删除都是硬删除（`hooks.json` 直接 filter 后原子覆盖，没有回收站、没有 .bak），一次点击/一次调用代码就没了，且没有任何确认。
+- **工具层**：`memory_hooks({action:'delete'})` 改成两步——第一次不带 `confirm` 只返回 `requiresConfirmation:true` + 待删预览（`removed:0`，钩子仍在），模型要把目标钩子的 `name` 或完整 `id` 回填到 `confirm` 再调一次才真删；`confirm` 写错或省略只会再拿一次预览，不会误删别的钩子。工具 description 与返回 `note` 都写明"不可逆、没有回收站"。
+- **面板**：删除按钮加 `window.confirm()`，弹窗点名钩子名、说明不可逆，并提示"只是想让它停下请改用停用"。
+- **文档**：随包技能 `memory-hook-scripts` 补「删除钩子要二次确认」一节；`bundled-skills.test.ts` 与 `hooks-tool.test.ts` 加守卫。全套 62 个测试文件 0 失败。
+- **附注**：本次被删的钩子已从会话日志里找回（多帧 zstd 要先用 zstd.exe 全解，Node 内置 zstd 只解首帧），已重新挂回并试跑验证；恢复后是新 id、需用户重新批准一次才生效。
+
+## 0.36.0 — supersedes 支持跨作用域修正，且必须显式带 scope
+
+- **跨作用域修正**：此前 `memory_save.supersedes` 的旧记录按 id 精确查找时**只查新记录写入的那一个 scope**，旧记录在别的作用域一律报 `SUPERSEDES_UNKNOWN`（且文案与"id 不存在"完全一样）。现在改成跨全部作用域按完整 id 查找（`findById`）：新记录可以落在任意作用域去修正另一作用域里的旧记录（project / global / session / 自定义均可）。配套把"已修正/退役"标记也改成全局收集 —— `search` / `listSync` / 自动召回的 `excludedIds` 不再只看当前搜索的 scopes，否则 global 里的修正版挡不住 project 里的旧记录。
+- **必须显式带 scope**：带 `supersedes` 时省略 `scope`（依赖默认作用域）一律拒绝（`SUPERSEDES_SCOPE_REQUIRED`），不静默落到默认作用域造成"修错地方"；`supersedes` / `scope` 两个参数的说明与常驻策略段都写清这条口径。
+- **写权限硬门槛**：带 `supersedes` 时当前会话必须对目标作用域**已有写权限**，不足直接拒绝（`SUPERSEDES_SCOPE_NOT_WRITABLE`），不走范围外审批 —— 旧实现会把 `SCOPE_NOT_IN_RANGE` 误报成 `VISIBILITY_ABSOLUTE`。
+- **返回提示统一带目标作用域 key**：所有 `memory_save` 的返回文案新增一行「保存到的目标作用域 key：<scope>」；`supersedes` 场景再补一条修正关系（含旧记录所在作用域）。返回值同时新增 `supersedes:{id,scope?}` 字段，文案仍以「已保存记忆 <uuid> @ <scope>」开头，`memorySaveResultIds` 按 UUID 抽取不受影响。
+- 回归守卫：`service.test.ts` 加跨作用域修正与全局退役用例，`access.test.ts` 加缺 scope / 无写权限 / 返回值三个用例，`tools.test.ts` 与 `policy.test.ts` 锁住参数说明与常驻策略段，`apply-registration.test.ts` 静态锁住返回提示。全套 62 个测试文件在受限沙箱内逐文件跑通（0 失败）。
+
+## 0.35.4 — 通用钩子 + 自动召回也走 before-inject
+
+- **钩子不再必须挂到记忆上**：`memory_hooks` 的 `action:"save"` 新增可选 `ruleId` —— 不传就是**通用钩子**（不挂任何记忆，靠 `scopes` / `kinds` / `phase` 与脚本里的 `ctx` 决定何时自动执行；`scopes:[]`+`kinds:[]` 即对所有记忆生效）。传了则关联到规则记忆（报错带 id、可 memory_get 取全文）。更新时省略 = 保留旧关联。此前创建入口只有 `memory_save.hookCode`（强制关联一条规则），无法建通用钩子。
+- **before-inject 覆盖自动召回**：此前只有规则段、摘要两条注入通道接了注入前解析，每轮按用户问题触发的自动召回没过钩子（三条通道里的漏网之鱼）。现在召回命中在渲染前过 `before-inject`：可返回 `{content}` 改写、 `{drop:true}` 丢弃（被丢的记录以 `reason:'hook'` 计入审计 omitted，不再凭空消失）。会话 id 由 injector 传给 transform；解析失败 = 没解析，记录原样进上下文，钩子坏掉不会吞掉记忆。
+- **技能与文档同步**：`memory-hook-scripts` 补充"钩子一定要挂到记忆上吗"（两种创建方式）与三条注入通道说明。
+- 回归守卫：`inject.test.ts` 加两条（transform 改写/丢弃 + 会话 id 传递、transform 抛错时原样注入），`hooks-tool.test.ts` 加两条（不传 ruleId 建通用钩子、显式 ruleId 关联）。全套 645 tests / 644 pass / 1 skipped。
+
+## 0.35.3 — 钩子否决保存时自动带上关联规则 ID
+
+- **问题**：钩子拒绝一条记忆写入时，报错只说「钩子『记忆内容规范（概括句：正文）』判定不符合要求」，模型看不到这条校验代码挂在**哪条规则记忆**上 —— 脚本的 `message` 往往只讲"缺什么"，模型想按规则全文改对却无从取起。
+- **修法**：`HookOutcome.hook` 带上 `ruleId`（钩子创建时由 `memory_save.hookCode` 关联的规则记忆 id）；`before-save` 否决时报错自动追加一行「关联规则记忆：<完整 id>（用 memory_get("<8位短 id>") 取全文，按规则改好后重试）」。`memory_hooks run` 的判定说明、试跑 outcome 也带上同一个 ruleId。没有关联规则的手动钩子不会凭空造出这一行。
+- 回归守卫：`hooks.test.ts` 加两条（报错带 ruleId + memory_get 提示 / 裸钩子不伪造 ruleId，试跑 outcome 带 ruleId），`bundled-skills.test.ts` 加一条静态守卫。全套 641 tests / 640 pass / 1 skipped。
+
+## 0.35.2 — 修复「未批准的新脚本无法试跑」：试跑改按 id 精确执行
+
+- **问题（再次实机验证发现）**：技能 `memory-hook-scripts` 的上手流程第一步就是「先 `memory_hooks run` 试跑样例，再上线」。但 0.35.0/0.35.1 的 `run` 走的是 `runHooks(phase, ...)`，而 `runHooks` 会在 `HookStore.forRun()` 里过滤掉**未批准**的钩子（审批门禁放在存储层是对的），于是刚保存、还没批准的新脚本试跑时永远报「脚本没有命中这次输入（作用域/类型过滤把它排除了）」—— 实际上是审批门禁挡的，报错还说错了原因。流程直接走不通。
+- **修法**：新增 `runHookTrial(id, input)` —— 按 id 精确跑**指定的那一条**，绕过审批门禁，且不记统计（试跑不是真实运行）。它不写记忆、不改数据，只是把脚本跑一遍拿返回值，所以绕过门禁是安全的；真实运行（保存前 / 保存后 / 注入前）仍走原来的审批门禁。`memory_hooks run` 与面板「试跑」都改用它，不再用 phase+scope/kind 二次过滤。
+- **附带修复**：`memory_save` 的结果渲染此前忽略了 `hook` 字段，带 `hookCode` 保存后只说「已保存记忆」，Agent 不知道脚本挂没挂上、是不是还在等批准。现在回传「随附规则代码 <id>（<时机>）：已获批准 / 用户拒绝·不会运行 / 等待批准超时·不会运行 / 当前环境无法审批·不会运行」。
+- 回归守卫：`bundled-skills.test.ts` 加两条（run 走 runHookTrial、memory_save 渲染回传 hook），`hooks.test.ts` 加两条（未批准也能按 id 精确试跑且不记统计、不存在的 id 返回空）。全套 638 tests / 637 pass / 1 skipped。
+
+## 0.35.1 — 修复 0.35.0 实机验证发现的两个问题
+
+- **问题 1：随包技能 `memory-hook-scripts` 加载不到**。两个工具的描述都引导 Agent 用 `skill` 工具加载它，但实机 `skill("memory-hook-scripts")` 报 unknown。根因是冷启动丢注册：`mountBundledSkills` 在 apply 里用 `ctx.get('skills')` 一次性取样，而 `skills` 服务由宿主核心提供、常晚于本插件 apply 就绪 —— 取到 undefined 且不会重试，技能永久消失（与 0.8.x 那次插件冷启动丢注册同一个坑）。改为在 apply 里用 `ctx.inject(['skills'], scope => mountBundledSkills(scope))` 等服务就绪后再挂，且放在独立 inject 回调里，不把整条 entry 拖成 PENDING。
+- **问题 2：hook 审批卡体验误导**。0.35.0 的 `mode='hook'` 审批复用普通"写入可见域外"的文案，既不说明"这是要在进程里运行的代码"，还把代码 `\n` 压成一行、只截 180 字 —— 用户看不清就难以判断该不该批准（实测提交钩子后等到 5 分钟超时）。现在审批卡有专属分支：标题「提交了一段规则代码，需要你批准后才能运行」、按钮「批准这段代码」、代码用 `<pre>` 原样展示（保留换行、最高 260px 可滚动）、标出「规则代码 / 待批准 · 批准后运行」，不再显示误导性的 `custom:*` 作用域。
+- 回归守卫：`source/memory-plugin/test/bundled-skills.test.ts` 锁住「必须用 inject 注册技能」「frontmatter 合法」「工具描述点名技能」「审批卡有 hookMode 专属文案与 `<pre>` 代码展示」四条。全套 634 tests / 633 pass / 1 skipped。
+
+## 0.35.0 — 规则记忆可附带可执行代码：保存前校验 / 保存后观察 / 注入前解析
+
+- **规则从"写给模型看的话"变成"代码强制"**：`kind=rule` 的记忆此前只是常驻系统提示里的一段文字，模型可能记错、漏做、或压根不看。「记忆内容必须是『概括：正文』格式」这类**能写成检查**的规则，现在可以附带一段脚本，由插件在固定时机替你运行 —— 校验不通过就**直接拒绝这次保存**，不靠模型自觉。
+- **三个运行时机**：`before-save`（落盘前校验，脚本返回 `{ok:false,message}` 拒绝写入并把理由原样回给模型，让它自己改对后重试）、`after-save`（落盘后观察，只附注、不阻断、不改写）、`before-inject`（进入上下文前解析，可返回 `{content}` 改写正文、`{drop:true}` 丢弃整条）。规则段与摘要都走注入前解析，改完真的生效。
+- **代码不进记忆检索**：钩子存在 `<storeDir>/hooks.json`，与 `scopes.json` / `settings.json` 同级 —— 不是记忆记录、不进 JSONL、不进向量索引；`memory_search` / `memory_list` / 摘要 / 自动召回都看不到它，只有 `memory_hooks` 和面板能读。
+- **node:vm 沙箱 + 硬超时**：新上下文、`codeGeneration.strings=false` 关掉 `eval` / `new Function`、没有 `require` / `process` / `fetch` / 定时器，数据以 JSON 文本在沙箱内 parse（宿主对象一个都不进上下文）；模块体与每次调用都套超时（默认 120ms，夹在 20~5000ms），死循环会被中断而不是挂住 DSH。编译按代码指纹缓存。
+- **脚本崩了不等于校验不通过**：抛异常 / 超时只记一次告警并**放行**这次操作 —— 否则一段写坏的校验器会让整个记忆系统无法写入，等于丢数据。想拒绝就必须**正常返回** `{ok:false}`。错误计数进 `errorCount` / `lastOutcome`，面板上一眼可见。
+- **带代码的规则要用户批准一次**：首次保存（或代码改动后）向用户弹一次审批（`mode='hook'`，展示完整代码与时机），批准记的是**代码指纹 sha256** —— 同一段代码不问第二遍，改一个字符就重新变回待批准。没有审批通道（老宿主 / 测试）时**保守拒绝**：代码保持未批准、永远不会执行，也不干等 5 分钟超时。
+- **未批准 = 绝不执行**：审批闸门放在 `HookStore.forRun()` 里而不是各个调用点（调用点有保存前 / 保存后 / 注入前 / 试跑四处，漏一个就是绕过路径）。`requireApproval:false` 时视为自动批准。
+- **两个新入口**：①`memory_save` 增加 `hookCode` / `hookPhase` / `hookName`，随规则一起登记；②第 8 个工具 `memory_hooks`（`list` / `get` / `save` / `delete` / `approve` / `enable` / `disable` / `run`），`run` 可拿一段样例正文试跑而不写记忆。两个工具的 description 都引导 Agent 先加载随包技能 `memory-hook-scripts`。
+- **随包技能 `memory-hook-scripts`**：插件注册 skill provider（rank 600，可被用户技能覆盖），代码与文档同版本发布；`SKILL.md` 讲入口函数、`memory` / `ctx` 字段、返回约定、沙箱边界与上手流程，`references/examples.md` 给 8 个现成脚本（格式校验、指代检测、标签、凭据、注入前脱敏 / 截断 / 丢弃、保存后观察）。代码改完 SKILL.md 下一次加载即生效（注册表只缓存目录）。
+- **面板新增「规则代码」标签页**：列表显示时机 / 适用范围 / 是否待批准 / 运行与拒绝 / 出错统计 / 最近结局，支持逐行编辑、启停、删除、拿样例试跑；设置区可关总开关、调超时、关掉"Agent 提交代码需我批准"。**用户本人保存的代码视为已批准**（否则改完还得再点一次批准），与 Agent 提交的审批路径分开。新增 `GET/POST /memory/api/hooks` 六个动作（save / approve / delete / run / settings / list）。
+- **包装层转发**：新增的 11 个钩子方法全部在 `CordisMemoryService` 上显式转发（面板与工具拿的是包装实例，漏一个就是 undefined —— 0.32.0 的归档 / 屏蔽整体失效过），`service-delegation.test.ts` 锁死。
+- 测试：新增 `source/memory-local/test/hooks.test.ts`（30 例：沙箱隔绝 / 超时 / JSON 边界 / 返回值归一化 / 指纹审批 / 三时机 / 崩溃放行 / 设置持久化）、`source/tool-memory/test/hooks-tool.test.ts`（12 例）。全套 630 tests / 629 pass / 1 skipped。
+
+## 0.34.1 — 修掉首次安装必撞的 GitHub 匿名限流（issue #5）
+
+- **问题（issue #5）**：第一次装向量后端就失败，提示「安装失败：GitHub API 限流（未认证请求每小时 60 次），请稍后重试」。用户照着「稍后重试」永远重试不好 —— 匿名额度是**按出口 IP** 算的，公司 / 校园网 / CI 里别人的进程随时会把它吃光；而且这条文案把**所有 403** 都当成限流，代理拒绝、区域策略、token 权限不足全被伪装成「等一会儿就好」。旧实现在一次 CUDA 安装里还会把发行版列表查两遍（主包一次、cudart 伴生包一次），多点几次按钮，60 次额度就没了。
+- **判定改为看响应头，不看状态码**：只有 `x-ratelimit-remaining: 0`、429、或带 `retry-after` 的 403 才算限流；其余 403 按 `查询 llama.cpp 发行版失败：HTTP 403（url）` 照实报，不再把网络 / 权限问题误导成「限流」。
+- **限流文案重写**：说清是谁的额度用完了、`x-ratelimit-reset` 换算成本地「几点恢复」、以及在匿名状态下直接给出解决办法 ——「设置 `GITHUB_TOKEN`（或 `GH_TOKEN`）后重试，额度升到 5000 次/小时」。有 token 仍被限流时报另一套口径（5000 次/小时），不再冤枉成「未认证」。
+- **支持 token**：`InstallerOptions.token` 显式注入优先，否则读 `GITHUB_TOKEN` / `GH_TOKEN` 环境变量。**只发给 `api.github.com`** —— 模型下载源是 hf-mirror / modelscope / huggingface 这些第三方主机，把 GitHub token 发过去等于泄漏凭据（有测试锁住）。
+- **一次安装只查一次发行版**：主包与 CUDA 伴生包共用同一份列表（此前 `resolveRuntimeAsset` 与 `resolveRuntimeCompanion` 各查一次）；换风味重装时缓存会重置，不会拿上一轮的结果。
+- **加了降级通道**：发行版列表写到 `<root>/llamacpp/.releases-cache.json`（15 分钟 TTL，随运行时目录一起被卸载清掉）。接口失败时用它把安装走完，并在进度消息里明说「改用 N 分钟前的缓存结果」—— 限流不该让用户卡住，也不该让人误以为拿到的是最新构建。
+- 测试：`embed-install.test.ts` 把「403 一律算限流」的旧用例改为按响应头判定，新增「403 但无限流头时不误判」「token 只给 api.github.com、第三方源不带」「CUDA 安装只查一次列表」「限流时退回缓存并说明」四例。全套 587 tests / 586 pass / 1 skipped。
+
+## 0.34.0 — 让 Agent 真的会主动屏蔽：把 memory_block 写进常驻策略段与注入头部
+
+- **问题**：0.32.0 就做出了 `memory_block`，工具、存储、审批矩阵、`blockFilter` 全链路都在，但**模型从来不用它**。实测现象是「明明有一堆与当前项目无关的记忆（别的项目、别的插件的发布流程与踩坑）反复被注入，Agent 一直忍着」。原因不在功能而在**可发现性**：模型每轮唯一必读的记忆文本是 `POLICY_TEXT`（常驻 `## 记忆系统` 段）加摘要 / 召回的头部，这三处**一处都没提过 `memory_block`** —— 策略段列了 `memory_search / memory_list / memory_get / memory_save / memory_forget / memory_scopes` 六个工具，唯独漏掉屏蔽；摘要头部和召回头部还都写着「删除用 memory_forget」，等于把唯一的降噪动作指到了**删除**上。工具自己的 `description` 写得再全也没用：不先调用它就看不到。
+- **策略段补上工具与判断口径**：工具清单加入 `memory_block`；新增一段「记忆里出现与本次任务无关的条目时，主动降噪而不是忍着」，给出可执行的四条口径 —— ①一条记录连续两轮以上出现在注入里却对当前任务没用 → 按 `id` 屏蔽（会话级、不审批、不删数据、`action="unblock"` 可复原）；②只有整个作用域确实与本工作区无关时才按 `scope` 屏蔽（会弹审批、影响面大）；③不确定是否无关就先别屏蔽，**屏蔽是降噪不是清理**；④不要用 `memory_forget` 删别人的记忆。
+- **摘要头部改口径**：`renderDigest` 的 HEADER 从「删除用 memory_forget」改为「无关条目用 memory_block 屏蔽，过时/写错的才用 memory_forget 删除」；标签索引的 HINT_FOOTER 同样补一句「与本轮无关的用 memory_block 屏蔽」。
+- **召回头部改口径**：`renderRecallBlock` 的头部不再教「用 memory_forget 删除」，改为「与本轮无关的用 memory_block 屏蔽，可逆、不删数据」。
+- **`memory_block` 计入记忆工具集**：`MEMORY_TOOL_NAMES` 补上 `memory_block`。它此前被当成普通工具，两个后果：①屏蔽调用不留轨迹锚点，审计里查不到「这次为什么突然安静了」；②`reason` / `description` 里一旦出现被监控的标签词（例如「与 release 流程无关」），会**反过来触发一次高风险召回** —— 降噪动作把噪声又拉回来。
+- **工具描述同步**：`memory_block` 的 description 明确写出「**主动使用**：召回 / 摘要反复注入明显属于别的项目或技术栈的记录时，按记录 id 屏蔽而不是忍着或删掉」。
+- 测试：新增 `source/memory-inject/test/policy.test.ts`（3 例：策略段必须含 `memory_block` / 无关 / 不删除 / unblock / 弹审批代价，摘要头部与召回头部各自的口径），`apply-audit.test.ts` 新增「memory_block 也被当成记忆工具：留轨迹锚点、不因参数里的标签触发高风险召回」。全套 583 tests / 582 pass / 1 skipped。
+
+## 0.33.0 — 屏蔽不再在总面板折叠；会话面板拆成「记录 / 审计」两页
+
+- **问题（0.32.0 的一处设计错位）**：屏蔽按**会话 / 工作区**生效，但总面板（侧栏 / 设置）没有 agent —— 服务端一直调 `scopeCatalog(undefined)`，只能拿到兜底项目键那一层。于是「显示已屏蔽」开关几乎永远无效：**会话级屏蔽在总面板里根本不存在**（它连自己的会话 id 都没有），工作区级屏蔽也只在兜底项目键恰好等于真实工作区时才冒出来。更糟的是它会把用户**本来想看的记录藏起来**，而开关上看不出这是"判不准"还是"真的没有"。
+- **总面板改为老实列全部**：移除 `showBlocked` 状态、工具栏的「显示已屏蔽 N」、作用域行上的「已屏蔽 · 工作区级 / 会话级」徽标、每行的「解除屏蔽」按钮，以及 `unblockScope()`。`/status` 与 `/records` 也不再传 `blocked` / `blockedLevel` —— 与其给一份"半真"的状态，不如不给。**归档照旧**（它不依赖会话，总面板判得准）：默认折叠、「显示已归档 N」、徽标、「解除归档」全部保留。
+- **会话面板的「记忆」页拆成两个标签页**（`conversation.view`，id 仍是 `memory`）：**记录**（在左，默认打开）与本会话的**审计**。日常真正要看的是"我这个会话记了什么"，所以记录在前；审计保持原样（真实空状态，不补造数据）。
+- **「记录」页只列这个会话权限范围内的记忆**：新增 `GET /memory/api/session-records?session=<id>`，带着真实会话 id 走 `resolveReadScopes(agentLike)` 解析可见域（会话 + 项目 + global + 工作区绑定，显式「记忆范围」优先），归档作用域不列，记录按更新时间倒序。返回 `{ session, workspace, scopes, records, blockedCount }`。
+- **屏蔽感知搬到这里**：`listBlocks(agentLike)` 一次算出该会话**生效**的屏蔽（会话链含父会话 + 工作区级），同一目标以工作区级为准，记录级按 `recordId` / 前缀匹配。默认折叠被屏蔽的记录并给出「显示已屏蔽 N」，勾上才列出来，卡片带「已屏蔽 · 工作区级 / 会话级」徽标与「解除屏蔽」。每条记录还带上**屏蔽自己的 id**（`blockedId`），解除时按 id 精确删那一条，不会顺手带走别的屏蔽。
+- **修掉一处会让功能整体失效的漏转发**：面板通过 `ctx.get('memory')` 拿到的是 `CordisMemoryService` 包装实例，而 0.32.0 的归档 / 屏蔽方法只加在 `LocalMemoryService` 上、**包装层没转发**。真实 profile 里 `memory.listBlocks` / `unblock` / `archiveScope` 全是 `undefined`，面板的「解除归档 / 解除屏蔽」点了没反应，`/status` 的 `blocked` 字段永远是空 —— 而单测直接 `new LocalMemoryService`，所以完全看不见。现在 `archiveScope` / `restoreScope` / `archivedProjectScopes` / `blocksFor` / `listBlocks` / `sessionBlocks` / `workspaceBlocks` / `isScopeBlocked` / `isRecordBlocked` / `unblock` / `clearBlocks` / `requestBlock` 全部显式转发，并在 `service-delegation.test.ts` 里锁死。
+- **记录卡新增可选 `onUnblock`**：只有会话面板的「记录」页传，主面板不传 —— 「解除屏蔽」从此只会出现在算得准层级的地方。
+- 测试：`archive-blocks-api.test.ts` 改为锁新口径（`/status` 不再带 `blocked`、`/session-records` 默认折叠 + 计数 + `blocked=1` 列出 + `blockedId` + 解除后回到列表），新增「会话记忆视图：记录 / 审计 两个标签页，记录在左且默认打开」与「记录页：显示已屏蔽 才列出屏蔽项，解除走 `/blocks` restore」两例，`service-delegation.test.ts` 加一例锁转发，`记忆视图用 composer overlay 占满高度` 加一条 `.mem-recs-scroll` 滚动契约。全套 579 tests / 578 pass / 1 skipped。
+
+## 0.32.0 — 作用域归档（会话 / 项目）+ Agent 主动屏蔽（会话级 / 工作区级）
+
+- **两件不同的事，两个不同的机制**：**归档**是生命周期事实（会话被归档、工作区被从侧边栏移除），没有审批通道，恢复时自动复原；**屏蔽**是 Agent 主动降噪（「这条与本轮任务无关，别再出现」），可以随时解除。两者都不删除数据，都不改读写权限，但在检索、注入、目录里效果一样：**看不见**。代码里也刻意分成两套 deny reason（`SCOPE_ARCHIVED` / `SCOPE_BLOCKED`），因为它们该给用户的解释完全不同。
+- **可归档的只有会话作用域与项目作用域**：会话作用域由宿主生命周期驱动（0.30.0 已有 `session/created` 自动建 + 归档冻结）；项目作用域绑定工作区路径，归档记录持久化在 `archive/project.json`（`ScopeArchiveStore`，原子写、坏文件容错）。`global` 与自定义作用域**拒绝归档**（`SCOPE_NOT_ARCHIVABLE`）—— 它们的生命周期不属于任何工作区，归档它们只会变成「悄悄藏起来」。
+- **工作区删除 / 重加自动对账**：`setWorkspaceExistsLookup()` 注入对宿主 `workspaceRegistry` 的存在性查询，`reconcileArchivedScopesNow()`（5 秒节流，`force` 参数给测试与手动刷新用）在每次 `scopeStats()` / `scopeCatalog()` 前跑一次。工作区消失 → 归档条目标 `dormant`（**记忆继续保留、继续不参与检索**）；工作区重新出现 → **自动解除归档**。宿主查询返回 `undefined`（服务未就绪）时保持现状 —— 一个死掉的服务绝不能悄悄删掉用户的归档。
+- **Agent 侧新增 `memory_block` 工具**（第 7 个工具）：`action: block | unblock | list`。屏蔽分两层——**会话级**（只影响本会话及其子 Agent）与**工作区级**（影响该工作区所有会话，含历史与将来）。目标可以是**作用域**（`scope`）或**记录**（`id` / 8 位前缀）。存储 `blocks/session/<id>.json` / `blocks/workspace/<sha1>.json`，每文件上限 500 条、原子写、空文件自动删除。
+- **审批矩阵（用户口径，锁死在测试里）**：按**作用域**屏蔽 → 弹审批；**工作区级** → 弹审批；目标是**硬性规则**（`kind='rule'`）→ **一律弹审批，即使按 id、即使是会话级**（规则不能被静默丢弃）。只有「会话级 + 按记录 id / 前缀 + 不是规则」这一种不弹审批：影响面只有本会话的一条记录，模型自己就能撤销，弹卡只会打断工作流。审批卡的 `mode='block'` 有专属文案：「确认后它将不再出现在检索、注入与作用域目录里；数据不删除，随时可以解除。」
+- **屏蔽真的生效**：`search` / `list` / `listSync` / `getByIds` / 注入 / 规则段 / 过程段 / 目录 `initialRecords` 全部走同一个 `blockFilter`（一次解析、多次判定，支持只给 `sessionId` + `scopes` 的注入链路）。被屏蔽的作用域**不再接受 Agent 写入**（`SCOPE_BLOCKED`）—— 写进去的记忆自己看不见，等于静默丢失；面板（不带 agent）不受此限。
+- **面板**：「记录 → 作用域」默认**折叠**已归档与已屏蔽的行，工具栏给两个计数开关（「显示已归档 N」/「显示已屏蔽 N」），每行带徽标（「已归档」/「已屏蔽 · 工作区级」）与「解除归档」/「解除屏蔽」按钮；「记忆」列表默认同样不列这两类记录，`/records?archived=1&blocked=1` 才带上，且**用户显式选了一个作用域时不折叠**（那一刻他就是要看这一份）。新增 `GET/POST /memory/api/archive`（列出 / 归档 / 解除）与 `GET/POST /memory/api/blocks`（按层级列出 / 屏蔽 / 解除）；`/status` 透传 `archived` / `archivedKind` / `blocked` / `blockedLevel`。
+- **面板解除不需要 agent 反推**：`unblock()` 新增 `key` 参数（会话 id 或 `project:<路径>`），面板直接指名哪一层的那一份；`workspaceBlocks()` 与 `unblock()` 都对 `project:` 键走 `canonicalScope` —— 否则 `project:D:/x` 与落盘的 `project:D:\x` 永远匹配不上，表现为「点了解除没反应」。
+- **修掉的一处不一致**：`getByIds()` 原先把归档判定写死成 `archivedSessionScopes()`（只认会话作用域），项目作用域归档后 `memory_get` 仍能取回正文；改为 `archivedScopeKeys()`，与 `search` / `list` / `listSync` 同源。
+- 测试：新增 `source/memory-local/test/block-archive.test.ts`（15 例：归档往返 / 幂等 / 非项目键拒绝 / 坏文件容错 / dormant 与自动恢复 / 宿主对账 / 屏蔽存储往返与 key 不匹配忽略 / 按 id 不审批 / 按作用域要审批 / 规则要审批 / 工作区级影响兄弟会话但不串工作区 / 会话级不串会话 / `blockFilter` 的 `sessionId`+`scopes` 形态）、`source/tool-memory/test/block-tool.test.ts`（11 例：参数校验 / 三种结局文案 / 规则提示 / 旧 provider 501 / 注册表 / 渲染）、`source/memory-panel/test/archive-blocks-api.test.ts`（6 例：归档往返与检索立即失效 / 非项目键报错 / 400 / 屏蔽后 `/status` 带层级 / 会话级与工作区级互不误伤 / 缺参数 400）。全套 576 tests / 575 pass / 1 skipped。
+
+## 0.31.0 — 记忆树标签页新增「星图」视图（Obsidian 式，带纵深）
+
+- **问题**：记忆条目上百条之后，记忆树的三层结构（作用域 → 类型 → 记录）依然清楚，但它只回答「这条挂在哪儿」，**看不出记忆堆在什么地方、哪个作用域已经膨胀**。用户要的是「参考 Obsidian 那种有点 3D 的、看起来高级且清晰」的第二视角。
+- **二级切换**：记忆树标签页顶部新增「**记忆树** / **星图**」两个子标签，两个视图共用同一份状态 —— 搜索、作用域筛选、类型筛选、修正连线开关、选中记录、折叠的作用域、缩放全部共享，来回切换不会丢掉刚筛的那一半。
+- **星图布局（纯函数，无随机量）**：每个作用域是一颗星，大小随记忆条数增长（`hubR + min(7, sqrt(n)*1.5)`）；它下面的记忆按**黄金角螺旋**（2.39996 rad）铺成同心环，第 i 个点落在 `hubR + hubPad + ring*sqrt(i+0.45)`，因此不需要物理模拟也不会互相压住，同样的数据永远得到同一张图（截图与测试都靠这一点）。
+- **纵深感**：每个点带 `z ∈ [0,1]`，越靠外环越小（`nodeR*(1.42-0.62z)`）、越暗（`--z-op`）、越模糊（`--z-blur`），并用 `z-index` 排前后；簇之间用确定性斥力松弛 + 有界外扩收尾，保证簇与簇之间留出空隙而不是贴在一起。
+- **星与轨道环**：每颗星画一圈轨道环（该簇记忆的真实外沿），外加一层柔光，让散点聚成有边界的「星团」；**点星心折叠 / 展开**它下面的记忆，和记忆树共用同一份折叠状态 —— 两边看到的永远是同一棵树。折叠后星变暗、轨道环消失。
+- **标签克制**：默认只给「命中 / 邻域 / 选中 / 悬停」的点显示标签，全部常显会把星团糊成一片（这也是 Obsidian 图谱默认不标全节点的原因）；星名挂在轨道环上方，不压记忆点。
+- **悬停聚焦**：只点亮「这个点 + 它的星 + 修正关系另一端」，其余淡出；修正关系画成金色虚线，与记忆树同一套语义。
+- **样式**：只用宿主 `--dsw-alias-*` token + `color-mix()`，浅色 / 深色主题自动跟随；类型色是唯一硬编码的颜色（与记忆树一致），修正线仍是 `#D9A441`。
+- **修掉的渲染坑**：① `.gnode .orb` 原为 `position:relative;display:block`，在定宽定高的 flex 盒里没有内在尺寸 → 圆点变 0×0，屏幕上只剩外发光；改为 `position:absolute;inset:0`。② `.graph-canvas` 以 `0 0` 为 transform-origin 且没有居中，缩小时整张图往左上角塌；改为居中定位 + `transform-origin:50% 50%` + 负半宽 margin。③ 簇布局原先用 `baseRadius*1.7` 往外拽，与斥力互相抵消，簇仍然相碰；改为纯斥力 + 有界外扩（`worst<=1.004` 退出）。
+- 测试：新增「星图布局：每个作用域一颗星、记忆按同心环铺开、越靠外越远越小」（螺旋半径上限从 `GRAPH_METRICS` 推导而非硬编码、轨道环包住最远记忆、折叠 / 筛选 / 搜索只标记不裁剪、同输入两次结果 `deepEqual`）、「记忆树标签页：二级切换在记忆树与星图之间切，筛选状态跟着走」、「星图节点有实际尺寸、连线真的落在 svg 里」（三条 CSS 回归断言，对应上面三个渲染坑）。全套 544 tests / 544 pass。
 
 ## 0.30.1 — 修复 CUDA 运行时安装把 cudart 伴生包当成主包（issue #4）
 

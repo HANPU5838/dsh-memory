@@ -300,6 +300,31 @@ test('记忆工具和没有 description 的工具不触发高风险召回信号'
   assert.equal(anchor!.operationId, 'call-mem')
 })
 
+test('memory_block 也被当成记忆工具：留轨迹锚点、不因参数里的标签触发高风险召回', () => {
+  const settings = {
+    ...defaultInjectSettings,
+    autoRecall: { ...defaultInjectSettings.autoRecall, enabled: true, useMemoryTags: false, tags: ['release', 'memory'] },
+    recall: { ...defaultInjectSettings.recall, enabled: false },
+  }
+  const { handlers, attached } = setup({ settings })
+  const onEvent = handlers.get('session/event')
+  assert.ok(onEvent)
+  // memory_block 的 reason/description 里可能恰好出现标签词（"与 release 流程无关"），
+  // 它是降噪动作而不是任务行为，不能反过来再触发一次召回。
+  onEvent!({ id: 's1' }, {
+    type: 'tool/call',
+    data: {
+      name: 'memory_block', callId: 'call-block', turn: 1, step: 2,
+      arguments: JSON.stringify({ id: 'abcdef12', reason: '与 release 流程无关', description: '屏蔽无关的 memory 发布记忆' }),
+    },
+  })
+  const entries = attached.current!.list()
+  assert.equal(entries.filter((entry) => entry.kind === 'signal' && entry.stage === 'signal_queued').length, 0)
+  const anchor = entries.find((entry) => entry.stage === 'tool_call')
+  assert.ok(anchor, 'memory_block 也要有轨迹锚点')
+  assert.equal(anchor!.operationId, 'call-block')
+})
+
 test('同一轮最多一次 signal 召回:第二个信号只落 drop 审计,不再检索', async () => {
   const settings = {
     ...defaultInjectSettings,

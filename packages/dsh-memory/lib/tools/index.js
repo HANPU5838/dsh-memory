@@ -67,7 +67,7 @@ import { canonicalWorkspacePath, defaultScopeDescription, isAbsoluteWorkspacePat
  *   - absolute = 绝对限制下作用域根本不在范围内(0.23 起不再假装"不存在");
  *   - read-disabled = 作用域在范围内但「可读」开关被关掉(0.23)。
  */
-                                                                                                                                                  
+                                                                                                                                                              
 
                                      
                
@@ -139,8 +139,41 @@ import { canonicalWorkspacePath, defaultScopeDescription, isAbsoluteWorkspacePat
                    
                                             
                     
+                                          
+                                      
+                                               
+                   
+                                     
+                                        
                                            
                                                                                             
+ 
+
+// ---------------------------------------------------------------- 屏蔽（0.32.0）
+
+/** 屏蔽的作用层级：会话级只影响本会话；工作区级影响该工作区所有会话。 */
+                                                    
+
+/** provider 一条屏蔽的视图。 */
+                                  
+            
+                       
+                
+                   
+                 
+                     
+                   
+                   
+                 
+ 
+
+/** `requestBlock` 的结果。 */
+                                  
+                                                             
+                           
+                                                             
+                        
+                     
  
 
 /** provider 统一授权判定的结果（0.24.0）。 */
@@ -185,7 +218,7 @@ import { canonicalWorkspacePath, defaultScopeDescription, isAbsoluteWorkspacePat
                                                               
                                                                                                                                                                                           
                                                                      
-                                                                                                                                                              
+                                                                                                                                                                                                      
                                      
                                   
                                                       
@@ -250,6 +283,106 @@ import { canonicalWorkspacePath, defaultScopeDescription, isAbsoluteWorkspacePat
                                          
      
                                              
+                                                                                
+     
+                                      
+                                            
+     
+                                        
+                  
+               
+                                   
+                   
+                        
+                 
+                        
+                              
+                         
+                                                                                                                                                                                                   
+                     
+                                                                      
+                          
+                                                
+                              
+                                                         
+                                                                                  
+                                                      
+                                
+                                                  
+                   
+                    
+               
+                 
+                        
+                
+                     
+                     
+                    
+                        
+                      
+                   
+                    
+                                  
+                               
+                                   
+                                           
+                                          
+                       
+                                           
+                                      
+                                                                                                                                                                                         
+                          
+                                                                    
+     
+                                                  
+                                        
+     
+                                                              
+                         
+                                                                                                          
+ 
+
+// ---------------------------------------------------------------- 记忆钩子（0.35.0）
+
+                                                                          
+
+/** provider 的一条钩子（代码会随 list/get 返回，但**不**进记忆检索）。 */
+                                 
+            
+              
+                      
+              
+                  
+                  
+                 
+                      
+                   
+                   
+                   
+                 
+                  
+                    
+                     
+                    
+                                           
+                      
+                                
+                           
+ 
+
+/** 一次钩子运行的结果（试跑与真实运行同形）。 */
+                                  
+                                      
+                                                                           
+             
+                  
+                  
+                
+                
+                 
+                                      
+               
+                    
  
 
                                      
@@ -516,6 +649,19 @@ function outOfScopeReason(
  */
 const SUPERSEDES_PARAM_DESCRIPTION =
   '被这条新记忆修正 / 替换掉的旧记录 id。必须传**完整 id**(36 位 UUID),不能传 memory_search / memory_list / 摘要 / 规则索引里显示的 8 位短 id;手头只有短 id 时先用 memory_get 取回 —— 它结果里每段首行的 [id] 就是完整 id。旧记录会被标记为「已修正」,默认不再出现在检索、规则和自动召回里,但 memory_get 仍能查到。'
+  + '传了 supersedes 时**必须显式带 scope 参数**（不接受省略 / 默认作用域）：scope 是新记录要保存到的目标作用域，本会话必须对它拥有写权限；跨作用域修正（旧记录在别的作用域）现在支持，但目标作用域必须写权限，否则直接拒绝，不做审批。'
+
+/** 带 supersedes 时必须显式写 scope：拒绝静默落到默认作用域造成“修错地方”。 */
+function requireScopeForSupersedes(args          , explicit                    )       {
+  if (args.supersedes === undefined || args.supersedes === '') return
+  const raw = args.scope?.trim()
+  if (explicit === undefined || raw === undefined || raw === '') {
+    throw new MemoryToolError(
+      'SUPERSEDES_SCOPE_REQUIRED',
+      '用 supersedes 修正旧记忆时必须显式传 scope 参数（新记录要保存到的目标作用域 key），不能省略、不能依赖默认作用域；否则拒绝保存。',
+    )
+  }
+}
 
 /** memory_* 的 description 参数说明(模型可见)。 */
 const DESCRIPTION_PARAM_DESCRIPTION =
@@ -812,16 +958,30 @@ function resolveScope(
                            
                                            
                     
+     
+                                                      
+                                             
+     
+                   
+                                                      
+                           
+                                         
+                   
                                       
                       
  
 
                              
             
+                                                                             
                
                             
                     
                   
+                                                   
+                                             
+                                                   
+                                                                             
  
 
 /**
@@ -856,6 +1016,19 @@ export function memorySaveTool(opts                    )                        
       triggers: { type: 'array', items: { type: 'string' }, description: '流程触发词(kind=procedure)：工具名/关键词/路径；缺省用 tags' },
       scopeDescription: { type: 'string', description: '新建自定义作用域时必填：一句话说明这个作用域用来做什么（已有作用域带上它 = 更新用途）' },
       scopeRule: { type: 'string', description: '初始化时可选写一条初始规则(kind=rule)：只对新自定义作用域生效，用于约定该作用域只记录什么、不记录什么' },
+      hookCode: {
+        type: 'string',
+        description: '给这条规则附带的校验脚本源码（0.35.0）：同步函数，按 hookPhase 在对应时机运行。'
+          + '代码存在 hooks.json，不进记忆检索；首次保存会向用户申请批准一次。'
+          + '写脚本前先加载技能 memory-hook-scripts（`skill` 工具，名字就叫 memory-hook-scripts）——它写了入口函数名、可用 API、返回约定与现成范例。',
+      },
+      hookPhase: {
+        type: 'string',
+        enum: ['before-save', 'after-save', 'before-inject'],
+        description: '脚本运行时机（默认 before-save）：before-save=保存前校验，返回 {ok:false} 直接拒绝这次保存；'
+          + 'after-save=保存后观察，只能附注不阻断；before-inject=注入前解析，可改写正文或 drop 掉整条。',
+      },
+      hookName: { type: 'string', description: '脚本的显示名（面板与审批卡用）；缺省取内容前 24 字' },
       description: { type: 'string', description: DESCRIPTION_PARAM_DESCRIPTION },
     },
     async execute(args          , exec          )                      {
@@ -896,6 +1069,11 @@ export function memorySaveTool(opts                    )                        
         explicit = resolved
       }
 
+      // 0.36.0：带 supersedes 时 scope 必须显式给出（见 requireScopeForSupersedes），
+      // 且本会话必须对目标作用域已有写权限 —— 不触发范围外审批，权限不足直接拒绝。
+      requireScopeForSupersedes(args, explicit)
+      const isSupersedes = args.supersedes !== undefined && args.supersedes !== ''
+
       // 写入护栏（0.20.0 / 0.23.0）：write 开关与范围等级分开判断。
       //   - 作用域在范围内但「可写」关掉 → 直接拒绝并说明开关;
       //   - absolute 且作用域不在范围内 → 直接拒绝并说明绝对限制;
@@ -907,7 +1085,16 @@ export function memorySaveTool(opts                    )                        
       const level = policy?.level ?? 'none'
       const target = explicit ?? (typeof service.resolveWriteScope === 'function' ? service.resolveWriteScope(agent) : undefined)
       let approved = false
-      if (level !== 'none' && target !== undefined && !scopeWritableBy(decide, service, agent, policy, target)) {
+      if (isSupersedes && level !== 'none' && target !== undefined && !scopeWritableBy(decide, service, agent, policy, target)) {
+        // supersedes 是"改旧记忆"的写操作：必须已有写权限，不走范围外审批。
+        // 不论拒绝原因是绝对限制 / 只读 / 范围外，统一用一个 dedicated 错误码与文案，
+        // 避免把 "SCOPE_NOT_IN_RANGE" 误报成 VISIBILITY_ABSOLUTE（见 0.36.0）。
+        throw new MemoryToolError(
+          'SUPERSEDES_SCOPE_NOT_WRITABLE',
+          `用 supersedes 修正旧记忆要求当前会话对目标作用域 ${target} 已有写权限（作用域不在本会话可写范围内），本次保存没有执行。请先让用户授予该作用域写权限，或改用本会话可写的作用域。`,
+        )
+      }
+      if (!isSupersedes && level !== 'none' && target !== undefined && !scopeWritableBy(decide, service, agent, policy, target)) {
         const decision = decide('write', target)
         if (decision !== undefined) {
           // provider 已经给出统一判定：不可申请就直接讲原因（absolute / 关闭 / 只读）。
@@ -964,12 +1151,93 @@ export function memorySaveTool(opts                    )                        
             : {}),
           source: { origin: 'explicit' },
         })
-        return { id: record.id, scope: record.scope, ...(alias !== undefined ? { scopeName: alias } : {}), deduped: false }
+        // 0.35.0：带代码的规则 —— 记忆先落盘（脚本可能正是用来校验别人写的记忆），
+        // 再登记钩子并申请一次批准。登记失败不该让保存变成"失败"，只附一句告知。
+        let hookInfo                    
+        const hookCode = typeof args.hookCode === 'string' ? args.hookCode.trim() : ''
+        if (hookCode !== '') {
+          hookInfo = await registerHookForSave(service, agent, exec, {
+            code: hookCode,
+            phase: args.hookPhase ?? 'before-save',
+            name: typeof args.hookName === 'string' && args.hookName.trim() !== ''
+              ? args.hookName.trim()
+              : content.replace(/\s+/g, ' ').slice(0, 24),
+            ruleId: record.id,
+            scopes: [record.scope],
+            description: args.description,
+          })
+        }
+        let oldScope                    
+        if (isSupersedes) {
+          try {
+            const hit = (await service.getByIds?.([args.supersedes ]))?.[0]
+            oldScope = hit?.scope
+          } catch { /* 取不到旧记录作用域只影响提示，不影响保存成功 */ }
+        }
+        return {
+          id: record.id,
+          scope: record.scope,
+          ...(alias !== undefined ? { scopeName: alias } : {}),
+          deduped: false,
+          ...(isSupersedes ? { supersedes: { id: args.supersedes , ...(oldScope !== undefined ? { scope: oldScope } : {}) } } : {}),
+          ...(hookInfo !== undefined ? { hook: hookInfo } : {}),
+        }
       } catch (error) {
         throw toolError(error)
       }
     },
   }
+}
+
+/**
+ * 登记一条随记忆保存的钩子，并向用户申请一次批准。
+ *
+ * 顺序很关键：**先保存钩子（未批准）再申请审批**。反过来的话，用户批准时
+ * 钩子还不存在，批准就无处可记；而且 `requireApproval=false` 时也不需要弹窗。
+ */
+async function registerHookForSave(
+  service                   ,
+  agent         ,
+  exec         ,
+  input   
+                
+                        
+                
+                  
+                    
+                        
+   ,
+)                                                                                {
+  if (typeof service.saveHook !== 'function') {
+    return { id: '', name: input.name, phase: input.phase, approval: 'unsupported' }
+  }
+  let hook                
+  try {
+    hook = service.saveHook({
+      name: input.name,
+      phase: input.phase,
+      code: input.code,
+      scopes: input.scopes,
+      ruleId: input.ruleId,
+      createdBy: 'agent',
+    })
+  } catch (error) {
+    return { id: '', name: input.name, phase: input.phase, approval: `save-failed: ${toolError(error).message}` }
+  }
+  let approval = 'not-needed'
+  if (typeof service.requestHookApproval === 'function') {
+    try {
+      approval = await service.requestHookApproval(agent, hook.id, {
+        ...(input.description !== undefined ? { description: input.description } : {}),
+        ...((exec                                        )?.signal !== undefined
+          ? { signal: (exec                            ).signal }
+          : {}),
+      })
+    } catch {
+      approval = 'unavailable'
+    }
+  }
+  return { id: hook.id, name: hook.name, phase: hook.phase, approval }
 }
 
 /** memory_search / memory_get(summary) 的默认摘要长度（字符）。 */
@@ -1389,16 +1657,41 @@ export function memoryForgetTool(opts                    )                      
   }
 }
 
+/** 毫秒时间戳 → ISO 8601 精确到秒（去掉毫秒）。非法值返回 undefined。 */
+function isoSecond(value         )                     {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
+  return new Date(value).toISOString().slice(0, 19) + 'Z'
+}
+
+/** memory_list 的 fields 解析：目前只认 full_time。 */
+function listWantsFullTime(fields                               )          {
+  return Array.isArray(fields) && fields.some((field) => String(field).trim() === 'full_time')
+}
+
                            
                 
                
                 
+     
+                                          
+                                                               
+     
+                   
                                       
                       
  
 
                              
-                                                                                                                    
+                  
+              
+                 
+                
+                     
+                   
+                     
+                                                                  
+                                                                           
+    
                                                     
                                                                                                    
      
@@ -1417,6 +1710,11 @@ export function memoryListTool(opts                    )                        
       kind: { type: 'string' },
       limit: { type: 'number', description: '1~200' },
       description: { type: 'string', description: DESCRIPTION_PARAM_DESCRIPTION },
+      fields: {
+        type: 'array',
+        items: { type: 'string' },
+        description: '可选字段。`full_time` = 每条记忆给出精确到秒的完整时间戳（createdAt / updatedAt / expiresAt）；不传则不带。',
+      },
     },
     async execute(args          , exec          )                      {
       const service = svc(opts)
@@ -1484,12 +1782,24 @@ export function memoryListTool(opts                    )                        
         const selected = raw
           .filter((record) => insideIds.has(record.id) || approvedOutsideIds.has(record.id))
           .slice(0, limit)
+        const wantFullTime = listWantsFullTime(args.fields)
         records = selected.map((r) => ({
           id: r.id,
           scope: r.scope,
           kind: r.kind,
           updatedAt: r.updatedAt,
           content: r.content,
+          ...(wantFullTime
+            ? {
+                fullTime: {
+                  createdAt: isoSecond(r.createdAt) ?? isoSecond(r.updatedAt) ?? '',
+                  updatedAt: isoSecond(r.updatedAt) ?? '',
+                  ...(r.expiresAt !== undefined && Number.isFinite(r.expiresAt)
+                    ? { expiresAt: isoSecond(r.expiresAt)  }
+                    : {}),
+                },
+              }
+            : {}),
         }))
         const denied = outside.length - approvedOutside.length
         if (denied > 0) {
@@ -1933,6 +2243,500 @@ export function memoryGetTool(opts                    )                         
   }
 }
 
+                            
+                                                          
+                                       
+     
+                                              
+                           
+     
+                
+                                             
+             
+     
+                                     
+                                             
+     
+                                 
+                           
+                 
+                          
+                      
+ 
+
+                              
+                                      
+                                                                                      
+                                         
+                           
+                        
+                                                              
+                                    
+                  
+                                     
+                        
+               
+ 
+
+const BLOCK_NOTE_SESSION =
+  '会话级屏蔽只影响本会话（含子 Agent），随时用 memory_block({action:"unblock"}) 解除。'
+const BLOCK_NOTE_WORKSPACE =
+  '工作区级屏蔽影响该工作区所有会话（含历史与将来），需要用户审批；解除同样需要审批。'
+const BLOCK_NOTE_RULE =
+  '目标里含「硬性规则」：规则被屏蔽必须由用户确认，已提交审批。'
+
+/**
+ * 屏蔽工具（0.32.0）。
+ *
+ * 用途：Agent 发现某段记忆与本轮任务无关时，主动让它**不再出现**在检索、注入
+ * 与目录里，而不是每次都被噪声打断。与 `memory_forget` 的区别：屏蔽不删数据，
+ * 解除后原样回来；与「可见域」的区别：屏蔽不改读写权限，只把它藏起来。
+ *
+ * 审批矩阵（产品口径，不能改）：
+ *   - 按记录 id / 前缀屏蔽 → **不弹审批**；
+ *   - 按作用域屏蔽 → **弹审批**；
+ *   - 目标是规则（kind='rule'）→ **一律弹审批**，即使按 id 屏蔽；
+ *   - 会话级 → 不弹审批（只影响自己）；
+ *   - 工作区级 → **一律弹审批**（影响所有会话）。
+ */
+export function memoryBlockTool(opts                    )                                   {
+  return {
+    name: 'memory_block',
+    description: 'Hide memories that are irrelevant to the current task so they stop appearing in search, injection and the scope catalog — without deleting anything. Use it proactively: when recall/digest keeps injecting records that clearly belong to another project or stack, block them by record id (no approval, reversible) instead of tolerating the noise or deleting them. Blocking by record id/prefix needs no approval; blocking a whole scope, a rule (kind="rule"), or anything at workspace level raises an approval dialog for the user. action="unblock" removes a block; action="list" shows the active blocks. Blocks are recoverable: the data is never touched.',
+    parameters: {
+      action: {
+        type: 'string',
+        enum: ['block', 'unblock', 'list'],
+        description: 'block = 屏蔽（默认）；unblock = 解除；list = 查看当前屏蔽清单',
+      },
+      scope: {
+        type: 'string',
+        description: '要屏蔽 / 解除的作用域键（如 global / project:<路径> / session:<id> / 自定义名）。按作用域屏蔽需要用户审批。',
+      },
+      id: {
+        type: 'string',
+        description: '要屏蔽 / 解除的记录 id 或 8 位前缀。按 id 屏蔽不需要审批；但目标是规则时仍需审批。',
+      },
+      level: {
+        type: 'string',
+        enum: ['session', 'workspace'],
+        description: 'session（默认）= 只影响本会话，不审批；workspace = 影响该工作区所有会话（含历史与将来），必须审批。',
+      },
+      reason: { type: 'string', description: '为什么屏蔽（一句话，展示在面板与审批卡上）' },
+      description: { type: 'string', description: '本次调用的用途（普通限制下必填，审批弹窗会展示给用户）' },
+    },
+    async execute(args, exec) {
+      const service = svc(opts)
+      const agent = agentOf(exec)
+      requireDescription(service, agent, args.description)
+      const action = args.action ?? 'block'
+      if (action === 'list') {
+        const blocks = typeof service.listBlocks === 'function' ? service.listBlocks(agent) : []
+        return { action, outcome: 'listed', blocks }
+      }
+      if (typeof service.requestBlock !== 'function') {
+        throw toolError(new MemoryToolError('UNSUPPORTED', '当前 provider 不支持屏蔽（请升级 @restregular/dsh-memory 到 0.32.0+）'))
+      }
+      const level                          = args.level === 'workspace' ? 'workspace' : 'session'
+      const scope = typeof args.scope === 'string' ? args.scope.trim() : ''
+      const id = typeof args.id === 'string' ? args.id.trim() : ''
+      if (action === 'unblock') {
+        if (scope === '' && id === '') {
+          throw toolError(new MemoryToolError('TARGET_REQUIRED', 'unblock 需要 scope 或 id'))
+        }
+        if (typeof service.unblock !== 'function') {
+          throw toolError(new MemoryToolError('UNSUPPORTED', '当前 provider 不支持解除屏蔽（请升级 @restregular/dsh-memory 到 0.32.0+）'))
+        }
+        const results = service.unblock(agent, {
+          ...(args.level !== undefined ? { level } : {}),
+          ...(scope !== '' ? { scope } : {}),
+          ...(id !== '' ? { recordId: id } : {}),
+        })
+        const removed = results.reduce((sum, item) => sum + item.removed, 0)
+        const blocks = typeof service.listBlocks === 'function' ? service.listBlocks(agent) : []
+        return {
+          action,
+          outcome: removed > 0 ? 'unblocked' : 'unavailable',
+          blocks,
+          removed,
+          ...(removed === 0 ? { note: '没有找到匹配的屏蔽记录（可能已经被解除）。' } : {}),
+        }
+      }
+      if (scope === '' && id === '') {
+        throw toolError(new MemoryToolError('TARGET_REQUIRED', 'block 需要 scope 或 id：按 id 屏蔽不需要审批，按作用域屏蔽会弹审批'))
+      }
+      try {
+        const result = await service.requestBlock(agent, {
+          ...(scope !== '' ? { scope } : {}),
+          ...(id !== '' ? { id } : {}),
+          level,
+          ...(args.reason !== undefined ? { reason: args.reason } : {}),
+          ...(args.description !== undefined ? { description: args.description } : {}),
+          tool: 'memory_block',
+          ...((exec                                        )?.signal !== undefined
+            ? { signal: (exec                            ).signal }
+            : {}),
+        })
+        const notes           = []
+        if (result.outcome === 'blocked') {
+          notes.push(level === 'workspace' ? BLOCK_NOTE_WORKSPACE : BLOCK_NOTE_SESSION)
+          if (result.containsRule === true) notes.push(BLOCK_NOTE_RULE)
+        } else if (result.outcome === 'rejected') {
+          notes.push('用户拒绝了这次屏蔽；记忆保持原样。')
+        } else if (result.outcome === 'timeout') {
+          notes.push('审批超时，屏蔽没有生效；记忆保持原样。')
+        } else {
+          notes.push('当前环境无法发起屏蔽（缺少会话或工作区上下文）。')
+        }
+        return {
+          action,
+          outcome: result.outcome,
+          blocks: result.blocks,
+          ...(result.records.length > 0 ? { records: result.records } : {}),
+          ...(result.containsRule === true ? { containsRule: true } : {}),
+          note: notes.join(' '),
+        }
+      } catch (error) {
+        throw toolError(error)
+      }
+    },
+  }
+}
+
+/** `memory_hooks` 支持的 action。 */
+                                                                                                                          
+
+                            
+                    
+                                                                         
+             
+                     
+               
+                                                    
+                       
+               
+     
+                                                         
+                                                                       
+                   
+     
+                 
+                                   
+                   
+                                   
+                  
+                        
+                  
+     
+                                                
+                                         
+                                            
+     
+                  
+                                      
+                      
+ 
+
+                              
+                    
+                         
+                                                                                                    
+                   
+                              
+                           
+               
+                                                                  
+                                
+                  
+ 
+
+/** 按 id 或唯一前缀找钩子（模型看不到完整 uuid 时也能操作）。 */
+function findHook(service                   , raw        )                 {
+  const needle = raw.trim()
+  if (needle === '') throw new MemoryToolError('HOOK_ID_REQUIRED', '需要 id：先用 action="list" 看现有钩子')
+  if (typeof service.listHooks !== 'function') {
+    throw new MemoryToolError('HOOKS_UNSUPPORTED', '当前 memory provider 不支持记忆钩子（请升级 @restregular/dsh-memory）')
+  }
+  const all = service.listHooks()
+  const exact = all.find((hook) => hook.id === needle)
+  if (exact !== undefined) return exact
+  const matches = all.filter((hook) => hook.id.startsWith(needle) || hook.name === needle)
+  if (matches.length === 1) return matches[0] 
+  if (matches.length === 0) throw new MemoryToolError('HOOK_NOT_FOUND', `没有找到钩子 ${needle}`)
+  throw new MemoryToolError('HOOK_AMBIGUOUS', `前缀 ${needle} 命中 ${matches.length} 个钩子，请给更长的 id`)
+}
+
+const HOOKS_TOOL_DESCRIPTION =
+  'Manage executable memory hooks: scripts attached to rule memories that the plugin runs at a fixed phase. '
+  + 'before-save validates a memory and can REJECT the save; after-save only observes; before-inject parses text before it enters context. '
+  + 'Hook code lives in hooks.json and is NEVER part of memory search/list/digest. '
+  + 'Deleting a hook is IRREVERSIBLE — action="delete" requires a two-step confirmation: first call without confirm to get a preview, then repeat with confirm="<hook name or id>". '
+  + 'Load the `memory-hook-scripts` skill (via the `skill` tool) before writing code — it documents the entry-function names, the sandbox API, the return contract and ready-made examples.'
+
+export function memoryHooksTool(opts                    )                                   {
+  return {
+    name: 'memory_hooks',
+    description: HOOKS_TOOL_DESCRIPTION,
+    parameters: {
+      action: {
+        type: 'string',
+        enum: ['list', 'get', 'save', 'delete', 'approve', 'revoke-approval', 'enable', 'disable', 'run'],
+        required: true,
+        description: 'list=列全部（不含代码）；get=读代码；save=新建/更新；delete=删除（不可逆，**必须二次确认**：先不带 confirm 调用拿预览，再带 confirm="<钩子的 name 或 id>" 重复调用才真删）；approve=批准代码使其运行；revoke-approval=撤销批准（代码保留、变回待批准、不再运行）；enable/disable=旧别名（等同 approve/revoke-approval）；run=拿一段正文试跑（不写记忆）。',
+      },
+      id: { type: 'string', description: '钩子 id（或唯一前缀 / 名字）；get/delete/approve/revoke-approval/enable/disable/run 必填' },
+      confirm: { type: 'string', description: 'delete 专用二次确认：值必须等于目标钩子的 name 或完整 id。删除不可逆（hooks.json 直接覆盖、无回收站），不带或写错只返回待删预览、不会删除。' },
+      code: { type: 'string', description: '脚本源码（save 必填）。入口函数名与返回约定见技能 memory-hook-scripts。' },
+      phase: {
+        type: 'string',
+        enum: ['before-save', 'after-save', 'before-inject'],
+        description: '运行时机；省略 = 更新时沿用旧值，新建默认 before-save。',
+      },
+      name: { type: 'string', description: '显示名（面板与审批卡用）' },
+      ruleId: {
+        type: 'string',
+        description: '可选：把钩子关联到一条规则记忆（报错时带 id，可用 memory_get 取全文）。'
+          + '**省略 = 通用钩子**（不挂任何记忆，靠 scopes/kinds/phase 与脚本里的 ctx 决定何时自动执行）。更新时省略 = 保留旧关联。',
+      },
+      scopes: { type: 'array', items: { type: 'string' }, description: '适用作用域键；省略 = 全部适用（更新时保留旧值）' },
+      kinds: { type: 'array', items: { type: 'string' }, description: '适用记忆类型（fact/rule/...）；省略 = 全部适用' },
+      content: { type: 'string', description: 'run 试跑用的正文（只跑脚本，不写记忆）' },
+      description: { type: 'string', description: DESCRIPTION_PARAM_DESCRIPTION },
+    },
+    async execute(args           , exec          )                       {
+      const service = svc(opts)
+      const agent = agentOf(exec)
+      requireDescription(service, agent, args.description)
+      if (typeof service.listHooks !== 'function') {
+        throw new MemoryToolError('HOOKS_UNSUPPORTED', '当前 memory provider 不支持记忆钩子（请升级 @restregular/dsh-memory）')
+      }
+      const action = args.action
+      const settings = typeof service.hookSettings === 'function' ? service.hookSettings() : undefined
+      const withApproval = (hook                )                 =>
+        typeof service.hookPendingApproval === 'function'
+          ? { ...hook, pendingApproval: service.hookPendingApproval(hook.id) }
+          : hook
+
+      if (action === 'list') {
+        return {
+          action,
+          hooks: service.listHooks().map(withApproval),
+          ...(settings !== undefined ? { settings } : {}),
+        }
+      }
+
+      if (action === 'get') {
+        const hook = findHook(service, args.id ?? '')
+        return { action, hooks: [withApproval(hook)], ...(settings !== undefined ? { settings } : {}) }
+      }
+
+      if (action === 'save') {
+        const code = typeof args.code === 'string' ? args.code : ''
+        if (code.trim() === '') throw new MemoryToolError('HOOK_CODE_REQUIRED', 'save 需要 code（脚本源码）')
+        if (typeof service.saveHook !== 'function') {
+          throw new MemoryToolError('HOOKS_UNSUPPORTED', '当前 memory provider 不支持记忆钩子（请升级 @restregular/dsh-memory）')
+        }
+        // 更新时省略的字段沿用旧值：脚本改了但作用域不想动是最常见的情况。
+        const existing = args.id !== undefined && args.id !== '' ? findHook(service, args.id) : undefined
+        const phase = args.phase ?? existing?.phase ?? 'before-save'
+        let saved                
+        try {
+          saved = service.saveHook({
+            ...(existing !== undefined ? { id: existing.id } : {}),
+            ...(args.name !== undefined ? { name: args.name } : existing !== undefined ? { name: existing.name } : {}),
+            phase,
+            code,
+            ...(args.scopes !== undefined ? { scopes: args.scopes.map(String) } : { scopes: existing?.scopes ?? [] }),
+            ...(args.kinds !== undefined ? { kinds: args.kinds.map(String) } : { kinds: existing?.kinds ?? [] }),
+            ...(args.description !== undefined ? { description: args.description } : {}),
+            createdBy: 'agent',
+            // 0.35.4：显式给了就更新；否则沿用旧关联；新建时省略 = 通用钩子（无 ruleId）。
+            ...(args.ruleId !== undefined
+              ? { ruleId: args.ruleId }
+              : existing?.ruleId !== undefined ? { ruleId: existing.ruleId } : {}),
+          })
+        } catch (error) {
+          throw toolError(error)
+        }
+        // 保存即申请批准：代码改过 / 首次创建都要用户点头。
+        let approval = 'not-needed'
+        if (typeof service.requestHookApproval === 'function') {
+          try {
+            approval = await service.requestHookApproval(agent, saved.id, {
+              ...(args.description !== undefined ? { description: args.description } : {}),
+              ...((exec                                        )?.signal !== undefined
+                ? { signal: (exec                            ).signal }
+                : {}),
+            })
+          } catch {
+            approval = 'unavailable'
+          }
+        }
+        return {
+          action,
+          hooks: [withApproval(saved)],
+          ...(settings !== undefined ? { settings } : {}),
+          note: approvalNote(approval),
+        }
+      }
+
+      if (action === 'delete') {
+        const hook = findHook(service, args.id ?? '')
+        if (typeof service.deleteHook !== 'function') {
+          throw new MemoryToolError('HOOKS_UNSUPPORTED', '当前 memory provider 不支持记忆钩子')
+        }
+        // 0.36.1：删除不可逆（hooks.json 硬覆盖、无回收站），必须二次确认。
+        // 第一次调用不带 confirm → 只给"待删除"预览，不删；模型要把 name/id 回填到
+        // confirm 再调一次才真删。确认值必须精确等于目标的 name 或 id，杜绝误删别的钩子。
+        const confirmation = typeof args.confirm === 'string' ? args.confirm.trim() : ''
+        const matches = confirmation !== '' && (confirmation === hook.name || confirmation === hook.id)
+        if (!matches) {
+          return {
+            action,
+            hooks: [withApproval(hook)],
+            requiresConfirmation: true,
+            removed: 0,
+            note: `删除钩子「${hook.name}」是不可逆的（直接从 hooks.json 移除，没有回收站）。这是第一次确认：如确要删除，请用同样的 id 再调用一次并带上 confirm="${hook.name}"（或 confirm="${hook.id}"）；confirm 不符则不会删除。`,
+          }
+        }
+        const deleted = service.deleteHook(hook.id)
+        return {
+          action,
+          hooks: service.listHooks().map(withApproval),
+          removed: deleted ? 1 : 0,
+          note: deleted ? `已删除钩子 ${hook.name}。` : '这个钩子已经不存在了。',
+        }
+      }
+
+      if (action === 'approve') {
+        const hook = findHook(service, args.id ?? '')
+        if (typeof service.requestHookApproval !== 'function') {
+          throw new MemoryToolError('HOOKS_UNSUPPORTED', '当前 memory provider 不支持记忆钩子审批')
+        }
+        let outcome        
+        try {
+          outcome = await service.requestHookApproval(agent, hook.id, {
+            ...(args.description !== undefined ? { description: args.description } : {}),
+            ...((exec                                        )?.signal !== undefined
+              ? { signal: (exec                            ).signal }
+              : {}),
+          })
+        } catch {
+          outcome = 'unavailable'
+        }
+        const fresh = typeof service.getHook === 'function' ? service.getHook(hook.id) : undefined
+        return {
+          action,
+          hooks: fresh !== undefined ? [withApproval(fresh)] : [],
+          note: approvalNote(outcome),
+        }
+      }
+
+      if (action === 'revoke-approval') {
+        // 0.38.0：撤销批准 = 代码保留、变回待批准；未批准不会运行。与"停用"彻底分开。
+        const hook = findHook(service, args.id ?? '')
+        if (typeof service.revokeHookApproval !== 'function') {
+          throw new MemoryToolError('HOOKS_UNSUPPORTED', '当前 memory provider 不支持撤销批准（请升级 @restregular/dsh-memory）')
+        }
+        const revoked = service.revokeHookApproval(hook.id)
+        const fresh = typeof service.getHook === 'function' ? service.getHook(hook.id) : undefined
+        return {
+          action,
+          hooks: fresh !== undefined ? [withApproval(fresh)] : [],
+          note: revoked
+            ? `已撤销「${hook.name}」的批准：代码保留，但变回待批准，**不会运行**。`
+            : `「${hook.name}」本来就没有批准过。`,
+        }
+      }
+
+      if (action === 'enable' || action === 'disable') {
+        // 0.38.0：保留 action 仅为向后兼容 —— 启用/停用语义已移除，统一映射到批准/撤销批准。
+        const hook = findHook(service, args.id ?? '')
+        if (action === 'disable') {
+          if (typeof service.revokeHookApproval !== 'function') {
+            throw new MemoryToolError('HOOKS_UNSUPPORTED', '当前 memory provider 不支持撤销批准（请升级 @restregular/dsh-memory）')
+          }
+          const revoked = service.revokeHookApproval(hook.id)
+          const fresh = typeof service.getHook === 'function' ? service.getHook(hook.id) : undefined
+          return {
+            action,
+            hooks: fresh !== undefined ? [withApproval(fresh)] : [],
+            note: `「停用」已更名为「撤销批准」：${revoked ? '已撤销批准，代码保留但**不会运行**。' : '本来就未批准。'}`,
+          }
+        }
+        if (typeof service.approveHook !== 'function') {
+          throw new MemoryToolError('HOOKS_UNSUPPORTED', '当前 memory provider 不支持批准')
+        }
+        service.approveHook(hook.id)
+        const fresh = typeof service.getHook === 'function' ? service.getHook(hook.id) : undefined
+        return {
+          action,
+          hooks: fresh !== undefined ? [withApproval(fresh)] : [],
+          note: '「启用」已更名为「批准」：已批准这段代码，从现在起会运行。',
+        }
+      }
+
+      // run：拿一段正文试跑，不写记忆。这是唯一能"先看效果再上线"的入口。
+      const hook = findHook(service, args.id ?? '')
+      if (typeof service.runHookTrial !== 'function') {
+        throw new MemoryToolError('HOOKS_UNSUPPORTED', '当前 memory provider 不支持记忆钩子试跑（请升级 @restregular/dsh-memory）')
+      }
+      const content = typeof args.content === 'string' && args.content.trim() !== ''
+        ? args.content
+        : throwErr(new MemoryToolError('HOOK_CONTENT_REQUIRED', 'run 需要 content：拿一段正文让脚本跑一次'))
+      // 0.35.2：按 id 精确试跑这一条，绕过审批门禁。老写法用 phase+scope/kind
+      // 再过滤一遍，未批准的钩子会被门禁挡掉、表现为"脚本没有命中"，与
+      // 技能里"先 run 试跑再上线"的流程直接矛盾。
+      const input = {
+        memory: {
+          scope: (args.scopes ?? hook.scopes)[0] ?? 'global',
+          kind: (args.kinds ?? hook.kinds)[0] ?? 'rule',
+          content,
+          tags: [],
+          importance: 0.8,
+        },
+        tool: 'memory_hooks',
+        // 0.37.0：试跑也带设置快照，脚本里读 ctx.settings.* 不会是 undefined。
+        settings: { digestChars: 160, impressionChars: 120, recallChars: 300 },
+      }
+      const mine = service.runHookTrial(hook.id, input)
+      const verdict = mine[0]
+      const ruleRef = verdict?.hook.ruleId !== undefined && verdict.hook.ruleId !== ''
+        ? `（关联规则记忆 ${verdict.hook.ruleId}，可用 memory_get 取全文）`
+        : ''
+      const note = verdict === undefined
+        ? '脚本没有命中这次输入（作用域/类型过滤把它排除了）。'
+        : verdict.error !== undefined
+          ? `脚本运行失败：${verdict.error}`
+          : verdict.ok
+            ? `脚本判定：通过。${ruleRef}`
+            : `脚本判定：不通过 —— ${verdict.message ?? '（脚本没给 message）'}${ruleRef}`
+      return { action, hooks: [withApproval(hook)], outcomes: mine, note }
+    },
+  }
+}
+
+/** 抛出一个值（给不能在表达式位置写 throw 的地方用）。 */
+function throwErr(error       )        {
+  throw error
+}
+
+/** 审批结局 → 给模型的一句话。 */
+function approvalNote(outcome        )         {
+  switch (outcome) {
+    case 'approved':
+      return '用户已批准这段代码，从现在起会按这个时机运行。'
+    case 'not-needed':
+      return '这段代码之前已经批准过（同一份代码不会重复打扰用户）。'
+    case 'rejected':
+      return '用户拒绝运行这段代码：钩子已保存但**处于未批准状态，不会运行**。改脚本或让用户批准后才能生效。'
+    case 'timeout':
+      return '等待用户批准超时：钩子已保存但**不会运行**，需要用户批准后才生效。'
+    default:
+      return '当前环境无法发起代码审批：钩子已保存但**不会运行**。'
+  }
+}
+
 export function memoryTools(opts                    ) {
   return {
     memory_save: memorySaveTool(opts),
@@ -1941,6 +2745,8 @@ export function memoryTools(opts                    ) {
     memory_list: memoryListTool(opts),
     memory_scopes: memoryScopesTool(opts),
     memory_get: memoryGetTool(opts),
+    memory_block: memoryBlockTool(opts),
+    memory_hooks: memoryHooksTool(opts),
   }
 }
 
