@@ -66,6 +66,7 @@ npm run check:docs    # 版本 / badge / CHANGELOG / IMPROVEMENTS / architecture
 - `doctor` 有数据损坏时退出码 1；全新库缺 `settings.json` 视为正常。
 - `check:docs` 在 `npm test` 与 CI 中都会跑：任何一次发版漏改版本号或文档链接都会直接失败。
 - 0.91.0 起检索层按记录缓存分词/实体提取，1200 条库图关 75→31ms、图开 181→121ms（见 CHANGELOG）。
+- 0.98.0 起设置生效性有行为级回归（graph.enabled 实时生效、impression.dynamic 影响字数、设置持久化）。
 
 ## 2. 真机功能清单
 
