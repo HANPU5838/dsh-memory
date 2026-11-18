@@ -2,6 +2,15 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.93.0 — UI 无障碍补全：键盘焦点可见（2026-11-18）
+
+- **问题**：`input` / `select` / `textarea` / `summary` 全局 `outline:none`，但只有 `button`
+  有 `:focus-visible` 替代 —— 键盘/无障碍用户聚焦输入框、下拉、文本域和"高级"折叠头时**看不到焦点**。
+- **修复**：统一补 `input/select/textarea/summary/a:focus-visible { outline:2px solid brand }`，
+  与按钮同一视觉语言；不影响鼠标点击体验。
+- **测试**：新增 CSS 契约测试（面板真实 CSS 必须包含五类控件的焦点规则）；面板测试 69/69。
+- **全量**：**1284 例 / 1283 pass / 1 skip / 0 fail**；`npm run verify:all` PASS。
+
 ## 0.92.0 — 文档与发布一致性守门（2026-11-18）
 
 - **发现**：README 的 version badge 从 0.85 之后一直停在 **v0.84.0**，而其余文档都更新了 ——

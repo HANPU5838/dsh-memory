@@ -3848,3 +3848,13 @@ test('关系分析页：概览/关系发现/冲突中心渲染真实 API 数据'
   assert.ok(textOf(current).includes('信息更新') || textOf(current).includes('数据库从 PostgreSQL'), '冲突中心展示差异')
   hooks.resetAll()
 })
+
+test('0.93.0：输入控件 / 详情折叠头 / 链接都有 :focus-visible 焦点轮廓（a11y）', async () => {
+  const { exports } = await loadBundle()
+  const css = (exports.__test as { CSS: string }).CSS
+  assert.match(css, /input:focus-visible[^}]*outline/ , 'input 需要焦点轮廓')
+  assert.match(css, /select:focus-visible/, 'select 需要焦点轮廓')
+  assert.match(css, /textarea:focus-visible/, 'textarea 需要焦点轮廓')
+  assert.match(css, /summary:focus-visible/, 'summary 需要焦点轮廓')
+  assert.match(css, /a:focus-visible/, '链接需要焦点轮廓')
+})

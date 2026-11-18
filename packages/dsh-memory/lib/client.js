@@ -87,6 +87,9 @@ window.__ModuleLoader__.load({
       // 点击后浏览器给的 focus 环同理:鼠标操作不留痕,键盘操作仍可见。
       '.memp button:focus{outline:none}',
       '.memp button:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}',
+      // 0.93.0：输入控件与详情折叠头此前只有 outline:none、没有焦点替代 —— 键盘/无障碍用户
+      // 看不到焦点。统一补 :focus-visible（与按钮同一视觉语言）。
+      '.memp input:focus-visible,.memp select:focus-visible,.memp textarea:focus-visible,.memp summary:focus-visible,.memp a:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}',
       '.memp button:disabled{opacity:.5;cursor:default;border-color:var(--dsw-alias-border-l1);color:var(--dsw-alias-label-primary)}',
       // 服务器开关(switch 造型)。配色照抄宿主 [role=switch]:
       //   - 关闭态轨道 border-l3(border-l1 只有 ~6% 透明度,深浅色下都几乎看不见);

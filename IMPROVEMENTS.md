@@ -5,6 +5,10 @@
 > 以下为自维护以来的完整改进清单（每一项都有源码改动 + 回归测试，不是临时补丁），
 > 安装、发布、更新**只以本仓库为准**。
 
+## 0.93.0（UI 无障碍：焦点可见）
+
+- input/select/textarea/summary/a 补 :focus-visible 轮廓；CSS 契约测试防回退。
+
 ## 0.92.0（文档与发布一致性）
 
 - 新增 `npm run check:docs` 守门（版本/badge/CHANGELOG/架构标题/链接/build 版本）；
