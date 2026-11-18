@@ -1,4 +1,4 @@
-# 架构说明（本仓库独立维护版 0.102.0）
+# 架构说明（本仓库独立维护版 0.103.0）
 
 > 本文说明这套记忆插件「为什么是插件」：哪些属于宿主、哪些属于插件、平台差异放在哪里。
 > 本仓库 **[HANPU5838/dsh-memory](https://github.com/HANPU5838/dsh-memory)** 是 DSH 记忆系统的独立维护版
@@ -193,6 +193,7 @@ Personalized PageRank（带重启随机游走，alpha=0.85，最多 24 次幂迭
   （重要度→更新时间→id 确定性），败者保留不删、审计 reason=conflict。
 - **图边权与社区（0.82.0）**：边权乘实体类型因子（具体对象 > 泛标签）；`detectCommunities()`
   标签传播划分主题社区，补充候选按社区限流（`maxPerCommunity`，默认 3）。
+- **验收稳定性（0.103.0）**：verify:all 四段独立归因、失败日志落盘、probe:flake 偶发探针。
 - **发布链路（0.102.0）**：`npm run release:check` 核对产物/包清单/tag/Release/本地插件并带 strict 模式。
 - **验收对齐（0.101.0）**：verification 真机清单与评测小节对齐 0.90+ 能力。
 - **真实库验收（0.100.0）**：`npm run e2e:real` 复制真实库跑检索/注入/doctor，不碰线上数据。

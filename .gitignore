@@ -12,3 +12,4 @@ dist-npm/
 .tmp/
 .idea/
 package-lock.json
+.verify-last-tests.log

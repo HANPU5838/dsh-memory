@@ -16,7 +16,7 @@
  * 用法：`npm run verify:all`（或 `node tools/verify-all.mjs`）
  */
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -68,8 +68,11 @@ function stepTests() {
   report('tests', '单元 / 集成测试', ok ? 'PASS' : 'FAIL',
     `${tests ?? '?'} 例 / ${pass ?? '?'} pass / ${fail ?? '?'} fail（${seconds}s）`)
   if (!ok) {
-    const failing = output.split('\n').filter((line) => line.startsWith('✖') || line.includes('not ok')).slice(0, 10)
+    const failing = output.split('\n').filter((line) => line.startsWith('✖') || line.includes('not ok')).slice(0, 15)
     if (failing.length > 0) console.log(failing.join('\n'))
+    // 完整输出落盘：偶发失败需要能回看断言与用例名，而不是只看到一行汇总。
+    const logPath = join(ROOT, '.verify-last-tests.log')
+    try { writeFileSync(logPath, output, 'utf8'); console.log(`完整测试输出：${logPath}`) } catch { /* 写不了日志不影响验收结论 */ }
   }
   return ok
 }
@@ -184,11 +187,16 @@ async function main() {
   // 不关掉就会去 /tmp 下 438MB 模型。需要验收真实自举请单独跑，不走本脚本。
   if ((process.env.DSH_MEMORY_AUTO_BOOTSTRAP ?? '').trim() === '') process.env.DSH_MEMORY_AUTO_BOOTSTRAP = 'off'
   console.log(`\nDSH 记忆系统 · 全功能验收（v${pkg.version}）\n`)
-  let ok = true
-  ok = stepTests() && ok
-  ok = stepBuild() && ok
-  if (ok) ok = (await stepPanelSmoke()) && ok
-  else report('panel', '面板 API 冒烟', 'SKIP', '构建失败，跳过')
+  // 四段分别归因：测试失败不能把面板冒烟误标成「构建失败」（0.103.0 修）。
+  const testOk = stepTests()
+  const buildOk = stepBuild()
+  let ok = testOk && buildOk
+  if (buildOk) {
+    const panelOk = await stepPanelSmoke()
+    ok = panelOk && ok
+  } else {
+    report('panel', '面板 API 冒烟', 'SKIP', '构建失败，产物无法加载')
+  }
   ok = (await stepVector()) && ok
   rmSync(OUT, { recursive: true, force: true })
 

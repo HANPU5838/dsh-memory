@@ -4,7 +4,7 @@
 
 **给 DeepSeek Harness 的本地优先长期记忆插件：多路检索 + 多跳图增强 + 上下文摘要 + 冲突消解**
 
-[![version](https://img.shields.io/badge/version-v0.102.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![version](https://img.shields.io/badge/version-v0.103.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
 [![license](https://img.shields.io/badge/license-MIT-3DA639.svg)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A522.13-3C873A.svg)](package.json)
 
@@ -12,7 +12,7 @@
 
 </div>
 
-**当前版本：v0.102.0** · [Release](https://github.com/HANPU5838/dsh-memory/releases) · [更新日志](CHANGELOG.md)
+**当前版本：v0.103.0** · [Release](https://github.com/HANPU5838/dsh-memory/releases) · [更新日志](CHANGELOG.md)
 
 ---
 
@@ -273,7 +273,11 @@ npm run check:docs   # 版本 / badge / CHANGELOG / IMPROVEMENTS / 文档链接 
 
 ```bash
 npm run verify:all
+npm run probe:flake -- 10   # 怀疑偶发失败时：同一套测试连跑 N 轮并列出失败项
 ```
+
+`verify:all` 四段分别归因（测试 / 构建 / 面板冒烟 / 向量），某段失败不会把其它段误报成
+「构建失败」；测试失败时完整输出落盘到 `.verify-last-tests.log` 便于回看。
 
 四层：全量测试 → 单包构建 → 面板 API 冒烟（16 接口）→ 向量后端实测（没有后端时 SKIP 不算失败）。
 失败退出码非 0，可直接当 pre-push hook / CI 步骤。
