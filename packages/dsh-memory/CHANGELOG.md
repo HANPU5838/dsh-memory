@@ -2,6 +2,19 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.66.0 — 图增强 v2：查询实体种子 + 自适应预算；tag 自动发版（2026-11-18）
+
+- **查询实体种子**（`queryEntitySeeds`，HippoRAG 2 的 query-NER 步骤）：查询里的路径 / URL /
+  版本 / 端口等实体直接映射到建图记录作为 PPR 种子，**不再要求先有词法/向量命中**；
+  与候选种子合并去重，权重按实体权重 × idf（专有实体桥接更可信）。
+- **自适应预算**：结果不足 topK 时自动放大种子数（+2）与补充上限（+4）、放宽相对门槛（×0.75），
+  结果充足时保持保守参数，避免把弱关联噪声灌进上下文。
+- **建图接口**：`AssociationGraph` 暴露 `entityToRecords`（实体 → 记录），供种子与解释使用。
+- **CI**：新增 `.github/workflows/release.yml`，推送 `v*` tag 自动用 CHANGELOG 对应版本段落
+  创建 GitHub Release（已存在则跳过），发布流程从「手动」变「自动」。
+- **测试**：新增查询实体种子用例（命中/无关/确定性/空查询），全套
+  **1250 例 / 1249 pass / 1 skip / 0 fail**；`npm run verify:all` PASS。
+
 ## 0.65.0 — 图增强多跳召回（GraphRAG / HippoRAG 风格 PPR）+ 项目去上游化（2026-11-18）
 
 - **新算法：图增强检索通道**（`retrieval/graph-expansion.ts`）。以词法/向量候选为种子，在

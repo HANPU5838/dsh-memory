@@ -38,6 +38,8 @@ import { extractEntities } from '../analysis/entities.js'
                  
                                 
                                
+                                          
+                                        
                                   
                                                              
  
@@ -164,10 +166,14 @@ export function buildAssociationGraph(
     edgeCount += trimmed.length
   }
 
+  const entityToRecordsSorted = new Map                  ()
+  for (const [key, ids] of entityToRecords) entityToRecordsSorted.set(key, [...new Set(ids)].sort())
+
   return {
     adjacency,
     nodes: sorted.map((r) => r.id),
     entityDf,
+    entityToRecords: entityToRecordsSorted,
     stats: { records: sorted.length, entities: entityDf.size, edges: edgeCount / 2 },
   }
 }
@@ -253,6 +259,37 @@ export function personalizedPageRank(
     if (diff < tolerance) break
   }
   return score
+}
+
+// ---------------------------------------------------------------- 查询实体种子
+
+/**
+ * 从**查询正文**里抽实体，映射成建图记录上的种子（HippoRAG 2 的 query-NER 步骤）。
+ *
+ * 与「候选种子」互补：候选种子来自词法/向量命中的记录；查询实体种子直接来自查询里
+ * 出现的路径 / URL / 版本 / 端口等，即使这条记录因为阈值/长度被词法拒绝、或候选集
+ * 为空，也能作为多跳起点。权重 = 实体权重 × idf（df 越小越专有，桥接越可靠）。
+ *
+ * @returns [recordId, weight] 列表（按权重降序 + id 升序，确定性；无命中返回 []）
+ */
+export function queryEntitySeeds(queryText        , graph                  )                          {
+  if (typeof queryText !== 'string' || queryText.trim() === '') return []
+  const entities = extractEntities(queryText, { maxEntities: MAX_ENTITIES_PER_RECORD })
+  const total = graph.nodes.length
+  if (total === 0) return []
+  const weights = new Map                ()
+  for (const entity of entities) {
+    const key = entityNodeKey(entity)
+    const ids = graph.entityToRecords.get(key)
+    if (ids === undefined || ids.length === 0) continue
+    const df = graph.entityDf.get(key) ?? ids.length
+    const idf = Math.log(1 + total / Math.max(1, df))
+    const weight = Math.max(0, entity.weight) * idf
+    if (!(weight > 0)) continue
+    for (const id of ids) weights.set(id, Math.max(weights.get(id) ?? 0, weight))
+  }
+  return [...weights.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
 }
 
 // ---------------------------------------------------------------- 候选筛选

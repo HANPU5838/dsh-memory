@@ -8,6 +8,7 @@ import {
   buildAssociationGraph,
   personalizedPageRank,
   pickGraphExpansion,
+  queryEntitySeeds,
 } from '../src/retrieval/graph-expansion.ts'
 
 /**
@@ -136,4 +137,21 @@ test('集成：实体桥接的第二条记忆被图增强补召回，关闭后�
     try { svc.flushSync() } catch { /* 已 flush */ }
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test('queryEntitySeeds：查询里的实体直接映射成种子（不依赖词法命中）', () => {
+  const graph = buildAssociationGraph([
+    { id: 'a', content: '用 pm2 管理 /srv/app 服务' },
+    { id: 'b', content: '/srv/app 的 nginx 配置在 /etc/nginx/sites-enabled' },
+    { id: 'c', content: '无关内容：周末去买菜' },
+  ])
+  const seeds = queryEntitySeeds('想知道 /srv/app 的部署方式', graph)
+  const ids = seeds.map(([id]) => id)
+  assert.ok(ids.includes('a') && ids.includes('b'), `共享实体应同时命中两条（实际 ${JSON.stringify(ids)}）`)
+  assert.ok(!ids.includes('c'), '无关记录不应成为种子')
+  // 权重按 idf 计算且确定性：同一查询两次一致。
+  assert.deepEqual(queryEntitySeeds('/srv/app', graph), queryEntitySeeds('/srv/app', graph))
+  // 查询里没有实体 / 空查询 → 空种子。
+  assert.deepEqual(queryEntitySeeds('今天天气不错', graph), [])
+  assert.deepEqual(queryEntitySeeds('', graph), [])
 })

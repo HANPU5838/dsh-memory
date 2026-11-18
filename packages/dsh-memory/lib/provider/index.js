@@ -79,7 +79,7 @@ import { buildStats, lexicalScore, recordScore, tokenize, cosine, normalizeInPla
 import { adaptiveScopeThreshold, calibrateScore } from './retrieval/adapt.js'
 import { blendHybrid, expandQuery, expandQueries, hybridWeights, queryProfile } from './retrieval/expand.js'
 import { buildBm25Docs, bm25Score, rankByBm25 } from './retrieval/bm25.js'
-import { buildAssociationGraph, personalizedPageRank, pickGraphExpansion } from './retrieval/graph-expansion.js'
+import { buildAssociationGraph, personalizedPageRank, pickGraphExpansion, queryEntitySeeds } from './retrieval/graph-expansion.js'
 import { reciprocalRankFusion, normalizeScores } from './retrieval/fusion.js'
 import { explainCandidate } from './retrieval/rank.js'
 import { initialStrength, updateAfterUse } from './retrieval/retention.js'
@@ -5226,13 +5226,10 @@ export class LocalMemoryService                             {
     }
 
     // 0.65.0：图增强检索（GraphRAG / HippoRAG 风格）。
-    // 词法通道只看字面重合、向量通道只看整句语义，两者都看不到「记忆共享实体」这层
-    // 关联。这里以当前候选为种子，在「共享实体 + 修正谱系」图上跑 Personalized
-    // PageRank（带重启的随机游走），把实体桥接到的多跳记录补成候选。
-    // 只对通过本次全部过滤（可见性/归档/过期/类型/屏蔽）的记录建图 —— 图里不能有
-    // 当前调用方根本看不到的记录，否则补召回会绕过权限与屏蔽。
+    // 0.66.0：加入「查询实体种子」与自适应预算 —— 候选为空或不足时，也能直接从查询里的
+    // 路径/URL/版本/端口等实体起跳（HippoRAG 2 的 query-NER 步骤），不再要求先有命中。
     let graphIds           = []
-    if (this.cfg.graphExpansion.enabled && candidates.size > 0) {
+    if (this.cfg.graphExpansion.enabled) {
       const eligible                                                                                                       = []
       for (const { store } of stores) {
         for (const rec of store.records.values()) {
@@ -5252,21 +5249,33 @@ export class LocalMemoryService                             {
       }
       if (eligible.length >= this.cfg.graphExpansion.minRecords) {
         const graph = buildAssociationGraph(eligible)
-        const seeds = [...candidates.values()]
+        // 候选种子：按相关度取 top-N；结果不足 topK 时自适应多取 2 个。
+        const deficit = Math.max(0, topK - candidates.size)
+        const seedCount = Math.min(12, this.cfg.graphExpansion.seedCount + (deficit > 0 ? 2 : 0))
+        const seeds                                   = [...candidates.values()]
           .filter((cand) => cand.recallScore > 0)
           .sort((a, b) => b.recallScore - a.recallScore || a.record.id.localeCompare(b.record.id))
-          .slice(0, this.cfg.graphExpansion.seedCount)
+          .slice(0, seedCount)
           .map((cand) => [cand.record.id, cand.recallScore]         )
+        // 查询实体种子：查询里出现的实体直接映射到记录（不依赖词法/向量是否命中）。
+        for (const [id, weight] of queryEntitySeeds(query.text, graph)) {
+          if (seeds.some((seed) => seed[0] === id)) continue
+          seeds.push([id, weight * 0.8]         )
+        }
         if (seeds.length > 0) {
           const ppr = personalizedPageRank(graph, seeds, {
             alpha: this.cfg.graphExpansion.alpha,
             maxIterations: this.cfg.graphExpansion.iterations,
           })
+          const limit = Math.min(20, this.cfg.graphExpansion.limit + (deficit > 0 ? 4 : 0))
+          const minRelative = deficit > 0
+            ? this.cfg.graphExpansion.minRelative * 0.75
+            : this.cfg.graphExpansion.minRelative
           const picks = pickGraphExpansion({
             ppr,
             avoid: new Set(candidates.keys()),
-            limit: this.cfg.graphExpansion.limit,
-            minRelative: this.cfg.graphExpansion.minRelative,
+            limit,
+            minRelative,
           })
           for (const hit of picks) {
             const record = this.findById(hit.id)

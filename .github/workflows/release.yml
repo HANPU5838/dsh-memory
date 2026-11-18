@@ -1,0 +1,47 @@
+name: release
+
+# 推送 v* tag 时自动创建 GitHub Release：notes 取 CHANGELOG 里对应版本段落。
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要发布/补发的 tag（如 v0.66.0）'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Extract release notes from CHANGELOG
+        id: notes
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag || github.ref_name }}"
+          VERSION="${TAG#v}"
+          python3 - "$VERSION" <<'PY' > notes.md
+          import pathlib, re, sys
+          version = sys.argv[1]
+          text = pathlib.Path('CHANGELOG.md').read_text(encoding='utf-8')
+          m = re.search(rf'(## {re.escape(version)} .*?)(?=\n## |\n---\n)', text, re.S)
+          print(m.group(1).strip() if m else f'Release {version}')
+          PY
+          echo "TAG=$TAG" >> "$GITHUB_OUTPUT"
+      - name: Create release (skip if exists)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag || github.ref_name }}"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release $TAG already exists, skip"
+          else
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TAG" --notes-file notes.md
+          fi
