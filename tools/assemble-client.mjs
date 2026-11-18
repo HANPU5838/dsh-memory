@@ -37,16 +37,10 @@ const ROOT = join(HERE, '..')
 export const PANEL_LIB = join(ROOT, 'source', 'memory-panel', 'lib')
 
 /**
- * 装配顺序:布局(纯函数,含 GRAPH_METRICS / GRAPH_VIEW 配置)→ 2D 视图数学
- * (依赖 GRAPH_VIEW)→ 持久化(只碰 localStorage)→ 3D 渲染(依赖以上全部)。
- * 后面依赖前面的声明,顺序不可调换。
+ * 0.74.0：2D / 3D 星图已彻底移除，不再装配任何依赖 three.js 的渲染分片。
+ * 这里保留空数组，装配器仍能工作（client.js 里已无 @@INLINE 标记）。
  */
-export const CLIENT_FRAGMENTS = [
-  'graph-layout.js',
-  'graph-2d.js',
-  'graph-layout-storage.js',
-  'graph-3d.js',
-]
+export const CLIENT_FRAGMENTS = []
 
 const MARKER = /^([ \t]*)\/\/ @@INLINE ([\w.-]+) @@[ \t]*$/gm
 

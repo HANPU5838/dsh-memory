@@ -2,6 +2,16 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.74.0 — 星图死代码彻底清理（2026-11-18）
+
+- **删除分片**：`source/memory-panel/lib/graph-layout.js`、`graph-2d.js`、`graph-layout-storage.js`、
+  `graph-3d.js`（约 2,000 行）与 `client.js` 中全部星图状态 / effect / 事件监听 / JSX / `@@INLINE` 标记；
+  `tools/assemble-client.mjs` 的 `CLIENT_FRAGMENTS` 置空，不再装配任何渲染分片。
+- **连带清理**：`__test` 不再导出星图 API；删除 6 个星图专用测试与 1 个星图 CSS 护栏测试
+  （知识树测试全部保留）；移除 `tools/vendor-three.mjs` 与 `preview/memory-graph.png`。
+- **包体**：85 文件 / 2628.2 → **2514.1 KiB**；`client.js` 8,526 → 7,917 行。
+- **验证**：全套 **1253 例 / 1252 pass / 1 skip / 0 fail**；`npm run verify:all` PASS。
+
 ## 0.73.0 — 移除 2D/3D 星图，只保留知识树（2026-11-18）
 
 - **面板**：移除「2D 星图 / 3D 星图」视图切换与渲染分支，记忆图标签页只保留知识树；

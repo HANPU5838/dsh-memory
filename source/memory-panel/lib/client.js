@@ -319,7 +319,6 @@ window.__ModuleLoader__.load({
       '.memp .tree-scroll::-webkit-scrollbar-thumb{background:rgba(127,127,127,.28);background:color-mix(in srgb,var(--dsw-alias-label-secondary) 30%,transparent);border-radius:999px;border:2px solid transparent;background-clip:padding-box}',
       '.memp .tree-scroll::-webkit-scrollbar-thumb:hover{background:rgba(127,127,127,.5);background:color-mix(in srgb,var(--dsw-alias-label-secondary) 55%,transparent);border:2px solid transparent;background-clip:padding-box}',
       '.memp .tree-scroll::-webkit-scrollbar-corner{background:transparent}',
-      '.memp .tree-zoomspace{position:relative;margin:0 auto}',
       '.memp .tree-canvas{position:relative;transform-origin:0 0;transition:transform .16s ease}',
       '.memp .tree-edges{position:absolute;inset:0;overflow:visible;pointer-events:none}',
       '.memp .edge{fill:none;stroke:color-mix(in srgb,var(--dsw-alias-label-secondary) 40%,transparent);stroke-width:1.2;transition:opacity .15s ease,stroke .15s ease,stroke-width .15s ease}',
@@ -482,71 +481,20 @@ window.__ModuleLoader__.load({
       // ===== 星图(记忆的第二种可视化)=====
       // 节点是绝对定位的圆点 + 可选标签,SVG 只画连线;缩放与记忆树共用 .tree-canvas。
       // 层次感(远近)靠 --z-op / --z-blur / z-index 三件套:近的更大更亮更靠前,远的变暗微糊。
-      '.memp .graph-wrap{position:relative;height:min(56vh,560px);min-height:320px;border:1px solid var(--dsw-alias-border-l1);border-radius:14px;overflow:hidden;background:radial-gradient(circle at 50% 44%,color-mix(in srgb,var(--dsw-alias-brand-primary) 11%,transparent),transparent 62%),radial-gradient(circle at 1px 1px,color-mix(in srgb,var(--dsw-alias-label-secondary) 14%,transparent) 1px,transparent 0) 0 0/26px 26px,var(--dsw-alias-bg-layer-1)}',
-      '.mem-page .memp .graph-wrap{height:calc(100vh - 360px);min-height:420px}',
       // stage 居中承载 zoomspace:星图不滚动,缩放后由 flex 居中,不会贴左上角。
-      '.memp .graph-stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;overflow:hidden}',
-      '.memp .graph-zoomspace{position:relative;flex:none}',
-      '.memp .graph-edges{position:absolute;inset:0;overflow:visible;pointer-events:none}',
       // 缩放以中心为原点:zoomspace 的尺寸跟着 zoom 走,canvas 在它里面居中放大,
       // 缩小时不会往左上角缩、把整张图甩出画布。
-      '.memp .graph-canvas{position:absolute;left:50%;top:50%;transform-origin:50% 50%;transition:transform .16s ease}',
-      '.memp .gnode{position:absolute;transform:translate(-50%,-50%);display:flex;align-items:center;justify-content:center;opacity:var(--z-op,1);filter:blur(var(--z-blur,0px));cursor:pointer;user-select:none;transition:opacity .16s ease,filter .16s ease}',
       // 圆点自身撑满节点盒:span 默认没有尺寸,不写 inset 就只剩外面的光晕
-      '.memp .gnode .orb{position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle at 36% 30%,color-mix(in srgb,#fff 42%,var(--k)),var(--k) 58%,color-mix(in srgb,#000 22%,var(--k)));box-shadow:0 0 0 1px color-mix(in srgb,#000 14%,transparent),0 0 12px color-mix(in srgb,var(--k) 44%,transparent);transition:transform .16s ease,box-shadow .16s ease}',
-      '.memp .gnode .orb::after{content:"";position:absolute;inset:-5px;border-radius:50%;border:1px solid color-mix(in srgb,var(--k) 34%,transparent);opacity:0;transition:opacity .16s ease}',
-      '.memp .gnode:hover .orb::after,.memp .gnode.selected .orb::after{opacity:1}',
-      '.memp .gnode:hover .orb{transform:scale(1.16)}',
-      '.memp .gnode:hover,.memp .gnode.selected{opacity:1;filter:none}',
-      '.memp .gnode.selected .orb{box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary) 62%,transparent),0 0 20px color-mix(in srgb,var(--k) 66%,transparent)}',
-      '.memp .gnode .glabel{position:absolute;top:calc(100% + 3px);left:50%;transform:translateX(-50%);max-width:126px;padding:1px 7px;border-radius:999px;border:1px solid transparent;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 78%,transparent);backdrop-filter:blur(4px);font-size:10px;line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--dsw-alias-label-secondary);opacity:0;pointer-events:none;transition:opacity .14s ease,color .14s ease}',
       // 常显标签沿半径朝外排(位置由行内 style 给),不会在星心挤成一堆
-      '.memp .gnode.lbl .glabel{opacity:1;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 62%,transparent)}',
-      '.memp .gnode:hover .glabel,.memp .gnode.selected .glabel{opacity:1}',
-      '.memp .gnode:hover .glabel,.memp .gnode.selected .glabel{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l1);background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 95%,transparent)}',
-      '.memp .gnode.miss{opacity:.16}',
-      '.memp .gnode.near{opacity:1;filter:none}',
-      '.memp .gnode.near .glabel{opacity:1;color:var(--dsw-alias-label-primary)}',
-      '.memp .gnode.match .orb{box-shadow:0 0 0 1px var(--dsw-alias-brand-primary),0 0 18px color-mix(in srgb,var(--k) 62%,transparent)}',
-      '.memp .gnode.hub{cursor:pointer;opacity:1;filter:none}',
-      '.memp .gnode.hub.closed .orb{box-shadow:0 0 0 1px color-mix(in srgb,var(--dsw-alias-brand-primary) 42%,transparent),0 0 22px color-mix(in srgb,var(--dsw-alias-brand-primary) 20%,transparent),inset 0 0 0 3px color-mix(in srgb,var(--dsw-alias-bg-layer-1) 55%,transparent)}',
-      '.memp .gnode.hub .orb{background:radial-gradient(circle at 38% 30%,color-mix(in srgb,var(--dsw-alias-label-primary) 22%,var(--dsw-alias-bg-layer-1)),color-mix(in srgb,var(--dsw-alias-label-primary) 10%,var(--dsw-alias-bg-layer-1)) 62%,color-mix(in srgb,var(--dsw-alias-label-secondary) 22%,var(--dsw-alias-bg-layer-1)));box-shadow:0 0 0 1px color-mix(in srgb,var(--dsw-alias-label-secondary) 45%,transparent),0 0 18px color-mix(in srgb,var(--dsw-alias-label-primary) 16%,transparent)}',
-      '.memp .gnode.hub .hglyph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--dsw-alias-label-primary);letter-spacing:.02em;pointer-events:none}',
       // 星名放上方:星心正下方是记忆环,标签压上去会盖住点
-      '.memp .gnode.hub .glabel{opacity:1;font-weight:600;color:var(--dsw-alias-label-primary);font-size:11px;max-width:200px;top:auto;bottom:calc(100% + 5px);left:50%;transform:translateX(-50%);text-align:center;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 88%,transparent);border-color:color-mix(in srgb,var(--dsw-alias-border-l1) 100%,transparent)}',
-      '.memp .gnode.hub:hover .glabel{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}',
       // 连线要能被看见(整张图默认缩到 ~0.8,1px/低透明度的线会直接消失),
       // 但每条记忆都拉一根到星心,线条一多就成了"车轮",所以默认压淡、聚焦时才亮。
-      '.memp .glink{stroke:color-mix(in srgb,var(--dsw-alias-label-secondary) 42%,transparent);stroke-width:1.1;fill:none;vector-effect:non-scaling-stroke;transition:opacity .14s ease,stroke .14s ease,stroke-width .14s ease}',
-      '.memp .glink.near{stroke:color-mix(in srgb,var(--dsw-alias-label-primary) 82%,transparent);stroke-width:2;opacity:.95}',
-      '.memp .glink.corr{stroke:#D9A441;stroke-dasharray:5 3;opacity:.75;stroke-width:1.6}',
-      '.memp .glink.corr.near{opacity:1;stroke-width:2.4;stroke-dasharray:none}',
-      '.memp .graph-canvas.focused .glink:not(.near){opacity:.05}',
-      '.memp .graph-canvas.focused .gnode:not(.near):not(.hub){opacity:.2;filter:none}',
-      '.memp .graph-hud{position:absolute;left:10px;top:10px;z-index:3;display:flex;align-items:center;gap:8px;padding:3px 10px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 86%,transparent);backdrop-filter:blur(6px);font-size:10.5px;color:var(--dsw-alias-label-secondary);pointer-events:none}',
-      '.memp .graph-hud b{font-weight:600;color:var(--dsw-alias-label-primary);font-variant-numeric:tabular-nums}',
       // 星团柔光:每颗星一团雾 + 一圈轨道环,把散点聚成有边界的"星团"
-      '.memp .graph-glow{position:absolute;inset:0;pointer-events:none}',
-      '.memp .graph-glow span{position:absolute;border-radius:50%;background:radial-gradient(circle,color-mix(in srgb,var(--dsw-alias-label-primary) 15%,transparent),transparent 66%)}',
-      '.memp .graph-glow span.orbit{border:1px dashed color-mix(in srgb,var(--dsw-alias-label-secondary) 22%,transparent);background:none}',
-      '.memp .graph-canvas.focused .graph-glow span{opacity:.16!important}',
       // ===== 3D 星图(与 2D 并列的第二种星图渲染器)=====
       // 3D 的层次感来自真实深度:透视投影 + 遮挡 + 光照。CSS 这里只负责容器、
       // 标签层和状态提示,不参与三维计算。
-      '.memp .graph3-wrap{background:radial-gradient(circle at 50% 42%,color-mix(in srgb,var(--dsw-alias-brand-primary) 14%,transparent),transparent 58%),radial-gradient(circle at 50% 50%,#05070d,transparent 70%),#04060b}',
-      '.memp .graph3-stage{position:absolute;inset:0;overflow:hidden;touch-action:none}',
       // canvas 与标签层都铺满 stage;标签层不吃指针事件,点击全部落到 canvas 上
-      '.memp .graph3-canvas{display:block;width:100%;height:100%;cursor:grab}',
-      '.memp .graph3-canvas.grabbing{cursor:grabbing}',
-      '.memp .graph3-canvas.dragging{cursor:crosshair}',
-      '.memp .graph3-labels{position:absolute;inset:0;pointer-events:none;overflow:hidden}',
-      '.memp .graph3-label{position:absolute;left:0;top:0;max-width:150px;padding:1px 7px;border-radius:999px;border:1px solid transparent;background:color-mix(in srgb,#04060b 74%,transparent);backdrop-filter:blur(4px);font-size:10px;line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#cfd8e8;will-change:transform;transition:opacity .12s ease}',
-      '.memp .graph3-label.hub{font-weight:600;font-size:11px;max-width:200px;color:#eef3ff;background:color-mix(in srgb,#04060b 82%,transparent);border-color:color-mix(in srgb,#9fc6ff 32%,transparent)}',
-      '.memp .graph3-label.star{color:var(--k,#cfd8e8);border-color:color-mix(in srgb,var(--k,#8b93a7) 40%,transparent)}',
-      '.memp .graph3-status{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);padding:8px 16px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 88%,transparent);font-size:11.5px;color:var(--dsw-alias-label-secondary);pointer-events:none}',
       // 拖动时给画布一点反馈:光标变化由上面的 canvas 规则给,这里补 2D 的
-      '.memp .graph-stage{cursor:grab}',
-      '.memp .graph-stage.dragging{cursor:grabbing}',
       '@media (max-width:620px){.memp .tree-stats{width:100%;margin-left:0}.memp .tree-toolbar input[type=text]{max-width:none}}',
       // ===== 审计 =====
       '.memp .audit{display:flex;flex-direction:column;gap:10px;min-height:0;height:calc(100vh - 210px);max-height:calc(100vh - 210px);overflow:hidden}',
@@ -1238,10 +1186,6 @@ window.__ModuleLoader__.load({
     }
 
 
-    // @@INLINE graph-layout.js @@
-    // @@INLINE graph-layout-storage.js @@
-    // @@INLINE graph-2d.js @@
-    // @@INLINE graph-3d.js @@
 
     function KindDot({ kind }) {
       return h('span', {
@@ -1881,12 +1825,7 @@ window.__ModuleLoader__.load({
     }
 
     function MemoryTreeTab({ records, scopes, loading, error, onRefresh }) {
-      // 同一个标签页里的三种可视化:树(结构清晰)、2D 星图、3D 星图(体积/遮挡)。
-      // 筛选、选中、修正连线开关是所有视图共用的 —— 切换视图不该丢掉你刚搜的那一半。
-      //
-      // 视图状态按模式**各自独立**:树只有 zoom,2D 有 zoom/panX/panY,3D 有相机。
-      // 共用一套缩放值会出现"在 2D 放大到 3× 再切回树,树也跟着糊掉"这种荒谬结果。
-      const [view, setView] = React.useState('tree')
+      // 0.74.0：星图视图已彻底移除，记忆图标签页只有知识树一种视图。
       const [query, setQuery] = React.useState('')
       const [scopeFilter, setScopeFilter] = React.useState('')
       const [kindFilter, setKindFilter] = React.useState(null)
@@ -1899,22 +1838,8 @@ window.__ModuleLoader__.load({
       const [zoom, setZoom] = React.useState(loadTreeZoom())
       const zoomRef = React.useRef(zoom)
       zoomRef.current = zoom
-      // 2D 星图视图状态:zoom + panX/panY(屏幕像素)。3D 的相机状态由渲染器自己管,
-      // 通过 onView 回写到 layout.views['3d'],组件不重复持有。
-      const [graphView, setGraphView] = React.useState(graph2DDefaultView)
       const [autoFitDone, setAutoFitDone] = React.useState(false)
-      const [graphFitDone, setGraphFitDone] = React.useState(false)
-      // 布局覆盖层(用户拖过的节点 / 转过的轨道 / 各模式视角)。懒加载:localStorage
-      // 读取只做一次,之后就是纯内存的不可变更新。
-      const [layoutStore, setLayoutStore] = React.useState(loadGraphLayout)
-      // 3D 的运行时状态:未加载 / 加载中 / 就绪 / 失败(附原因)。失败时退回 2D,
-      // 并把原因显示给用户 —— 不能假装"3D 就是这样的"。
-      const [three3D, setThree3D] = React.useState({ status: 'idle', error: '' })
       const wrapRef = React.useRef(null)
-      const stageRef = React.useRef(null)
-      const graph3HostRef = React.useRef(null)
-      const graph3Ref = React.useRef(null)
-
       const labels = {}
       for (const entry of scopes) {
         if (entry && typeof entry.scope === 'string' && typeof entry.label === 'string') labels[entry.scope] = entry.label
@@ -1944,40 +1869,6 @@ window.__ModuleLoader__.load({
       const layout = buildMemoryTree(treeRecords, {
         labels, collapsed, activeKinds, scopeFilter, query,
       })
-      const graph = buildMemoryGraph(records, {
-        labels, collapsed, activeKinds, scopeFilter, query,
-      })
-      // 3D 布局:在 2D 的确定性结果上派生。只在真的要看 3D 时才算 —— 树/2D 用户
-      // 不该为一份用不到的三维坐标付计算成本。
-      const graph3 = view === '3d' ? buildMemoryGraph3D(graph, { overlay: layoutStore }) : null
-
-      /** 读 stage 的实时尺寸。2D 的锚点缩放与适应画布都要它。 */
-      const stageSize = () => {
-        const stage = stageRef.current
-        if (!stage || !(stage.clientWidth > 0)) return { width: 1, height: 1 }
-        return { width: stage.clientWidth, height: stage.clientHeight }
-      }
-
-      /** 把某个模式的视图状态写回持久化层。 */
-      const persistView = (mode, next) => {
-        setLayoutStore((previous) => {
-          const merged = withViewState(previous, mode, next)
-          saveGraphLayout(merged)
-          return merged
-        })
-      }
-
-      // 星图不滚动:整张图缩放到画布内,普通滚轮留给宿主页面(Ctrl+滚轮才缩放)。
-      const fitGraph = () => {
-        try {
-          const next = graph2DFitView(graph, stageSize())
-          setGraphView(next)
-          persistView('2d', next)
-        } catch {
-          setGraphView(graph2DDefaultView())
-        }
-      }
-
       // 第一次拿到记录时把宽度缩到画布内:右侧的记录列默认不该被横向截断。
       // 高度方向仍可滚动 —— 记忆很多时把整棵树压到一屏里会小到看不清。
       React.useEffect(() => {
@@ -2019,28 +1910,6 @@ window.__ModuleLoader__.load({
         else if (bottom > viewBottom - 12) scroll.scrollTop = bottom - scroll.clientHeight + 12
       }, [selectedId])
 
-      // 星图第一次出现时缩到画布内。它不滚动,所以必须整张可见;之后用户自己缩放过
-      // 就不再动 —— 手动调过的视角绝不能被一次重渲染重新"适应"回去。
-      React.useEffect(() => {
-        if (view !== 'graph' || graphFitDone || graph.counts.records === 0) return
-        const stage = stageRef.current
-        if (!stage || !(stage.clientWidth > 0) || graph.width <= 0) return
-        // 有存下来的视角就恢复它,不要覆盖用户上次的调整。
-        const stored = layoutStore.views && layoutStore.views['2d']
-        if (stored && Number.isFinite(stored.zoom)) {
-          setGraphView({
-            zoom: graph2DClampZoom(stored.zoom),
-            panX: Number.isFinite(stored.panX) ? stored.panX : 0,
-            panY: Number.isFinite(stored.panY) ? stored.panY : 0,
-          })
-        } else {
-          const next = graph2DFitView(graph, stageSize())
-          setGraphView(next)
-          persistView('2d', next)
-        }
-        setGraphFitDone(true)
-      }, [view, graphFitDone, graph.counts.records, graph.width, graph.height])
-
       const focusId = hoverId || selectedId
       const related = new Set()
       if (focusId) {
@@ -2065,233 +1934,6 @@ window.__ModuleLoader__.load({
         if (edge.toType === 'kind' || edge.toType === 'scope') return pathKeys.has(edge.toKey)
         return false
       }
-
-      // 星图的「邻域」和树的路径高亮不是一回事:树要顺着父链点亮整条路径,
-      // 星图只关心焦点本身 + 它的作用域 hub + 修正对手 —— 多了就满屏都亮,等于没高亮。
-      const graphFocusKey = focusId === null ? null : `record:${focusId}`
-      const graphNear = new Set()
-      if (graphFocusKey !== null && graph.nodeByKey.has(graphFocusKey)) {
-        graphNear.add(graphFocusKey)
-        for (const edge of graph.edges) {
-          if (edge.fromKey === graphFocusKey) graphNear.add(edge.toKey)
-          else if (edge.toKey === graphFocusKey) graphNear.add(edge.fromKey)
-        }
-        for (const edge of graph.corrections) {
-          if (edge.fromKey === graphFocusKey) graphNear.add(edge.toKey)
-          else if (edge.toKey === graphFocusKey) graphNear.add(edge.fromKey)
-        }
-      }
-      const graphEdgeNear = (edge) => graphNear.has(edge.fromKey) || graphNear.has(edge.toKey)
-
-      // ===== 3D 渲染器的生命周期 =====
-      //
-      // 三条硬规则:
-      //   ① 只在 view === '3d' 时加载 three.js(2.5MB 的 chunk 不该拖累树/2D 用户);
-      //   ② 切走时 pause(停掉 rAF,不占 GPU),离开面板时 dispose(释放显存);
-      //   ③ 加载失败 / WebGL 不可用 → 退回 2D 并把原因说清楚,绝不假装加载成功。
-      React.useEffect(() => {
-        if (view !== '3d') {
-          // 切走:暂停渲染,但保留实例 —— 切回来时能接着用同一个相机,不闪一下
-          if (graph3Ref.current) graph3Ref.current.pause()
-          return
-        }
-        if (graph3Ref.current) {
-          graph3Ref.current.resume()
-          return
-        }
-        if (three3D.status === 'loading') return
-        // 环境不支持就直接退回 2D,别让用户对着黑屏猜
-        if (!graphWebGLAvailable()) {
-          setThree3D({ status: 'failed', error: '当前环境不支持 WebGL，已退回 2D 星图' })
-          setView('graph')
-          return
-        }
-        const host = graph3HostRef.current
-        if (!host) return
-        let cancelled = false
-        setThree3D({ status: 'loading', error: '' })
-        const controller = createMemoryGraph3D({
-          container: host,
-          onSelect: (id) => setSelectedId((current) => (current === id ? null : id)),
-          onHover: setHoverId,
-          onNodeMove: (id, position) => {
-            setLayoutStore((previous) => {
-              const next = withNodePosition(previous, 'record', id, position)
-              saveGraphLayout(next)
-              return next
-            })
-          },
-          onScopeMove: (scope, position) => {
-            setLayoutStore((previous) => {
-              const next = withNodePosition(previous, 'scope', scope, position)
-              saveGraphLayout(next)
-              return next
-            })
-          },
-          onScopeRotate: (scope, rotation) => {
-            setLayoutStore((previous) => {
-              const next = withScopeRotation(previous, scope, rotation)
-              saveGraphLayout(next)
-              return next
-            })
-          },
-          onView: (next) => persistView('3d', next),
-        })
-        graph3Ref.current = controller
-        const storedView = layoutStore.views && layoutStore.views['3d']
-        controller.mount(graph3, storedView).then((ok) => {
-          if (cancelled || !ok) return
-          setThree3D({ status: 'ready', error: '' })
-          // 没有存下来的视角时,第一次进入就把整张图框进视野
-          if (!storedView || !Array.isArray(storedView.cameraPosition)) {
-            controller.fit(graph3 ? graph3.radius : 400)
-          }
-        }).catch((err) => {
-          if (cancelled) return
-          graph3Ref.current = null
-          setThree3D({ status: 'failed', error: `3D 渲染器加载失败:${String(err && err.message ? err.message : err)}` })
-          setView('graph')
-        })
-        return () => {
-          // 注意:这里**不** dispose —— 切到树再切回来要复用同一个控制器。
-          // 真正的销毁在下面那个只在卸载时跑的 effect 里。
-          cancelled = true
-        }
-      }, [view, three3D.status])
-
-      // 数据变化(筛选 / 折叠 / 新记录)时重建场景,不重建相机。
-      React.useEffect(() => {
-        const controller = graph3Ref.current
-        if (!controller || three3D.status !== 'ready' || !graph3) return
-        controller.setData(graph3)
-      }, [three3D.status, graph3])
-
-      // 高亮状态同步:选中 / 悬停 / 邻域 / 搜索命中。
-      React.useEffect(() => {
-        const controller = graph3Ref.current
-        if (!controller || three3D.status !== 'ready') return
-        controller.setHighlight({
-          selectedId,
-          hoverId,
-          nearKeys: graphNear,
-          matchIds: graph3 ? new Set(graph3.matches) : new Set(),
-          hasQuery: query.trim() !== '',
-        })
-      }, [three3D.status, selectedId, hoverId, graphNear, graph3, query])
-
-      // 搜索命中在 3D 里也要"看得见":把第一颗命中的星移到视野中心。
-      // 只在查询变化时触发一次,拖动视角不会把镜头抢回去。
-      React.useEffect(() => {
-        const controller = graph3Ref.current
-        if (!controller || three3D.status !== 'ready' || !graph3 || view !== '3d') return
-        if (query.trim() === '' || graph3.matches.size === 0) return
-        const first = graph3.records.find((node) => graph3.matches.has(node.id))
-        if (first) controller.focusNode(first.key)
-      }, [three3D.status, query, view])
-
-      // 容器尺寸变化 → 同步相机宽高比。窗口缩放和侧栏开合都会触发。
-      React.useEffect(() => {
-        if (view !== '3d') return
-        const host = graph3HostRef.current
-        if (!host) return
-        const onResize = () => {
-          if (graph3Ref.current) graph3Ref.current.resize()
-        }
-        if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
-          window.addEventListener('resize', onResize)
-        }
-        let observer = null
-        if (typeof ResizeObserver === 'function') {
-          observer = new ResizeObserver(onResize)
-          observer.observe(host)
-        }
-        return () => {
-          if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
-            window.removeEventListener('resize', onResize)
-          }
-          if (observer) observer.disconnect()
-        }
-      }, [view, three3D.status])
-
-      // 卸载:彻底销毁 3D(释放显存、摘掉 canvas、移除监听)。
-      React.useEffect(() => () => {
-        if (graph3Ref.current) {
-          graph3Ref.current.dispose()
-          graph3Ref.current = null
-        }
-      }, [])
-
-      // ===== 2D 画布交互:拖动平移 + Ctrl+滚轮锚点缩放 =====
-      // 用原生监听而不是 React 的 onWheel:React 的 wheel 是 passive 的,
-      // 拦不住浏览器缩放,而且拿不到 preventDefault。
-      React.useEffect(() => {
-        if (view !== 'graph') return
-        const stage = stageRef.current
-        if (!stage) return
-
-        let dragging = false
-        let lastX = 0
-        let lastY = 0
-
-        const onPointerDown = (event) => {
-          // 点在节点上时不接管:节点自己有点击语义(选中 / 折叠星团)。
-          if (event.target && typeof event.target.closest === 'function' && event.target.closest('.gnode')) return
-          if (event.button !== 0) return
-          dragging = true
-          lastX = event.clientX
-          lastY = event.clientY
-          stage.classList.add('dragging')
-          if (typeof stage.setPointerCapture === 'function' && event.pointerId !== undefined) {
-            try { stage.setPointerCapture(event.pointerId) } catch {}
-          }
-          if (typeof event.preventDefault === 'function') event.preventDefault()
-        }
-        const onPointerMove = (event) => {
-          if (!dragging) return
-          const dx = event.clientX - lastX
-          const dy = event.clientY - lastY
-          if (dx === 0 && dy === 0) return
-          lastX = event.clientX
-          lastY = event.clientY
-          setGraphView((previous) => {
-            const next = graph2DPan(previous, dx, dy, stageSize())
-            persistView('2d', next)
-            return next
-          })
-        }
-        const onPointerUp = (event) => {
-          if (!dragging) return
-          dragging = false
-          stage.classList.remove('dragging')
-          if (typeof stage.releasePointerCapture === 'function' && event && event.pointerId !== undefined) {
-            try { stage.releasePointerCapture(event.pointerId) } catch {}
-          }
-        }
-        const onWheel = (event) => {
-          // 只接管 Ctrl+滚轮;普通滚轮留给宿主页面滚动。
-          if (!event.ctrlKey && !event.metaKey) return
-          if (typeof event.preventDefault === 'function') event.preventDefault()
-          const anchor = graph2DPointerInStage(event, stage)
-          setGraphView((previous) => {
-            const next = graph2DWheelZoom(previous, event.deltaY, anchor, stageSize())
-            persistView('2d', next)
-            return next
-          })
-        }
-
-        stage.addEventListener('pointerdown', onPointerDown)
-        stage.addEventListener('pointermove', onPointerMove)
-        stage.addEventListener('pointerup', onPointerUp)
-        stage.addEventListener('pointercancel', onPointerUp)
-        stage.addEventListener('wheel', onWheel, { passive: false })
-        return () => {
-          stage.removeEventListener('pointerdown', onPointerDown)
-          stage.removeEventListener('pointermove', onPointerMove)
-          stage.removeEventListener('pointerup', onPointerUp)
-          stage.removeEventListener('pointercancel', onPointerUp)
-          stage.removeEventListener('wheel', onWheel)
-        }
-      }, [view])
 
       const toggleScope = (scope) => {
         const key = `scope:${scope}`
@@ -2336,12 +1978,6 @@ window.__ModuleLoader__.load({
       const stepZoom = (delta) => {
         setZoom((value) => Math.max(0.45, Math.min(1.6, Math.round((value + delta) * 100) / 100)))
       }
-      const stepGraphZoom = (delta) => {
-        const next = graph2DStepZoom(graphView, delta, stageSize())
-        if (graph2DSameView(next, graphView)) return
-        setGraphView(next)
-        persistView('2d', next)
-      }
       const fitView = () => {
         try {
           const wrap = wrapRef.current
@@ -2369,7 +2005,7 @@ window.__ModuleLoader__.load({
       for (const scope of presentScopes) scopeItems.push({ value: scope, label: scopeLabel(scope, labels) })
       const correctionsTotal = records.reduce((sum, rec) => sum + (rec.supersedes ? 1 : 0), 0)
       const scopeTotal = new Set(records.map((rec) => rec.scope)).size
-      const shownCount = view === 'tree' ? layout.counts.records : graph.counts.records
+      const shownCount = layout.counts.records
       const emptyText = records.length === 0
         ? (loading ? '正在加载记忆…' : '还没有记忆。去「记录」里新建一条，或让 Agent 用 memory_save 写一条。')
         : shownCount === 0
@@ -2497,7 +2133,7 @@ window.__ModuleLoader__.load({
           onClick: () => setOnlyIssues((value) => !value),
         }, '只看问题', h('b', null, String(issueTotal))),
         query.trim() !== ''
-          ? h('span', { className: 'tree-matchinfo' }, `匹配 ${view === 'graph' ? graph.matches.size : layout.matches.size} 条`)
+          ? h('span', { className: 'tree-matchinfo' }, `匹配 ${layout.matches.size} 条`)
           : null,
         h('span', { className: 'spacer' }),
         h('button', { onClick: () => setCollapsed(new Set()) }, '全部展开'),
@@ -2656,171 +2292,6 @@ window.__ModuleLoader__.load({
             )
           : null,
         showCorrections && layout.corrections.length > 0 && !showEmpty
-          ? h('div', { className: 'tree-legend' }, h('span', null, h('i', { className: 'line' }), '修正关系'))
-          : null,
-        detail,
-      )
-
-      // ===== 星图画布 =====
-      // 节点是绝对定位的圆点,缩放只作用在 .graph-canvas 上;连线的坐标和节点同一个
-      // 坐标系,所以缩放后依然对齐。远近靠 z 值:近的大、亮、靠前,远的暗、微糊。
-      const graphNodes = []
-      for (const node of graph.nodes) {
-        if (node.type === 'scope') {
-          const size = Math.max(14, Math.round(node.r * 2))
-          graphNodes.push(h('div', {
-            key: node.key,
-            className: 'gnode hub' + (node.open ? '' : ' closed'),
-            style: { left: `${node.x}px`, top: `${node.y}px`, width: `${size}px`, height: `${size}px`, zIndex: 200 },
-            title: `${node.label} · ${node.count} 条记忆${node.open ? '' : '（已折叠，点击展开）'}`,
-            onClick: () => toggleScope(node.scope),
-          },
-            h('span', { className: 'orb' }),
-            h('span', { className: 'hglyph' }, scopeGlyph(node.scope)),
-            // 星名挂在轨道环外侧:压在簇里会盖住记忆点
-            h('span', {
-              className: 'glabel',
-              style: node.open && node.orbit > 0 ? { bottom: node.orbit + 6 } : null,
-            }, `${node.label} · ${node.count}`),
-          ))
-          continue
-        }
-        const rec = node.rec
-        const size = Math.max(5, Math.round(node.r * 2))
-        const miss = query.trim() !== '' && !graph.matches.has(rec.id)
-        const match = query.trim() !== '' && graph.matches.has(rec.id)
-        const near = graphNear.has(node.key)
-        // 标签只给"有意义的点":命中、邻域、选中、悬停。全显会把星团糊成一片,
-        // 这也是 Obsidian 图谱默认不标全部节点的原因。
-        const showLabel = match || near
-        const cls = 'gnode'
-          + (rec.id === selectedId ? ' selected' : '')
-          + (near ? ' near' : '')
-          + (miss ? ' miss' : '')
-          + (match ? ' match' : '')
-          + (showLabel ? ' lbl' : '')
-        graphNodes.push(h('div', {
-          key: node.key,
-          className: cls,
-          style: {
-            left: `${node.x}px`,
-            top: `${node.y}px`,
-            width: `${size}px`,
-            height: `${size}px`,
-            '--k': kindMeta(node.kind).color,
-            '--z-op': String(Math.round((1 - node.z * 0.44) * 100) / 100),
-            '--z-blur': node.z > 0.5 ? `${((node.z - 0.5) * 1.4).toFixed(2)}px` : '0px',
-            zIndex: 120 - Math.round(node.z * 90),
-          },
-          title: `${kindMeta(node.kind).label} · ${excerpt(rec.content, 60)}`,
-          onClick: () => setSelectedId((current) => current === rec.id ? null : rec.id),
-          onMouseEnter: () => setHoverId(rec.id),
-          onMouseLeave: () => setHoverId(null),
-        },
-          h('span', { className: 'orb' }),
-          // 标签沿半径朝外,四个方向各自贴边,避免压住圆心
-          h('span', {
-            className: 'glabel',
-            style: {
-              top: '50%',
-              left: '50%',
-              transform: `translate(${Math.cos(node.angle) >= 0 ? '6px' : 'calc(-100% - 6px)'}, -50%)`,
-              textAlign: Math.cos(node.angle) >= 0 ? 'left' : 'right',
-            },
-          }, excerpt(rec.content, 22)),
-        ))
-      }
-
-      const graphPaths = []
-      for (const edge of graph.edges) {
-        if (edge.x1 === undefined) continue
-        graphPaths.push(h('path', {
-          key: edge.key,
-          className: 'glink' + (graphEdgeNear(edge) ? ' near' : ''),
-          d: graphLinkPath(edge.x1, edge.y1, edge.x2, edge.y2),
-        }))
-      }
-      if (showCorrections) {
-        for (const edge of graph.corrections) {
-          if (edge.x1 === undefined) continue
-          graphPaths.push(h('path', {
-            key: edge.key,
-            className: 'glink corr' + (graphEdgeNear(edge) ? ' near' : ''),
-            d: graphLinkPath(edge.x1, edge.y1, edge.x2, edge.y2),
-          }))
-        }
-      }
-
-      const graphCanvas = h('div', {
-        className: 'graph-canvas' + (graphFocusKey !== null ? ' focused' : ''),
-        style: {
-          width: graph.width,
-          height: graph.height,
-          marginLeft: -graph.width / 2,
-          marginTop: -graph.height / 2,
-          // 平移在前、缩放在后:panX/panY 是屏幕像素,拖多少像素就走多少像素
-          transform: graph2DTransform(graphView),
-        },
-      },
-        // 每个作用域一团柔光 + 一圈轨道环:让"星团"有体积感,而不是一圈点撒在网格上
-        h('div', { className: 'graph-glow', 'aria-hidden': 'true' },
-          graph.nodes.filter((node) => node.type === 'scope').flatMap((node) => {
-            const halo = node.r * 2.6
-            const parts = [h('span', {
-              key: `glow:${node.key}`,
-              style: {
-                left: node.x - halo,
-                top: node.y - halo,
-                width: halo * 2,
-                height: halo * 2,
-                opacity: node.open ? 0.85 : 0.3,
-              },
-            })]
-            if (node.open && node.orbit > 0) {
-              parts.push(h('span', {
-                key: `orbit:${node.key}`,
-                className: 'orbit',
-                style: {
-                  left: node.x - node.orbit,
-                  top: node.y - node.orbit,
-                  width: node.orbit * 2,
-                  height: node.orbit * 2,
-                  opacity: 0.9,
-                },
-              }))
-            }
-            return parts
-          })),
-        h('svg', {
-          className: 'graph-edges',
-          width: graph.width,
-          height: graph.height,
-          viewBox: `0 0 ${graph.width} ${graph.height}`,
-          'aria-hidden': 'true',
-        }, graphPaths),
-        graphNodes,
-      )
-
-      const graphWrap = h('div', { className: 'graph-wrap', ref: wrapRef },
-        // stage 是拖动/滚轮的监听目标,也是锚点缩放的坐标系原点
-        h('div', { className: 'graph-stage', ref: stageRef },
-          h('div', {
-            className: 'graph-zoomspace',
-            style: { width: Math.ceil(graph.width * graphView.zoom), height: Math.ceil(graph.height * graphView.zoom) },
-          }, graphCanvas),
-        ),
-        showEmpty ? emptyNode('🌌') : null,
-        showEmpty ? null : h('div', { className: 'graph-hud' },
-          h('b', null, String(graph.counts.scopes)), ' 颗星 · ',
-          h('b', null, String(graph.counts.records)), ' 条记忆 · 拖动平移，Ctrl+滚轮缩放',
-        ),
-        showEmpty ? null : h('div', { className: 'tree-zoom' },
-          h('button', { title: '缩小', onClick: () => stepGraphZoom(-GRAPH_VIEW.zoomStep) }, '−'),
-          h('span', { className: 'zoomval' }, `${Math.round(graphView.zoom * 100)}%`),
-          h('button', { title: '放大', onClick: () => stepGraphZoom(GRAPH_VIEW.zoomStep) }, '+'),
-          h('button', { title: '适应画布', onClick: fitGraph }, '适应'),
-        ),
-        showCorrections && graph.corrections.length > 0 && !showEmpty
           ? h('div', { className: 'tree-legend' }, h('span', null, h('i', { className: 'line' }), '修正关系'))
           : null,
         detail,
@@ -8413,35 +7884,6 @@ window.__ModuleLoader__.load({
       clampTreeZoom: clampTreeZoom,
       TREE_ZOOM_MIN: TREE_ZOOM_MIN,
       TREE_ZOOM_MAX: TREE_ZOOM_MAX,
-      buildMemoryGraph: buildMemoryGraph,
-      graphLinkPath: graphLinkPath,
-      GRAPH_METRICS: GRAPH_METRICS,
-      // 视图配置(缩放上下限、灵敏度、相机参数)集中在这里,测试直接核对口径
-      GRAPH_VIEW: GRAPH_VIEW,
-      // 3D 布局:在 2D 的确定性结果上派生,同样是纯函数
-      buildMemoryGraph3D: buildMemoryGraph3D,
-      // 2D 视图数学:平移 / 锚点缩放 / 适应画布,全是纯函数
-      graph2DDefaultView: graph2DDefaultView,
-      graph2DClampZoom: graph2DClampZoom,
-      graph2DAnchorZoom: graph2DAnchorZoom,
-      graph2DWheelZoom: graph2DWheelZoom,
-      graph2DStepZoom: graph2DStepZoom,
-      graph2DPan: graph2DPan,
-      graph2DFitView: graph2DFitView,
-      graph2DTransform: graph2DTransform,
-      graph2DPointerInStage: graph2DPointerInStage,
-      // 布局持久化(测试用假 localStorage 驱动)
-      GRAPH_LAYOUT_KEY: GRAPH_LAYOUT_KEY,
-      GRAPH_LAYOUT_VERSION: GRAPH_LAYOUT_VERSION,
-      loadGraphLayout: loadGraphLayout,
-      saveGraphLayout: saveGraphLayout,
-      clearGraphLayout: clearGraphLayout,
-      withNodePosition: withNodePosition,
-      withScopeRotation: withScopeRotation,
-      withViewState: withViewState,
-      // 3D 渲染器的两个能力探测(测试只核对判定逻辑,不建 WebGL 上下文)
-      graphWebGLAvailable: graphWebGLAvailable,
-      createMemoryGraph3D: createMemoryGraph3D,
       // 会话作用域展示名:取会话 id 前 16 位(前 8 位恒为 `session-`)
       sessionShortId: sessionShortId,
       scopeDisplayName: scopeDisplayName,
