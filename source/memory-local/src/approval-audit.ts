@@ -7,7 +7,7 @@
  *
  * 每行一个不可变事件，追加写（O_APPEND），跨进程写小行不会互相撕裂。
  */
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
 export type ApprovalAuditEventKind =
@@ -46,18 +46,39 @@ export interface ApprovalAuditEvent {
 
 export class ApprovalAuditStore {
   readonly file: string
+  /** 0.107.0：文件超过该字节数就保留最近 keepLines 行重写（防长期使用无界增长）。 */
+  private readonly maxBytes: number
+  private readonly keepLines: number
 
-  constructor(options: { root: string }) {
+  constructor(options: { root: string; maxBytes?: number; keepLines?: number }) {
     this.file = join(options.root, 'approvals.jsonl')
+    this.maxBytes = Math.max(256, options.maxBytes ?? 1_000_000)
+    this.keepLines = Math.max(5, options.keepLines ?? 2000)
   }
 
   append(event: ApprovalAuditEvent): void {
     try {
       if (!existsSync(this.file)) mkdirSync(dirname(this.file), { recursive: true })
       appendFileSync(this.file, `${JSON.stringify(event)}\n`, 'utf8')
+      this.rotateIfNeeded()
     } catch {
       // 审计写失败不能影响审批本身
     }
+  }
+
+  /**
+   * 0.107.0：超过上限时保留最近 keepLines 行重写（tmp + rename，避免半截文件）。
+   * 审批审计是低频旁路日志；这里只控制磁盘占用，不改变 list() 的语义（仍按时间倒序）。
+   */
+  private rotateIfNeeded(): void {
+    try {
+      if (statSync(this.file).size <= this.maxBytes) return
+      const lines = readFileSync(this.file, 'utf8').split('\n').filter((line) => line.trim() !== '')
+      const kept = lines.slice(-this.keepLines)
+      const tmp = `${this.file}.tmp`
+      writeFileSync(tmp, kept.length === 0 ? '' : `${kept.join('\n')}\n`, 'utf8')
+      renameSync(tmp, this.file)
+    } catch { /* 轮转失败不影响后续追加 */ }
   }
 
   /** 最近 N 条（面板 / 诊断用），坏行跳过。 */

@@ -4,7 +4,7 @@
 
 **给 DeepSeek Harness 的本地优先长期记忆插件：多路检索 + 多跳图增强 + 上下文摘要 + 冲突消解**
 
-[![version](https://img.shields.io/badge/version-v0.106.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![version](https://img.shields.io/badge/version-v0.107.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
 [![license](https://img.shields.io/badge/license-MIT-3DA639.svg)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A522.13-3C873A.svg)](package.json)
 
@@ -12,7 +12,7 @@
 
 </div>
 
-**当前版本：v0.106.0** · [Release](https://github.com/HANPU5838/dsh-memory/releases) · [更新日志](CHANGELOG.md)
+**当前版本：v0.107.0** · [Release](https://github.com/HANPU5838/dsh-memory/releases) · [更新日志](CHANGELOG.md)
 
 ---
 
@@ -318,6 +318,8 @@ npm run probe:flake -- 10   # 怀疑偶发失败时：同一套测试连跑 N �
   Telegram bot token 与中文「密码/令牌：…」表述**（0.90.0 补齐）；
 - 范围外访问需要用户审批（会话级权限 + 审批卡），Agent 不能绕过；
 - `memory_block` 是“隐藏”不是删除；软删记录可在 30 天内恢复；
+- **长期运行有界**：审批旁路日志 `approvals.jsonl` 超过 1MB 自动轮转（保留最近 2000 行）；
+  本地备份最多保留 20 份（创建新备份时裁掉最旧的），doctor 会对两者给出提示；
 - 升级插件只替换代码，不迁移/不重写记忆数据。
 
 ## 常见问题

@@ -75,10 +75,22 @@ if (!existsSync(storeDir)) {
     malformed === 0 ? `${scopeFiles} 个作用域文件 / ${recordLines} 行记录，全部可解析` : `${malformed} 行损坏（${malformedSamples.join('、')}）`,
     malformed === 0 ? undefined : '损坏行会被加载器跳过；建议备份后手工修复或让维护任务重写。')
   if (scopeFiles === 0) add('warn', '作用域数据', '库里还没有任何 JSONL 记录（空库或尚未初始化）')
-  // ⑦ 备份
+  // ⑦ 备份（0.107.0：超过保留上限只提示，不自动删）
   const backupDir = join(storeDir, 'backups')
   const backups = existsSync(backupDir) ? readdirSync(backupDir).filter((f) => f.endsWith('.jsonl.gz')) : []
-  add('ok', '备份', backups.length === 0 ? '暂无备份（面板「维护 → 立即备份」可创建）' : `${backups.length} 个本地备份`)
+  add(backups.length <= 20 ? 'ok' : 'warn', '备份',
+    backups.length === 0 ? '暂无备份（面板「维护 → 立即备份」可创建）' : `${backups.length} 个本地备份`,
+    backups.length <= 20 ? undefined : '备份超过 20 份：下次「立即备份」会自动裁掉最旧的；也可手动清理 backups/。')
+  // ⑦b 审批旁路日志大小（0.107.0 起自动轮转，这里只做可见性检查）
+  try {
+    const approvalsLog = join(storeDir, 'approvals.jsonl')
+    if (existsSync(approvalsLog)) {
+      const bytes = statSync(approvalsLog).size
+      add(bytes <= 5 * 1024 * 1024 ? 'ok' : 'warn', '审批日志',
+        `${(bytes / 1024).toFixed(0)} KB`,
+        bytes <= 5 * 1024 * 1024 ? undefined : '超过 5MB：下次审批写入会自动轮转保留最近 2000 行。')
+    }
+  } catch { /* 读不到不影响其它检查 */ }
   // ② settings.json
   const settingsPath = join(storeDir, 'settings.json')
   if (!existsSync(settingsPath)) {

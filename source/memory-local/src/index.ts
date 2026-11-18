@@ -6423,14 +6423,30 @@ export class LocalMemoryService implements MemoryServiceApi {
     return out.sort((a, b) => b.createdAt - a.createdAt)
   }
 
+  /**
+   * 0.107.0：本地备份最多保留 DEFAULT_MAX_BACKUPS 份（创建备份后自动裁掉最旧的）。
+   * 只删本插件自己生成的 `snapshot-*.jsonl(.gz)`，不碰目录里其它文件。
+   */
+  pruneBackups(limit = 20): number {
+    const keep = Math.max(1, Math.floor(limit))
+    const snapshots = this.listBackups().filter((backup) => backup.name.startsWith('snapshot-'))
+    const stale = snapshots.slice(keep)
+    let removed = 0
+    for (const backup of stale) {
+      try { rmSync(join(this.backupDir, backup.name), { force: true }); removed += 1 } catch { /* 单个删除失败不影响其它 */ }
+    }
+    return removed
+  }
+
   /** 0.40.0：立即创建本地备份，返回文件名与大小。 */
-  createBackup(): { name: string; bytes: number; records: number } {
+  createBackup(): { name: string; bytes: number; records: number; pruned?: number } {
     const dir = this.backupDir
     mkdirSync(dir, { recursive: true })
     const name = `snapshot-${new Date().toISOString().replace(/[:.]/g, '-')}.jsonl.gz`
     const file = join(dir, name)
     const result = this.snapshotStore(file)
-    return { name, bytes: result.bytes, records: result.records }
+    const pruned = this.pruneBackups()
+    return { name, bytes: result.bytes, records: result.records, ...(pruned > 0 ? { pruned } : {}) }
   }
 
   /** 0.40.0：从本地备份恢复（只允许 backupDir 下的文件名，防路径穿越）。 */
