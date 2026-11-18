@@ -2887,7 +2887,16 @@ export class LocalMemoryService                             {
           if (applied.record !== undefined) {
             created.push(applied.record.id)
             // applied.superseded 是基底 id（string）；本簇被合并掉的条数 = 簇大小 - 1。
-            merged += Math.max(0, plan.supersedes.length - 1)
+            const mergedCount = Math.max(0, plan.supersedes.length - 1)
+            merged += mergedCount
+            // 0.71.0：巩固是"写"事件（旁路元数据，不含正文），订阅者可以据此更新外部索引。
+            this.events.consolidated({
+              scope: plan.scope,
+              id: applied.record.id,
+              kind: plan.kind,
+              merged: mergedCount,
+              sources: [...plan.consolidatedFrom],
+            })
           }
         } catch { /* 单个簇失败不影响其它 */ }
       }

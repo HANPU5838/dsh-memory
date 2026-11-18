@@ -34,6 +34,7 @@ test('事件名与 payload 契约固定', () => {
     saved: 'memory/record-saved',
     recalled: 'memory/recalled',
     forgotten: 'memory/record-forgotten',
+    consolidated: 'memory/consolidated',
   })
 })
 
@@ -43,11 +44,13 @@ test('sink 收到三条事件，字段与契约一致', () => {
   bus.saved({ scope: 'session:s1', id: 'rec-1', kind: 'fact', chars: 42, deduped: false })
   bus.recalled({ query: '部署 备份', hits: 3, topScopes: ['session:s1', 'global'], vector: true })
   bus.forgotten({ scope: 'session:s1', ids: ['rec-1', 'rec-2'] })
+  bus.consolidated({ scope: 'session:s1', id: 'rec-3', kind: 'fact', merged: 1, sources: ['rec-1', 'rec-2'] })
 
-  assert.deepEqual(events.map((e) => e.name), [MEMORY_EVENT.saved, MEMORY_EVENT.recalled, MEMORY_EVENT.forgotten])
+  assert.deepEqual(events.map((e) => e.name), [MEMORY_EVENT.saved, MEMORY_EVENT.recalled, MEMORY_EVENT.forgotten, MEMORY_EVENT.consolidated])
   assert.deepEqual(events[0]!.payload, { scope: 'session:s1', id: 'rec-1', kind: 'fact', chars: 42, deduped: false })
   assert.deepEqual(events[1]!.payload, { query: '部署 备份', hits: 3, topScopes: ['session:s1', 'global'], vector: true })
   assert.deepEqual(events[2]!.payload, { scope: 'session:s1', ids: ['rec-1', 'rec-2'] })
+  assert.deepEqual(events[3]!.payload, { scope: 'session:s1', id: 'rec-3', kind: 'fact', merged: 1, sources: ['rec-1', 'rec-2'] })
 })
 
 test('setSink 后三条事件都走宿主出口；setSink(undefined) 退回进程内', () => {
@@ -195,6 +198,35 @@ test('未注入事件总线时保存 / 检索 / 删除照常工作（默认总�
     assert.ok(hits.length >= 1)
     const removed = await svc.forget({ id: record.id })
     assert.equal(removed.removed, 1)
+  } finally {
+    svc.flushSync()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('0.71.0：巩固产出语义记录后发 memory/consolidated（元数据，不含正文）', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-ev-consolidate-'))
+  const svc = new LocalMemoryService({ storeDir: dir, scopes: { global: true, project: true } })
+  const { events, sink } = recorder()
+  const bus = new MemoryEventBus(sink)
+  svc.setEventBus(bus)
+  try {
+    const a = await svc.save({ scope: PROJECT, kind: 'note', content: '设备是 aarch64，内存 8G' })
+    const b = await svc.save({ scope: PROJECT, kind: 'note', content: '设备是 aarch64，内存 8G，系统 Termux' })
+    const scopeStore = svc.store.peek(PROJECT)!
+    const vec = new Float32Array(1024)
+    vec[0] = 1
+    scopeStore.vectors.set(a.id, vec)
+    scopeStore.vectors.set(b.id, vec)
+    const result = svc.consolidateNow()
+    assert.ok(result.created.length > 0, '应产生巩固记录')
+    const consolidated = events.find((entry) => entry.name === MEMORY_EVENT.consolidated)
+    assert.ok(consolidated, '巩固后必须发 memory/consolidated')
+    assert.equal(consolidated!.payload.scope, PROJECT)
+    assert.ok(result.created.includes(consolidated!.payload.id as string))
+    assert.equal(consolidated!.payload.merged, 1)
+    assert.deepEqual((consolidated!.payload.sources as string[]).length, 2)
+    assert.ok(!JSON.stringify(consolidated!.payload).includes('aarch64'), '事件里不能出现正文')
   } finally {
     svc.flushSync()
     rmSync(dir, { recursive: true, force: true })

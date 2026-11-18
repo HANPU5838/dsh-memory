@@ -2,6 +2,16 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.71.0 — 记忆巩固升级：显式语义层 + consolidated 事件（2026-11-18）
+
+- **语义标记**：巩固产物统一追加 `consolidated` 标签（与用户标签并存、不覆盖），
+  episodic 零散记录 → semantic 稳定结论的层级在数据/面板/检索里都可识别。
+- **新事件**：`memory/consolidated`（scope / id / kind / merged / sources，**不含正文**）——
+  订阅者可据此更新外部索引；事件仍是旁路，emit 永不抛、不影响巩固主流程。
+- **事件契约**：`MEMORY_EVENT` 增加 consolidated，事件总线新增 `consolidated()`；
+  测试覆盖事件名契约、payload 形状、服务层真实触发（含"事件里不能出现正文"断言）。
+- **测试**：全套 **1256 例 / 1255 pass / 1 skip / 0 fail**；`npm run verify:all` PASS。
+
 ## 0.70.0 — 注入动态预算可配置（面板开关）（2026-11-18）
 
 - **设置项**：`impression.dynamic`（默认开）—— 面板「设置 → 印象形态 → 按相关度分配字数」

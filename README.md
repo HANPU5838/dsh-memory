@@ -2,7 +2,7 @@
   <img src="https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/preview/icon-128.png" width="84" alt="记忆系统">
 </p>
 
-> ### 📦 本仓库是 DSH 记忆系统的独立维护版（v0.70.0）
+> ### 📦 本仓库是 DSH 记忆系统的独立维护版（v0.71.0）
 >
 > 本项目是 **DSH 记忆系统**（`@restregular/dsh-memory`，MIT）的独立维护版本：
 > 以原作者代码为起点（完整历史见 CHANGELOG），**后续全部开发、发布、安装与更新只以本仓库为准**。
@@ -12,7 +12,7 @@
 > | 原作者 | **RestRegular**（原始项目 [RestRegular/dsh-memory](https://github.com/RestRegular/dsh-memory)，MIT）；MIT 版权声明与署名完整保留，见 [LICENSE](LICENSE) |
 > | **唯一维护源** | **[HANPU5838/dsh-memory](https://github.com/HANPU5838/dsh-memory)** —— 代码、Release、Issue、更新通道全部在这里 |
 > | 安装 / 更新 | `dsh plugin --profile web add "github:HANPU5838/dsh-memory#main"`；更新同样只从本仓库拉取 |
-> | 当前版本 | **v0.70.0**：注入预算动态分配（面板可开关）+ 按相关度分配字数；图增强自适应权重与多跳评测；图增强可解释；记忆图三视图、作用域归档、主动屏蔽、规则代码钩子、跨作用域修正；八个模型工具 |
+> | 当前版本 | **v0.71.0**：记忆巩固升级为显式语义层（`consolidated` 标记 + `memory/consolidated` 事件）；注入预算动态分配（面板可开关）；图增强自适应权重与多跳评测；图增强可解释；记忆图三视图、作用域归档、主动屏蔽、规则代码钩子、跨作用域修正；八个模型工具 |
 > | 许可 | **MIT**，版权归原作者所有；转载、分发请保留原始版权声明 |
 > | 更新与反馈 | Issue / PR / 反馈：[本仓库 Issues](https://github.com/HANPU5838/dsh-memory/issues) |
 >
@@ -27,7 +27,7 @@
 
 JSONL 落盘 · 本机向量检索 · 八个模型工具 · 自动召回 · 硬性规则 · 作用域归档 · 主动屏蔽 · 可视化管理面板
 
-[![version](https://img.shields.io/badge/version-v0.70.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![version](https://img.shields.io/badge/version-v0.71.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/HANPU5838/dsh-memory/blob/main/LICENSE)
 [![ci](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.13-5FA04E.svg)](https://nodejs.org/)
@@ -78,7 +78,7 @@ JSONL 落盘 · 本机向量检索 · 八个模型工具 · 自动召回 · 硬�
 | **生命周期** | `dormant` 休眠（长期未访问且不重要 → 不进摘要/召回，命中即唤醒）、`tombstone` 软删（`memory_forget` 默认 30 天内可 `restore`，到期由维护任务物理清理）、`snapshot/restore`（gzip JSONL 快照，可整库备份/迁移/回滚） |
 | **性能** | 文档/查询向量缓存（同内容重写、重复问句免嵌入；实测热查询 ~0.03ms）、批量嵌入（部分失败只留单条 null，超长记录不再毒死整批回填）、llama-server 预热 + 周期探活保活、可选纯 JS HNSW 索引模块（2 万条查询 P50 1.73ms vs 全量 25.2ms）、本地 chat 模型重排（可选，失败静默回退） |
 | **记忆强度（0.33.0）** | 每条记忆带 **FSRS 式保持度**：`stability`（越用越牢）、`difficulty`（长文/易变类型更难）、`utility`（被取用才涨）；检索排序 = 相关度 × 保持度 × 效用 × 重要度，且带可解释 breakdown。老记录无需迁移（由内容/类型/访问次数推导） |
-| **记忆巩固（0.33.0）** | 周期维护对同 scope、同簇（余弦 ≥0.9）的活跃记忆做**抽取式合并**：基底正文 + 簇内独有要点，`supersedes` 基底、`consolidatedFrom` 全簇、`generation` 递增；冲突记录与退役/休眠/失效记录一律不参与 |
+| **记忆巩固（0.33.0）** | 周期维护对同 scope、同簇（余弦 ≥0.9）的活跃记忆做**抽取式合并**：基底正文 + 簇内独有要点，`supersedes` 基底、`consolidatedFrom` 全簇、`generation` 递增；冲突记录与退役/休眠/失效记录一律不参与。**0.71.0**：产物带 `consolidated` 语义标记，并发 `memory/consolidated` 事件（scope/id/kind/合并条数/来源 id，不含正文）供外部索引订阅 |
 | **事实有效期（0.33.0）** | 新证据推翻旧事实时，旧记录置 `validUntil=now` **失效但保留**（历史可查），并用矛盾置信度（数值/标识符差异 + 相似度）分级；默认检索只看有效事实 |
 | **BM25 + RRF 融合（0.40.0）** | 词法通道升级为正式 BM25（k1=1.2/b=0.75，content/tags 加权），并支持 RRF 多路融合（词法/向量/查询变体）；RRF 默认只给已有候选 ≤10% 排序加成、不污染召回，可用 `retrieval.bm25/fusion` 开关做 A/B |
 | **记忆健康度（0.40.0）** | 面板「服务」页新增健康卡片：0–100 分、冲突率/抽样重复率/失效率/待 embedding/平均稳定天数；维护任务顺带计算 |
@@ -904,7 +904,7 @@ npm run verify:all
 ```
 
 ```
-✓ 单元 / 集成测试：1255 例 / 1254 pass / 1 skip / 0 fail（约 26s）
+✓ 单元 / 集成测试：1256 例 / 1255 pass / 1 skip / 0 fail（约 26s）
 ✓ 单包构建：85 文件 / 5035.0 KiB
 ✓ 面板 API 冒烟：16/16 接口通过
 ✓ 向量后端实测：http://127.0.0.1:8078/health · 1024 维

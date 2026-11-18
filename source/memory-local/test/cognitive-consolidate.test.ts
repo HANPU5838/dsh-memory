@@ -229,7 +229,7 @@ test('planConsolidation：tags 并集 / importance 取大 / generation=max+1 / s
   const c = rec('丙记录。', { tags: [], importance: 0.5, generation: 2 })
   const plan = planConsolidation(clusterOf([a, b, c]), { now: NOW })!
   assert.equal(plan.baseId, b.id)
-  assert.deepEqual([...plan.tags].sort(), ['a', 'b', 'c'])
+  assert.deepEqual([...plan.tags].sort(), ['a', 'b', 'c', 'consolidated'])
   assert.equal(plan.importance, 0.8)
   assert.equal(plan.generation, 4, '簇内最大 generation=3 → 4')
   assert.deepEqual(plan.supersedes, [b.id, c.id, a.id], '基底排第一，其余按得分降序')

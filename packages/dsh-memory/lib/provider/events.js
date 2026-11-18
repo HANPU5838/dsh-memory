@@ -19,9 +19,21 @@ export const MEMORY_EVENT = {
   saved: 'memory/record-saved',
   recalled: 'memory/recalled',
   forgotten: 'memory/record-forgotten',
+  consolidated: 'memory/consolidated',
 }         
 
                                                                               
+
+/** 记忆巩固：相似的一簇记忆被合并成一条语义记录之后。只报元数据，不含正文。 */
+                                            
+               
+            
+              
+                              
+                
+                                  
+                   
+ 
 
 /** 一条记忆落库之后。只描述「发生了什么」，不含正文。 */
                                      
@@ -91,6 +103,11 @@ export class MemoryEventBus {
 
   forgotten(payload                        )       {
     this.emit(MEMORY_EVENT.forgotten, payload)
+  }
+
+  /** 0.71.0：巩固完成（簇内多条 → 一条语义记录）。 */
+  consolidated(payload                           )       {
+    this.emit(MEMORY_EVENT.consolidated, payload)
   }
 
   /**

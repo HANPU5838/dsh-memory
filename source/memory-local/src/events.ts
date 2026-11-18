@@ -19,9 +19,21 @@ export const MEMORY_EVENT = {
   saved: 'memory/record-saved',
   recalled: 'memory/recalled',
   forgotten: 'memory/record-forgotten',
+  consolidated: 'memory/consolidated',
 } as const
 
 export type MemoryEventName = (typeof MEMORY_EVENT)[keyof typeof MEMORY_EVENT]
+
+/** 记忆巩固：相似的一簇记忆被合并成一条语义记录之后。只报元数据，不含正文。 */
+export interface MemoryConsolidatedPayload {
+  scope: string
+  id: string
+  kind: string
+  /** 本簇被合并掉的旧记录数（不含新记录本身）。 */
+  merged: number
+  /** 被合并的全部来源 id（基底排第一，完整可溯源）。 */
+  sources: string[]
+}
 
 /** 一条记忆落库之后。只描述「发生了什么」，不含正文。 */
 export interface MemorySavedPayload {
@@ -91,6 +103,11 @@ export class MemoryEventBus {
 
   forgotten(payload: MemoryForgottenPayload): void {
     this.emit(MEMORY_EVENT.forgotten, payload)
+  }
+
+  /** 0.71.0：巩固完成（簇内多条 → 一条语义记录）。 */
+  consolidated(payload: MemoryConsolidatedPayload): void {
+    this.emit(MEMORY_EVENT.consolidated, payload)
   }
 
   /**

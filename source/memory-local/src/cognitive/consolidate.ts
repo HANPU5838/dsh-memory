@@ -35,6 +35,8 @@ import { validFromOf, validUntilOf } from './temporal.ts'
 
 /** 聚类阈值：余弦相似度 ≥ 0.90 视为同一簇（略低于语义合并的 0.92：巩固允许"角度相近"）。 */
 export const CONSOLIDATION_THRESHOLD = 0.9
+/** 0.71.0：巩固产物统一携带的语义标记（面板/检索/事件都能识别"提炼过的记忆"）。 */
+export const CONSOLIDATED_TAG = 'consolidated'
 /** 合并正文默认上限（字符数）。 */
 export const DEFAULT_MAX_CHARS = 2000
 /** 单 scope 参与两两比较的记录数上限（O(n²) 保护，与 store.nearDuplicates 同口径）。 */
@@ -396,6 +398,8 @@ export function planConsolidation(cluster: RecordCluster, options: Consolidation
   const others = ranked.slice(1)
   const { content, addedPoints } = extractiveMerge(base, others, maxChars)
   const tags = unionTags(...members.map((record) => record.tags))
+  // 0.71.0：episodic 记录 → 一条 semantic 巩固记录。标记与用户标签并存，不覆盖。
+  if (!tags.some((tag) => tag.toLowerCase() === CONSOLIDATED_TAG)) tags.push(CONSOLIDATED_TAG)
   const importance = Math.max(...members.map((record) => clamp01(record.importance)))
   const generations = members.map((record) => generationOf(record))
   const generation = Math.max(...generations) + 1
