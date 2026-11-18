@@ -128,6 +128,8 @@ export interface AuditEntryV2 {
     ids?: string[]
   }
   budgets?: Record<string, AuditBudget>
+  /** 0.67.0：图增强（PPR 多跳）本次补召回进候选的条数。 */
+  graph?: { expanded: number }
   /** 摘要/规则走的是 list()/listSync()，不是检索；用 sourceLoad 表达。 */
   sourceLoad?: {
     ok: boolean

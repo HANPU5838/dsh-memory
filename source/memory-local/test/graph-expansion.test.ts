@@ -116,6 +116,11 @@ test('集成：实体桥接的第二条记忆被图增强补召回，关闭后�
     const ids = hits.map((hit) => hit.record.id)
     assert.ok(ids.includes(a.id), '字面命中必须召回')
     assert.ok(ids.includes(b.id), `实体桥接记忆应被补召回（实际 ${JSON.stringify(ids)}）`)
+    // 0.67.0：补召回的那条要在结果里显式标记，审计/解释才能区分"联想"与"真命中"。
+    const bHit = hits.find((hit) => hit.record.id === b.id)!
+    assert.equal(bHit.graphExpanded, true, '图增强补召回的结果应带 graphExpanded 标记')
+    const aHit = hits.find((hit) => hit.record.id === a.id)!
+    assert.equal(aHit.graphExpanded, undefined, '词法真命中不应被标记成图增强')
 
     // 同一条查询、只关掉图增强：b 不应出现（它既不含 pm2、也没有向量通道）。
     const plainDir = tempDir('dsh-memory-graph-off-')

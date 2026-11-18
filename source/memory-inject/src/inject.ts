@@ -343,6 +343,8 @@ export interface RecallResult {
   expiredExcluded?: number
   lastTextSame?: boolean
   retrieval: { ok: boolean; count: number; error?: string; errorCode?: string }
+  /** 0.67.0：本次候选中由图增强（PPR 多跳）补召回进来的条数。 */
+  graphExpanded?: number
 }
 
 /**
@@ -401,7 +403,7 @@ export class MemoryInjector {
       // 检索失败不能打断 agent 循环;审计会区分"失败"与"成功但无结果"。
       return {
         ids: [], candidates: 0, dedupSkipped: 0, updated: [], omitted: [], query,
-        tokens: 0, rawHits: 0, tagFiltered: 0, supersededExcluded: 0,
+        tokens: 0, rawHits: 0, tagFiltered: 0, supersededExcluded: 0, graphExpanded: 0,
         retrieval: { ok: false, count: 0, error: 'retrieval_failed', errorCode: 'retrieval_failed' },
       }
     }
@@ -436,8 +438,10 @@ export class MemoryInjector {
     const optionsForRender = typeof this.renderOptions === 'function' ? this.renderOptions() : this.renderOptions
     // 0.35.4：把会话 id 传给 transform（before-inject 钩子按会话判断时用）。
     const block = renderRecallBlock(freshHits, cfg, { ...optionsForRender, sessionId })
+    const graphExpanded = candidates.filter((hit) => (hit as { graphExpanded?: boolean }).graphExpanded === true).length
     const base: RecallResult = {
       ids: [], candidates: candidates.length, dedupSkipped: deduplicated.length, updated, omitted: [], query,
+      ...(graphExpanded > 0 ? { graphExpanded } : {}),
       // 全部候选都被去重时 block 为 null；把 id 留在结果里，审计才能解释"跳过了哪条"。
       dedupIds: deduplicated,
       tokens: 0, rawHits: hits.length, tagFiltered, supersededExcluded, expiredExcluded,

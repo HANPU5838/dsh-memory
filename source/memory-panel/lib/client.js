@@ -5011,6 +5011,8 @@ window.__ModuleLoader__.load({
               kv('标签过滤', selected.filter.tagFiltered),
               kv('退役排除', selected.filter.supersededExcluded),
               kv('最终候选', selected.filter.candidates),
+              // 0.67.0：多跳联想补召回（图增强）的条数；没有就是 —
+              kv('图增强多跳', selected.graph && selected.graph.expanded !== undefined ? selected.graph.expanded : undefined),
             ),
           ) : null,
           h('div', { className: 'audit-sec' },

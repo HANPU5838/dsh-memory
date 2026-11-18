@@ -1362,6 +1362,9 @@ export function apply(ctx         , config                     = {}) {
           ...(usableSignal?.callId !== undefined ? { operationId: usableSignal.callId } : {}),
           ...(queryField !== undefined ? { query: queryField } : {}),
           candidates: recall.candidates,
+          ...(recall.graphExpanded !== undefined && recall.graphExpanded > 0
+            ? { graph: { expanded: recall.graphExpanded } }
+            : {}),
           filter: {
             rawHits: recall.rawHits ?? recall.retrieval.count,
             tagFiltered: recall.tagFiltered ?? 0,

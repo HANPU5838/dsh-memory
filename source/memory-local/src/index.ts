@@ -5587,6 +5587,8 @@ export class LocalMemoryService implements MemoryServiceApi {
     const hits: MemoryHit[] = shaped.map((c) => ({
       record: internal.touch === false ? c.record : touch(c.record),
       score: round4(finalScores.get(c.record.id) ?? c.score),
+      // 0.67.0：标记这条是图增强（PPR 多跳）补召回进来的，供工具输出/审计解释。
+      ...(candidates.get(c.record.id)?.graphExpanded === true ? { graphExpanded: true } : {}),
     }))
     // 0.32.0：命中即唤醒休眠记忆（与 save 清 dormantAt 同口径），否则休眠记录
     // 永远只能靠写回唤醒。唤醒只发生在真正被访问时，面板浏览不会触发。

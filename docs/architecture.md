@@ -1,4 +1,4 @@
-# 架构说明（本仓库独立维护版 0.66.0）
+# 架构说明（本仓库独立维护版 0.67.0）
 
 > 本文说明这套记忆插件「为什么是插件」：哪些属于宿主、哪些属于插件、平台差异放在哪里。
 > 本仓库 **[HANPU5838/dsh-memory](https://github.com/HANPU5838/dsh-memory)** 是 DSH 记忆系统的独立维护版
@@ -185,3 +185,9 @@ Personalized PageRank（带重启随机游走，alpha=0.85，最多 24 次幂迭
 - **有界**：实体数 ≤24/条、边 ≤24/条、迭代 ≤24 次，手机毫秒级。
 - **可关**：`retrieval.graphExpansion.enabled: false` 完全回到旧行为；参数见 README 配置示例。
 - **可观测**：`memory/recalled` 事件新增 `graphExpanded`（本次图增强进入结果的条数）。
+
+### 可解释性（0.67.0）
+
+图增强补召回的记忆在检索结果里带 `graphExpanded: true`；注入侧汇总成 `RecallResult.graphExpanded`
+并写进召回审计条目的 `graph.expanded`，面板「审计 → 检索与过滤」直接展示「图增强多跳：N」。
+链路：`search() → MemoryHit.graphExpanded → injector 统计 → audit.graph → 面板详情`。

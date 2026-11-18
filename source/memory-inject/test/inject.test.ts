@@ -169,3 +169,16 @@ test('pickQueryText ignores synthetic memory/runtime user messages', () => {
   assert.equal(pickQueryText([human, memory, time]), '真正的人类问题')
   assert.equal(pickQueryText([memory, time]), '')
 })
+
+test('0.67.0: 详细召回统计图增强补召回条数（graphExpanded）', async () => {
+  const hits: MemoryHit[] = [
+    { ...hit('词法直接命中', 0.9, 'id-a') },
+    { ...hit('多跳联想回来的记忆', 0.5, 'id-b'), graphExpanded: true } as MemoryHit,
+  ]
+  const injector = new MemoryInjector(async () => hits, { ...defaultInjectConfig, tokenBudget: 5000, topK: 10 })
+  const input = { messages: [msg('user', '查一下部署')] }
+  const detailed = await injector.maybeInjectDetailed(input, input)
+  assert.ok(detailed, '应有详细结果')
+  assert.equal(detailed!.graphExpanded, 1, '候选中的图增强条数要如实上报')
+  assert.equal(detailed!.candidates, 2)
+})

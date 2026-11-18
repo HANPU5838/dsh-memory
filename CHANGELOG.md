@@ -2,6 +2,16 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.67.0 — 图增强可解释：结果标记 + 审计页展示多跳召回（2026-11-18）
+
+- **检索结果标记**：图增强补召回的记忆在 `MemoryHit` 上带 `graphExpanded: true`，工具输出/
+  宿主事件/审计都能区分「联想补召回」与「字面/语义真命中」。
+- **审计可解释**：召回审计新增 `graph.expanded`（本次候选里多跳联想条数），面板「审计 →
+  检索与过滤」显示「图增强多跳：N」；`RecallResult` 同步带 `graphExpanded` 计数。
+- **链路打通**：`search → hits.graphExpanded → injector 统计 → 审计条目 → 面板详情`，
+  每一层都有回归用例（图增强集成、inject 详细召回、面板审计渲染）。
+- **测试**：新增 3 处断言，全套 **1251 例 / 1250 pass / 1 skip / 0 fail**；`npm run verify:all` PASS。
+
 ## 0.66.0 — 图增强 v2：查询实体种子 + 自适应预算；tag 自动发版（2026-11-18）
 
 - **查询实体种子**（`queryEntitySeeds`，HippoRAG 2 的 query-NER 步骤）：查询里的路径 / URL /
