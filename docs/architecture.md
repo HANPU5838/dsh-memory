@@ -1,4 +1,4 @@
-# 架构说明（本仓库独立维护版 0.94.0）
+# 架构说明（本仓库独立维护版 0.95.0）
 
 > 本文说明这套记忆插件「为什么是插件」：哪些属于宿主、哪些属于插件、平台差异放在哪里。
 > 本仓库 **[HANPU5838/dsh-memory](https://github.com/HANPU5838/dsh-memory)** 是 DSH 记忆系统的独立维护版
@@ -193,6 +193,7 @@ Personalized PageRank（带重启随机游走，alpha=0.85，最多 24 次幂迭
   （重要度→更新时间→id 确定性），败者保留不删、审计 reason=conflict。
 - **图边权与社区（0.82.0）**：边权乘实体类型因子（具体对象 > 泛标签）；`detectCommunities()`
   标签传播划分主题社区，补充候选按社区限流（`maxPerCommunity`，默认 3）。
+- **联想端到端（0.95.0）**：真实服务→工具→渲染全链路断言「联想」标记；工具描述同步语义。
 - **工具联想标记（0.94.0）**：provider 的 `graphExpanded` 透传到 `memory_search` 输出并渲染「· 联想」。
 - **UI 焦点可见（0.93.0）**：输入控件/折叠头/链接统一 `:focus-visible`，键盘可达。
 - **文档守门（0.92.0）**：`npm run check:docs` 校验版本/badge/CHANGELOG/architecture/链接与 build 版本，

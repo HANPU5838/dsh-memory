@@ -1371,7 +1371,7 @@ function scopeDescriptions(service: MemoryToolService, agent: unknown): Map<stri
 export function memorySearchTool(opts: MemoryToolsOptions): ToolSpec<SearchArgs, SearchResult> {
   return {
     name: 'memory_search',
-    description: 'Search saved memories by keyword or meaning (lexical + local vector recall). Returns id/scope/kind/tags and a short summary; use memory_get for full content. Out-of-scope hits return only the list of scopes (name, hit count, purpose — no record summaries) in the outOfScope field instead of auto-raising approval; pass requestApproval=true only when those scopes are genuinely relevant.',
+    description: 'Search saved memories by keyword or meaning (lexical + local vector recall). Returns id/scope/kind/tags and a short summary; use memory_get for full content. Hits recovered by multi-hop graph expansion (not a direct keyword/vector match) are marked 联想 in the rendered output and carry graphExpanded=true. Out-of-scope hits return only the list of scopes (name, hit count, purpose — no record summaries) in the outOfScope field instead of auto-raising approval; pass requestApproval=true only when those scopes are genuinely relevant.',
     parameters: {
       query: { type: 'string', required: true },
       scope: { type: 'string', description: SCOPE_DESCRIPTION },

@@ -4,7 +4,7 @@
 
 **给 DeepSeek Harness 的本地优先长期记忆插件：多路检索 + 多跳图增强 + 上下文摘要 + 冲突消解**
 
-[![version](https://img.shields.io/badge/version-v0.94.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![version](https://img.shields.io/badge/version-v0.95.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
 [![license](https://img.shields.io/badge/license-MIT-3DA639.svg)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A522.13-3C873A.svg)](package.json)
 
@@ -12,7 +12,7 @@
 
 </div>
 
-**当前版本：v0.94.0** · [Release](https://github.com/HANPU5838/dsh-memory/releases) · [更新日志](CHANGELOG.md)
+**当前版本：v0.95.0** · [Release](https://github.com/HANPU5838/dsh-memory/releases) · [更新日志](CHANGELOG.md)
 
 ---
 
@@ -29,7 +29,8 @@ DSH 记忆系统是一个**完全本地**的长期记忆插件：Agent 用八个
 - **零配置可用**：不装向量后端就自动退化为纯词法检索，不产生网络请求。
 - **语义检索可选**：面板一键安装 llama.cpp 运行时 + bge-m3 模型（或接你自己的 OpenAI 兼容端点）。
 - **可解释**：检索结果带来源标记（词法/向量/图增强/联想）——**工具输出也会把图增强补召回标成
-  「联想」**（0.94.0），模型能区分直接命中与多跳联想；面板「审计」能看每次注入的完整决策链。
+  「联想」**（0.94.0），并由端到端测试保证 provider→工具→渲染全链路一致（0.95.0），模型能区分
+  直接命中与多跳联想；面板「审计」能看每次注入的完整决策链。
 
 | 场景 | 用法 |
 | --- | --- |
