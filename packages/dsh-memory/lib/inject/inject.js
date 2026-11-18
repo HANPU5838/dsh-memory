@@ -213,6 +213,11 @@ export function hasRecallMessage(
                                                 
                     
      
+                                
+                                                
+     
+                   
+     
                                           
                                                     
                                                           
@@ -264,7 +269,9 @@ export function renderRecallBlock(
   // 总 tokenBudget 不变：高相关记忆多给正文、低相关收紧摘要，避免平均主义把预算
   // 摊给弱命中。相关度取 hit.score / 本轮最高分；分数缺失/非法时按 1 处理（不惩罚）。
   const maxScore = effectiveHits.reduce((max, h) => (Number.isFinite(h.score) && h.score > max ? h.score : max), 0)
+  const dynamic = options.dynamic !== false
   const charsFor = (hit           )         => {
+    if (!dynamic) return chars
     const ratio = maxScore > 0 && Number.isFinite(hit.score) ? Math.max(0, Math.min(1, hit.score / maxScore)) : 1
     return Math.max(48, Math.round(chars * (0.55 + 0.75 * ratio)))
   }

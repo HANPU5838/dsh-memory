@@ -201,3 +201,16 @@ test('0.69.0: 召回按相对相关度动态分配字数（高相关更长、总
   // 同一输入两次渲染逐字相同（确定性）。
   assert.equal(renderRecallBlock(hits, cfg, { impression: true, chars: 100 })!.text, block.text)
 })
+
+test('0.70.0: dynamic=false 时回到固定字数（面板可关）', () => {
+  const cfg = { ...defaultInjectConfig, tokenBudget: 10_000, topK: 5 }
+  const hits = [
+    hit(`高相关：${'甲'.repeat(300)}`, 0.9, 'id-a1'),
+    hit(`低相关：${'乙'.repeat(300)}`, 0.3, 'id-b2'),
+  ]
+  const block = renderRecallBlock(hits, cfg, { impression: true, chars: 100, dynamic: false })!
+  const lines = block.text.split('\n').slice(1)
+  assert.equal(lines.length, 2)
+  const lengths = lines.map((line) => line.replace(/^- \w+ /, '').length)
+  assert.equal(lengths[0], lengths[1], '关闭动态分配后两条字数一致')
+})

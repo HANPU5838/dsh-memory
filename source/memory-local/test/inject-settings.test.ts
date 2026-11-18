@@ -205,3 +205,10 @@ test('autoRecall: 默认标签覆盖多个域,自定义标签可增删去重', (
   const empty = normalizeInjectSettings({ autoRecall: { tags: [] } })
   assert.deepEqual(empty.autoRecall.tags, [], '显式空额外标签;仍会使用记忆库标签/failure 召回')
 })
+
+test('0.70.0: impression.dynamic 默认开启、可显式关闭', () => {
+  const defaults = normalizeInjectSettings({})
+  assert.equal(defaults.impression.dynamic, true)
+  const off = normalizeInjectSettings({ impression: { dynamic: false } })
+  assert.equal(off.impression.dynamic, false)
+})

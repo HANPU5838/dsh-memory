@@ -26,6 +26,11 @@
                                                      
                   
                
+     
+                                                
+                                          
+     
+                  
  
 
                                  
@@ -118,7 +123,7 @@ export const DEFAULT_STATE_TTL_MS = 7 * 86_400_000
 export const defaultInjectSettings                 = {
   recall: { enabled: true, topK: 5, tokenBudget: 500 },
   digest: { enabled: true, topK: 8, tokenBudget: 800, hintBudget: 160, hintMaxItems: 6 },
-  impression: { enabled: true, chars: 120 },
+  impression: { enabled: true, chars: 120, dynamic: true },
   policy: { enabled: true },
   state: { ttlMs: DEFAULT_STATE_TTL_MS },
   procedures: { enabled: true, maxItems: 10, tokenBudget: 500 },
@@ -204,6 +209,7 @@ export function normalizeInjectSettings(raw         , base                 = def
     impression: {
       enabled: bool(impression.enabled, base.impression.enabled),
       chars: clampInt(impression.chars, 40, 800, base.impression.chars),
+      dynamic: bool(impression.dynamic, base.impression.dynamic),
     },
     policy: { enabled: bool(policy.enabled, base.policy.enabled) },
     state: {

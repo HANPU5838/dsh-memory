@@ -2,6 +2,15 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.70.0 — 注入动态预算可配置（面板开关）（2026-11-18）
+
+- **设置项**：`impression.dynamic`（默认开）—— 面板「设置 → 印象形态 → 按相关度分配字数」
+  开关；关闭后回到固定 `chars` 字，行为与 0.68 之前一致。
+- **链路**：settings.json → `normalizeInjectSettings` → 注入侧 `RecallRenderOptions.dynamic`
+  → `renderRecallBlock`，每步实时生效（无需重启）。
+- **测试**：新增 dynamic=false 固定字数、设置默认/关闭归一化用例；
+  全套 **1255 例 / 1254 pass / 1 skip / 0 fail**；`npm run verify:all` PASS。
+
 ## 0.69.0 — 注入预算动态分配（2026-11-18）
 
 - **按相关度分配每条的上下文字数**：召回渲染时用 `hit.score / 本轮最高分` 算出相对相关度，

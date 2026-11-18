@@ -3297,6 +3297,7 @@ window.__ModuleLoader__.load({
         fields: [
           { k: 'enabled', label: '启用', type: 'bool', hint: '关闭后召回直接给长文摘要。' },
           { k: 'chars', label: '每条字数', type: 'num', min: 40, max: 800, step: 20, hint: '每条记忆在召回块里保留多少字。' },
+          { k: 'dynamic', label: '按相关度分配字数', type: 'bool', hint: '0.70.0：高相关记忆多给正文（最多 1.30×）、弱命中收紧（最低 0.55×，下限 48 字）；关掉则每条固定字数。' },
         ],
       },
       {

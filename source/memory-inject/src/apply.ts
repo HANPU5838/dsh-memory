@@ -245,6 +245,7 @@ export function apply(ctx: Context, config: MemoryInjectConfig = {}) {
     return {
       impression: settings.enabled,
       chars: settings.chars,
+      dynamic: settings.dynamic,
       // 0.35.4：自动召回也走 before-inject 钩子 —— 之前只有规则段与摘要接了，
       // 每轮按用户问题召回的正文没过钩子，是三个注入通道里的漏网之鱼。
       // sessionId 由 injector 在渲染时传入（注入半边没有 agent 对象）。

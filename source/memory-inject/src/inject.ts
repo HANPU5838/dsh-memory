@@ -213,6 +213,11 @@ export interface RecallRenderOptions {
   /** 0.35.4：当前会话 id，传给 transform（钩子按会话判断时用）。 */
   sessionId?: string
   /**
+   * 0.70.0：按相对相关度动态分配每条字数（默认开）。
+   * `false` = 回到固定 `chars` 字（面板「设置 → 印象形态」可切换）。
+   */
+  dynamic?: boolean
+  /**
    * 0.35.4：渲染前对召回记录做解析（before-inject 钩子）。
    * 返回改写后的记录数组；被丢弃的 id 会以 reason='hook' 计入 omitted。
    * 由 apply 层把 provider 的 parseForInject 包装进来，渲染函数本身保持纯净。
@@ -264,7 +269,9 @@ export function renderRecallBlock(
   // 总 tokenBudget 不变：高相关记忆多给正文、低相关收紧摘要，避免平均主义把预算
   // 摊给弱命中。相关度取 hit.score / 本轮最高分；分数缺失/非法时按 1 处理（不惩罚）。
   const maxScore = effectiveHits.reduce((max, h) => (Number.isFinite(h.score) && h.score > max ? h.score : max), 0)
+  const dynamic = options.dynamic !== false
   const charsFor = (hit: MemoryHit): number => {
+    if (!dynamic) return chars
     const ratio = maxScore > 0 && Number.isFinite(hit.score) ? Math.max(0, Math.min(1, hit.score / maxScore)) : 1
     return Math.max(48, Math.round(chars * (0.55 + 0.75 * ratio)))
   }

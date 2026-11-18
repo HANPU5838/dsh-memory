@@ -2,7 +2,7 @@
   <img src="https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/preview/icon-128.png" width="84" alt="记忆系统">
 </p>
 
-> ### 📦 本仓库是 DSH 记忆系统的独立维护版（v0.69.0）
+> ### 📦 本仓库是 DSH 记忆系统的独立维护版（v0.70.0）
 >
 > 本项目是 **DSH 记忆系统**（`@restregular/dsh-memory`，MIT）的独立维护版本：
 > 以原作者代码为起点（完整历史见 CHANGELOG），**后续全部开发、发布、安装与更新只以本仓库为准**。
@@ -12,7 +12,7 @@
 > | 原作者 | **RestRegular**（原始项目 [RestRegular/dsh-memory](https://github.com/RestRegular/dsh-memory)，MIT）；MIT 版权声明与署名完整保留，见 [LICENSE](LICENSE) |
 > | **唯一维护源** | **[HANPU5838/dsh-memory](https://github.com/HANPU5838/dsh-memory)** —— 代码、Release、Issue、更新通道全部在这里 |
 > | 安装 / 更新 | `dsh plugin --profile web add "github:HANPU5838/dsh-memory#main"`；更新同样只从本仓库拉取 |
-> | 当前版本 | **v0.69.0**：注入预算动态分配（按相关度给每条记忆分配字数）+ 图增强自适应权重与多跳评测；图增强可解释；记忆图三视图、作用域归档、主动屏蔽、规则代码钩子、跨作用域修正；八个模型工具 |
+> | 当前版本 | **v0.70.0**：注入预算动态分配（面板可开关）+ 按相关度分配字数；图增强自适应权重与多跳评测；图增强可解释；记忆图三视图、作用域归档、主动屏蔽、规则代码钩子、跨作用域修正；八个模型工具 |
 > | 许可 | **MIT**，版权归原作者所有；转载、分发请保留原始版权声明 |
 > | 更新与反馈 | Issue / PR / 反馈：[本仓库 Issues](https://github.com/HANPU5838/dsh-memory/issues) |
 >
@@ -27,7 +27,7 @@
 
 JSONL 落盘 · 本机向量检索 · 八个模型工具 · 自动召回 · 硬性规则 · 作用域归档 · 主动屏蔽 · 可视化管理面板
 
-[![version](https://img.shields.io/badge/version-v0.69.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![version](https://img.shields.io/badge/version-v0.70.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/HANPU5838/dsh-memory/blob/main/LICENSE)
 [![ci](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.13-5FA04E.svg)](https://nodejs.org/)
@@ -94,7 +94,7 @@ JSONL 落盘 · 本机向量检索 · 八个模型工具 · 自动召回 · 硬�
 | **软删与恢复（0.33.0/0.33.1）** | `memory_forget` 与面板删除都是**软删（墓碑）**：立即从检索/注入消失，30 天内可在面板一键恢复或 `restoreRecord`；到期由维护任务物理清理。面板记录卡显示「已删除（可恢复）/ 已失效 / 休眠 / 冲突 / 第 N 版」徽章与强度（稳定天数/效用/取用次数）。 |
 | **ANN 索引（0.33.0）** | 可选纯 JS HNSW：库规模 ≥ minSize 时后台建图，未就绪/过期自动回退全量扫描；检索热路径按图查询（2 万条实测 14.6×），配置 `retrieval.vector.ann.enabled` |
 | **自动召回** | 每轮按用户问题召回；新会话第一步注入项目 / global 摘要；发布、部署、工具失败等行为按标签触发定向召回 |
-| **印象形态** | 每轮只给每条记忆的短摘要；模型判断相关但需要细节时再 `memory_get` 取全文，省 token 也不丢信息。**0.69.0**：字数按相对相关度动态分配（高相关 0.55×–1.30×、低相关收紧、下限 48 字），总预算不变 |
+| **印象形态** | 每轮只给每条记忆的短摘要；模型判断相关但需要细节时再 `memory_get` 取全文，省 token 也不丢信息。**0.69.0**：字数按相对相关度动态分配（高相关 0.55×–1.30×、低相关收紧、下限 48 字），总预算不变；**0.70.0**：面板「设置 → 印象形态 → 按相关度分配字数」可开关 |
 | **硬性规则** | `kind: rule` 进系统提示常驻段；行首带 8 位 id，注入的是摘要，需要全文时用 `memory_get`；旧会话会收到新增 / 编辑提醒；超预算有明确警告，不静默丢弃 |
 | **规则代码（0.35.0）** | 规则记忆可附带脚本，插件在三个时机运行：**保存前校验**（`before-save`，返回 `{ok:false,message}` **直接拒绝保存**并把理由回给模型）、**保存后观察**（`after-save`，不阻断）、**注入前解析**（`before-inject`，改写正文或丢弃）。通过 `memory_save` 的 `hookCode` / `hookPhase` 随规则登记，或用 `memory_hooks` 工具单独管理。代码存在 `<storeDir>/hooks.json`，**不进检索 / 摘要 / 召回**；在 node:vm 沙箱里同步运行（无 `require` / `process` / 网络、禁用 `eval`、120ms 超时），脚本崩溃只告警不阻断。**首次保存或改代码要用户批准一次**（按代码指纹记账，改一个字符重新批准），未批准的代码永不执行。面板「规则代码」页可逐行查看 / 编辑 / 试跑 / 启停，用户自己保存的代码视为已批准 |
 | **记忆权限** | 输入框旁的「记忆权限」按钮设置本会话可读的作用域 + 限制等级（绝对 / 普通 / 无限制）；每个作用域一行就是一条设置：**勾选**表示本会话可访问，行内**【绑定】/【可读】/【可写】**控制工作区默认可见与读写权限——**【绑定】点一下立即保存**（0.25.13 起），绑定到当前工作区后新会话默认可见，可读 / 可写独立影响工具读写；Agent 通过 `memory_scopes request` 申请到的范围外授权**也用勾选呈现**（名称右边挂一个「AI」气泡，样式与你自己勾选的行区分开），取消勾选只是草稿，**点「保存」才真正撤销**（0.25.4 起），且按钮数字 / 「已选」都把 AI 授权算进去（0.25.5 起）并**实时轮询**——浮窗关着，Agent 刚拿到的授权也会让按钮数字自己变（0.25.6 起）；**整张作用域卡片都能点选**，点名称 / 计数 / 留白等同点勾选框（0.25.7 起），本会话那一行直接叫「**session:当前会话**」（0.25.8 起，0.25.10 起带类型前缀）；**所有作用域名都以 `global:` / `project:` / `session:` / `custom:` 开头**（0.25.10 起）；浮窗挂在页面根层，不会被输入框上方的浮动按钮盖住（0.25.8 起）；Agent 及其子 Agent 都按它检索、注入与 `memory_get` |
@@ -904,7 +904,7 @@ npm run verify:all
 ```
 
 ```
-✓ 单元 / 集成测试：1253 例 / 1252 pass / 1 skip / 0 fail（约 26s）
+✓ 单元 / 集成测试：1255 例 / 1254 pass / 1 skip / 0 fail（约 26s）
 ✓ 单包构建：85 文件 / 5035.0 KiB
 ✓ 面板 API 冒烟：16/16 接口通过
 ✓ 向量后端实测：http://127.0.0.1:8078/health · 1024 维
