@@ -40,6 +40,10 @@ jobs:
       - name: 图增强多跳评测（eval:graph）
         run: npm run eval:graph
 
+      # 检索参数扫描（纯本地、约 2 秒）：把默认值的稳健性留成 CI 日志。
+      - name: 检索参数扫描（eval:tune）
+        run: npm run eval:tune
+
       # 检索质量门禁：合成集、无嵌入服务，几秒内完成（评测器退出码恒 0，不阻塞 CI）。
       - name: 检索评测（合成集）
         run: node tools/eval/run.mjs --mode synthetic --no-public --quiet

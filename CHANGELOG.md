@@ -2,6 +2,18 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.77.0 — 检索参数扫描 / 自适应调参（2026-11-18）
+
+- **工具**：新增 `tools/eval/retrieval-tune.mjs`（`npm run eval:tune`）—— 合成「桥接 / 精确 /
+  巩固 / 干扰项」语料，单因子扫描 `graphExpansion.weight`（0.4–1.2）、`seedCount`（3/6/9）、
+  `minRelative`（0.02/0.08/0.15）与 `semanticLayerBoost`（0/0.04/0.1/0.2），输出 Markdown
+  指标表与建议值；并列时优先当前默认值，避免把等价配置误报成更优。
+- **结论**：默认配置在扫描区间内桥接召回 100%、精确 top1 100%、巩固 top1 100%、无关命中率
+  48.8%（区间内不变 → 参数稳健，默认值保持不变）；`semanticLayerBoost=0` 时巩固 top1 掉到 0%，
+  量化确认语义层偏好确实生效。
+- **CI**：增加 `npm run eval:tune`（纯本地、约 2s、退出码恒 0）作回归参考。
+- **验证**：全套 **1257 例 / 1256 pass / 1 skip / 0 fail**；`npm run verify:all` PASS。
+
 ## 0.76.0 — 实体消歧 / 规范化（2026-11-18）
 
 - **路径抽取**：POSIX 路径允许重复分隔符（`/srv//app` → `/srv/app`）；新增反斜杠路径识别
