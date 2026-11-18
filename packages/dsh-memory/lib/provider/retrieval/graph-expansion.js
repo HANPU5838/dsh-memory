@@ -16,7 +16,7 @@
  *   - 有界：实体数/记录数/迭代次数都有硬上限，CPU 只做几十次稀疏迭代；
  *   - 可关闭：`retrieval.graphExpansion.enabled`，关掉完全回到旧行为。
  */
-import { extractEntities } from '../analysis/entities.js'
+import { extractEntities,             } from '../analysis/entities.js'
 
 // ---------------------------------------------------------------- 类型
 
@@ -108,7 +108,11 @@ const MAX_EDGES_PER_RECORD = 24
  */
 export function buildAssociationGraph(
   records                        ,
-  options                                    = {},
+  options   
+                                 
+                                             
+                                                           
+    = {},
 )                   {
   const adjacency = new Map                             ()
   const entityDf = new Map                ()
@@ -133,9 +137,11 @@ export function buildAssociationGraph(
   const entityToRecords = new Map                  ()
   const recordEntities = new Map                                                ()
   for (const record of sorted) {
-    const entities = extractEntities(record.content, {
-      ...(record.tags !== undefined ? { tags: [...record.tags] } : {}),
-    })
+    const entities = options.entitiesOf !== undefined
+      ? options.entitiesOf(record)
+      : extractEntities(record.content, {
+          ...(record.tags !== undefined ? { tags: [...record.tags] } : {}),
+        })
     const picked = entities.slice(0, maxEntities)
     const list                                         = []
     for (const entity of picked) {

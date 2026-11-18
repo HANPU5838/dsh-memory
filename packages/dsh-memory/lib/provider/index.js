@@ -1402,6 +1402,16 @@ export class LocalMemoryService                             {
                    meta                
   /** 注入设置(面板「设置」标签页可改;落盘在 <storeDir>/settings.json)。 */
           inject                
+  /**
+   * 0.91.0：记录分词缓存。每条记录的内容/标签分词结果只算一次，按 `updatedAt` + 内容长度
+   * 失效；检索路径（词法通道 + BM25 建索引）直接复用，避免每次查询把整个库重新分词两遍。
+   */
+                   tokenCache = new Map                                                                                ()
+  /**
+   * 0.91.0：实体提取缓存（图增强用）。与分词缓存同口径失效；避免每次检索对所有记录
+   * 重跑实体正则。
+   */
+                   entityCache = new Map                                               ()
   /** 会话级「记忆可见范围」覆盖;没有覆盖时沿用默认集合。 */
                    visibility                        
   /** 工作区级「绑定作用域」:默认范围会额外并入这些作用域。 */
@@ -5130,9 +5140,7 @@ export class LocalMemoryService                             {
       const all = [...store.records.values()]
       // 词法通道把标签也当可检索文本:自动召回用标签做触发词时,记忆正文里
       // 不一定出现这个标签(例如 tags=['release'] 但正文是中文),不并进来就搜不到。
-      const searchableText = (record              )         =>
-        `${record.content} ${(record.tags ?? []).join(' ')}`
-      const tokenSets = all.map((r) => new Set(tokenize(searchableText(r))))
+      const tokenSets = all.map((r) => new Set(this.tokensFor(r).joined))
       const stats = buildStats(tokenSets)
       for (let i = 0; i < all.length; i++) {
         const rec = all[i] 
@@ -5322,7 +5330,7 @@ export class LocalMemoryService                             {
         }
       }
       if (eligible.length >= this.cfg.graphExpansion.minRecords) {
-        const graph = buildAssociationGraph(eligible)
+        const graph = buildAssociationGraph(eligible, { entitiesOf: (record) => this.graphEntitiesFor(record) })
         // 0.82.0：社区约束 —— 同社区最多补 maxPerCommunity 条，避免单一主题刷屏。
         const communities = detectCommunities(graph)
         // 0.86.0：小库保守预算（记录数 < 4×minRecords 时最多补 3 条、门槛 +50%）。
@@ -5398,7 +5406,10 @@ export class LocalMemoryService                             {
         })
         if (visible.length === 0) continue
         const index = buildBm25Docs(
-          visible.map((rec) => ({ id: rec.id, content: rec.content, tags: rec.tags ?? [] })),
+          visible.map((rec) => {
+            const tokens = this.tokensFor(rec)
+            return { id: rec.id, content: tokens.content, tags: tokens.tags }
+          }),
           { k1: this.cfg.bm25.k1, b: this.cfg.bm25.b, tagsWeight: this.cfg.bm25.tagsWeight },
         )
         perScope.push({ scope, store, index, docsById: new Map(visible.map((r) => [r.id, r])) })
@@ -6844,6 +6855,39 @@ export class LocalMemoryService                             {
    * `project:D:/x`、面板 HTTP 写入都从这里落盘,同一个目录不能因为 `/` 与 `\` 的差别
    * 变成两个 scope(0.11.1;读路径的键来自 resolveCurrentScopes,也走同一套规范化)。
    */
+  /**
+   * 0.91.0：取一条记录的分词缓存（内容 / 标签 / 合并文本三份）。
+   *
+   * 失效键 = updatedAt + 正文长度 + 标签串：内容/标签的任何改写都会 bump updatedAt；
+   * 长度兜底防止"同一毫秒内改写但 updatedAt 未变"的极端情况。
+   * 超过 20000 条时整体清空（正常单进程库远低于这个量级，清空只是兜底防泄漏）。
+   */
+          tokensFor(record              )                                                          {
+    const tags = (record.tags ?? []).join('\u0000')
+    const stamp = `${record.updatedAt}|${record.content.length}|${tags}`
+    const cached = this.tokenCache.get(record.id)
+    if (cached !== undefined && cached.stamp === stamp) return cached
+    if (this.tokenCache.size > 20_000) this.tokenCache.clear()
+    const content = tokenize(record.content)
+    const tagTokens = (record.tags ?? []).length > 0 ? tokenize((record.tags ?? []).join(' ')) : []
+    const joined = [...content, ...tagTokens]
+    const entry = { stamp, content, tags: tagTokens, joined }
+    this.tokenCache.set(record.id, entry)
+    return entry
+  }
+
+  /** 0.91.0：取一条记录的实体缓存（图增强建图用）。 */
+          graphEntitiesFor(record                                                                               )           {
+    const tags = (record.tags ?? []).join('\u0000')
+    const stamp = `${record.updatedAt ?? 0}|${record.content.length}|${tags}`
+    const cached = this.entityCache.get(record.id)
+    if (cached !== undefined && cached.stamp === stamp) return cached.entities
+    if (this.entityCache.size > 20_000) this.entityCache.clear()
+    const entities = extractEntities(record.content, { ...(record.tags !== undefined ? { tags: [...record.tags] } : {}) })
+    this.entityCache.set(record.id, { stamp, entities })
+    return entities
+  }
+
           canonicalScope(scope             )              {
     if (scope === 'global' || scope.startsWith('session:')) return scope
     if (scope.startsWith('project:')) {

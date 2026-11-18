@@ -1,4 +1,4 @@
-# 架构说明（本仓库独立维护版 0.90.0）
+# 架构说明（本仓库独立维护版 0.91.0）
 
 > 本文说明这套记忆插件「为什么是插件」：哪些属于宿主、哪些属于插件、平台差异放在哪里。
 > 本仓库 **[HANPU5838/dsh-memory](https://github.com/HANPU5838/dsh-memory)** 是 DSH 记忆系统的独立维护版
@@ -193,6 +193,8 @@ Personalized PageRank（带重启随机游走，alpha=0.85，最多 24 次幂迭
   （重要度→更新时间→id 确定性），败者保留不删、审计 reason=conflict。
 - **图边权与社区（0.82.0）**：边权乘实体类型因子（具体对象 > 泛标签）；`detectCommunities()`
   标签传播划分主题社区，补充候选按社区限流（`maxPerCommunity`，默认 3）。
+- **检索缓存（0.91.0）**：分词与实体提取按记录缓存（updatedAt/长度失效），不改打分逻辑；
+  1200 条库图关 75→31ms、图开 181→121ms。
 - **密钥检测（0.90.0）**：`secrets.ts` 规则覆盖 JWT/HF/Google/Stripe/npm/Basic-Auth/Telegram/中文凭据；
   写入路径默认拒绝、`redact` 模式脱敏。
 - **自检（0.89.0）**：`npm run doctor` 只读体检真实库（JSONL 完整性/设置/健康度/冲突/钩子/向量/备份），

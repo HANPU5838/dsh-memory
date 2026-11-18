@@ -16,7 +16,7 @@
  *   - 有界：实体数/记录数/迭代次数都有硬上限，CPU 只做几十次稀疏迭代；
  *   - 可关闭：`retrieval.graphExpansion.enabled`，关掉完全回到旧行为。
  */
-import { extractEntities } from '../analysis/entities.ts'
+import { extractEntities, type Entity } from '../analysis/entities.ts'
 
 // ---------------------------------------------------------------- 类型
 
@@ -108,7 +108,11 @@ const MAX_EDGES_PER_RECORD = 24
  */
 export function buildAssociationGraph(
   records: readonly GraphRecord[],
-  options: { maxEntitiesPerRecord?: number } = {},
+  options: {
+    maxEntitiesPerRecord?: number
+    /** 0.91.0：实体提取可注入（服务层按记录缓存，避免每次查询重算）。 */
+    entitiesOf?: (record: GraphRecord) => readonly Entity[]
+  } = {},
 ): AssociationGraph {
   const adjacency = new Map<string, Map<string, number>>()
   const entityDf = new Map<string, number>()
@@ -133,9 +137,11 @@ export function buildAssociationGraph(
   const entityToRecords = new Map<string, string[]>()
   const recordEntities = new Map<string, Array<{ key: string; weight: number }>>()
   for (const record of sorted) {
-    const entities = extractEntities(record.content, {
-      ...(record.tags !== undefined ? { tags: [...record.tags] } : {}),
-    })
+    const entities = options.entitiesOf !== undefined
+      ? options.entitiesOf(record)
+      : extractEntities(record.content, {
+          ...(record.tags !== undefined ? { tags: [...record.tags] } : {}),
+        })
     const picked = entities.slice(0, maxEntities)
     const list: Array<{ key: string; weight: number }> = []
     for (const entity of picked) {
