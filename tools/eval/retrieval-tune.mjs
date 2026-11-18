@@ -153,6 +153,44 @@ async function evaluate(overrides) {
 const pct = (value) => `${(value * 100).toFixed(1)}%`
 const composite = (m) => 0.35 * m.bridgeRecall + 0.25 * m.exactTop1 + 0.15 * m.consolidatedTop1 + 0.25 * m.prfRecall
 
+async function evaluateSmallLibrary(graphEnabled) {
+  // 18 条记录（< 4×minRecords=24）→ 触发 0.86 的小库保守预算。
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-eval-small-'))
+  const svc = new LocalMemoryService({
+    storeDir: dir,
+    scopes: { global: true, project: true },
+    retrieval: {
+      vector: { enabled: false },
+      // 隔离图通道：关掉 PRF，否则小库上 PRF 也会把 B 捞回来，测不出图增强本身。
+      lexicalPrf: { enabled: false },
+      graphExpansion: { enabled: graphEnabled, minRecords: 6, limit: 8, minRelative: 0.08, weight: 0.8 },
+    },
+  })
+  try {
+    const ids = new Map()
+    for (let t = 0; t < 8; t++) {
+      ids.set(`a${t}`, (await svc.save({ content: `服务 kw${t} 的部署批次 bt${t} 已完成，代码在 /srv/app${t}`, scope: 'global', kind: 'note' })).id)
+      ids.set(`b${t}`, (await svc.save({ content: `/srv/app${t} 的 nginx 配置位于 /etc/nginx/sites-enabled/app${t}.conf`, scope: 'global', kind: 'note' })).id)
+    }
+    for (let n = 0; n < 2; n++) ids.set(`noise${n}`, (await svc.save({ content: `无关记录 ${n}：今天天气不错`, scope: 'global', kind: 'note' })).id)
+    let bridge = 0
+    let noise = 0
+    let expanded = 0
+    for (let t = 0; t < 8; t++) {
+      const hits = await svc.search({ text: `kw${t} bt${t}`, topK: 5 })
+      const hitIds = hits.map((hit) => hit.record.id)
+      const allowed = new Set([ids.get(`a${t}`), ids.get(`b${t}`)])
+      if (hitIds.includes(ids.get(`b${t}`))) bridge += 1
+      noise += hitIds.filter((id) => !allowed.has(id)).length
+      expanded += hits.filter((hit) => hit.graphExpanded === true).length
+    }
+    return { bridge: bridge / 8, noise: noise / 8, expanded: expanded / 8 }
+  } finally {
+    try { svc.flushSync() } catch { /* 已 flush */ }
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 const base = await evaluate({})
 console.log(`## 检索参数扫描（合成语料：${TOPICS} 主题桥接 + ${EXACT} 精确 + ${CONSOLIDATED} 巩固，topK=${TOP_K}）\n`)
 console.log('基线（当前默认：weight=0.8 / seedCount=6 / minRelative=0.08 / semanticLayerBoost=0.04）\n')
@@ -199,6 +237,17 @@ console.log('### 建议值（综合分最高且无关命中率不明显变差）
 console.log('| 参数 | 建议值 | 综合分 |')
 console.log('| --- | --- | --- |')
 for (const item of recommendations) console.log(`| ${item.name} | ${item.value} | ${item.score.toFixed(3)} |`)
+// 小库场景：验证 0.86 的自适应预算（记录数 < 24 时最多补 3 条）没有牺牲桥接召回。
+const smallOff = await evaluateSmallLibrary(false)
+const smallOn = await evaluateSmallLibrary(true)
+console.log(`### 小库场景（18 条记录，< 4×minRecords → 自适应预算生效）\n`)
+console.log('| 指标 | 图增强关 | 图增强开（小库自适应） |')
+console.log('| --- | --- | --- |')
+console.log(`| 桥接召回 | ${pct(smallOff.bridge)} | ${pct(smallOn.bridge)} |`)
+console.log(`| 平均无关命中 | ${smallOff.noise.toFixed(2)} | ${smallOn.noise.toFixed(2)} |`)
+console.log(`| 平均图增强补召回 | ${smallOff.expanded.toFixed(2)} | ${smallOn.expanded.toFixed(2)} |`)
+console.log('')
+
 console.log(`
 > 本工具只做**单因子扫描**：每次只改一个参数、其余保持当前默认，因此建议值用于判断
 > 参数方向，不构成联合最优。分数只对本合成集与当前算法版本有效；退出码恒 0。

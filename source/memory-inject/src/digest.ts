@@ -13,6 +13,7 @@
  */
 import type { MemoryRecord } from 'dsh-memory'
 import { estimateTokens } from '../../memory-local/src/rerank.ts'
+import { digestForRecall } from './summarize.ts'
 import type { DigestSettings } from '../../memory-local/src/inject-settings.ts'
 
 const HEADER =
@@ -204,8 +205,15 @@ export function recordKindPrefix(record: MemoryRecord): string {
   return record.kind === 'state' ? '【状态，使用前验证】' : ''
 }
 
+/**
+ * 会话摘要（L1）的单行正文。
+ *
+ * 0.87.0：与逐轮召回统一摘要内核 —— 长内容用 TextRank 选信息量最高的句子（无查询时
+ * 纯中心性），而不是直接截前 160 字。短内容仍然原样返回，行为可预期。
+ */
 export function digestLine(record: MemoryRecord): string {
-  return `- ${record.id.slice(0, 8)} [${digestScopeLabel(record.scope)}/${record.kind}] ${recordKindPrefix(record)}${record.content.replace(/\s+/g, ' ').slice(0, 160)}`
+  const summary = digestForRecall(record.content, 160)
+  return `- ${record.id.slice(0, 8)} [${digestScopeLabel(record.scope)}/${record.kind}] ${recordKindPrefix(record)}${summary}`
 }
 
 /**

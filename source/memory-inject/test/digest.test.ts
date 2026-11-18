@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { MemoryRecord } from 'dsh-memory'
-import { digestScopeLabel, rankForDigest, renderDigestBlock } from '../src/digest.ts'
+import { digestLine, digestScopeLabel, rankForDigest, renderDigestBlock } from '../src/digest.ts'
 import { renderRulesBlock } from '../src/rules.ts'
 import { MemoryDigester } from '../src/inject.ts'
 import { defaultInjectSettings, type DigestSettings } from '../../memory-local/src/inject-settings.ts'
@@ -104,4 +104,12 @@ test('MemoryDigester injects once per session and never retries', async () => {
   const brokenRender = new MemoryDigester(async () => [rec('项目里已有的结论')])
   const outcome = await brokenRender.maybeDigestOutcome('s3', undefined, () => { throw new Error('bad record') })
   assert.deepEqual(outcome, { status: 'failed', errorCode: 'render_failed' })
+})
+
+test('0.87.0：L1 会话摘要的长正文用 TextRank 保留关键句（不再截前缀）', () => {
+  const filler = `背景信息：${'与主题无关的背景描述。'.repeat(20)}`
+  const key = '关键结论：发布前必须先跑 verify:all。'
+  const line = digestLine(rec(`${filler}${key}`))
+  assert.ok(line.includes('关键结论'), `关键句应被保留（实际 ${line}）`)
+  assert.ok(line.includes('verify:all'))
 })
