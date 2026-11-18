@@ -5346,6 +5346,15 @@ window.__ModuleLoader__.load({
           { k: 'enabled', label: '启用', type: 'bool', hint: '关闭只隐藏侧栏入口，设置页仍然可用。' },
         ],
       },
+      {
+        key: 'graph', title: '检索 · 图增强',
+        desc: '图增强多跳召回（GraphRAG / HippoRAG 风格）：与命中记忆共享实体/谱系的记忆会被补充进候选，面板改完立即生效。',
+        fields: [
+          { k: 'enabled', label: '启用', type: 'bool', hint: '关闭后只走词法+向量，不再做多跳联想（候选记忆里的 graphExpanded 标记也会消失）。' },
+          { k: 'weight', label: '融合权重', type: 'num', min: 0.2, max: 1.5, step: 0.05, hint: '图通道在 RRF 融合里的权重（默认 0.8）；代码/标识符型查询会在此基础上再自动降权。' },
+        ],
+      },
+
     ]
 
     /**

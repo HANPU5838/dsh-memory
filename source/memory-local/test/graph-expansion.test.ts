@@ -172,3 +172,26 @@ test('graphWeightFactor：代码型查询降权、自然语言提权、有界', 
   // 非法输入安全降级为中性值。
   assert.equal(graphWeightFactor({}), neutral)
 })
+
+test('0.72.0：面板关闭图增强后不再多跳补召回（settings 实时生效）', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-graph-toggle-'))
+  const svc = new LocalMemoryService({ storeDir: dir, scopes: { global: true, project: true }, retrieval: { graphExpansion: { enabled: true, minRecords: 2 } } })
+  try {
+    const a = await svc.save({ scope: 'global', kind: 'note', content: '用 pm2 管理 /srv/app 服务' })
+    const b = await svc.save({ scope: 'global', kind: 'note', content: '/srv/app 的 nginx 配置在 /etc/nginx/sites-enabled' })
+    const before = await svc.search({ text: 'pm2', topK: 5 })
+    assert.ok(before.some((hit) => hit.record.id === b.id), '默认开启时多跳应补召回 B')
+    // 面板改设置（等价于 POST /settings），下一步检索立即生效。
+    svc.updateInjectSettings({ graph: { enabled: false } })
+    const after = await svc.search({ text: 'pm2', topK: 5 })
+    assert.ok(after.some((hit) => hit.record.id === a.id), '词法真命中仍保留')
+    assert.ok(!after.some((hit) => hit.record.id === b.id), '关闭后不应再补召回 B')
+    // 恢复开启
+    svc.updateInjectSettings({ graph: { enabled: true } })
+    const again = await svc.search({ text: 'pm2', topK: 5 })
+    assert.ok(again.some((hit) => hit.record.id === b.id), '重新开启后恢复多跳')
+    svc.flushSync()
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

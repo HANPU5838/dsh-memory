@@ -2,7 +2,7 @@
   <img src="https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/preview/icon-128.png" width="84" alt="记忆系统">
 </p>
 
-> ### 📦 本仓库是 DSH 记忆系统的独立维护版（v0.71.0）
+> ### 📦 本仓库是 DSH 记忆系统的独立维护版（v0.72.0）
 >
 > 本项目是 **DSH 记忆系统**（`@restregular/dsh-memory`，MIT）的独立维护版本：
 > 以原作者代码为起点（完整历史见 CHANGELOG），**后续全部开发、发布、安装与更新只以本仓库为准**。
@@ -12,7 +12,7 @@
 > | 原作者 | **RestRegular**（原始项目 [RestRegular/dsh-memory](https://github.com/RestRegular/dsh-memory)，MIT）；MIT 版权声明与署名完整保留，见 [LICENSE](LICENSE) |
 > | **唯一维护源** | **[HANPU5838/dsh-memory](https://github.com/HANPU5838/dsh-memory)** —— 代码、Release、Issue、更新通道全部在这里 |
 > | 安装 / 更新 | `dsh plugin --profile web add "github:HANPU5838/dsh-memory#main"`；更新同样只从本仓库拉取 |
-> | 当前版本 | **v0.71.0**：记忆巩固升级为显式语义层（`consolidated` 标记 + `memory/consolidated` 事件）；注入预算动态分配（面板可开关）；图增强自适应权重与多跳评测；图增强可解释；记忆图三视图、作用域归档、主动屏蔽、规则代码钩子、跨作用域修正；八个模型工具 |
+> | 当前版本 | **v0.72.0**：**图增强面板开关**（启用/权重实时生效）+ 记忆巩固显式语义层；注入预算动态分配（面板可开关）；图增强自适应权重与多跳评测；图增强可解释；记忆图三视图、作用域归档、主动屏蔽、规则代码钩子、跨作用域修正；八个模型工具 |
 > | 许可 | **MIT**，版权归原作者所有；转载、分发请保留原始版权声明 |
 > | 更新与反馈 | Issue / PR / 反馈：[本仓库 Issues](https://github.com/HANPU5838/dsh-memory/issues) |
 >
@@ -27,7 +27,7 @@
 
 JSONL 落盘 · 本机向量检索 · 八个模型工具 · 自动召回 · 硬性规则 · 作用域归档 · 主动屏蔽 · 可视化管理面板
 
-[![version](https://img.shields.io/badge/version-v0.71.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![version](https://img.shields.io/badge/version-v0.72.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/HANPU5838/dsh-memory/blob/main/LICENSE)
 [![ci](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.13-5FA04E.svg)](https://nodejs.org/)
@@ -681,6 +681,8 @@ memory_save({
   自然语言型查询提权；系数 0.5–1.05，见 `graphWeightFactor()`。
   **效果评测**：`npm run eval:graph` —— 合成「实体桥接」语料对比开关，桥接召回率 0% → 100%、
   平均无关记录 0.00（本合成集口径，用于回归而非对外承诺）。
+  **面板开关（0.72.0）**：面板「设置 → 检索 · 图增强」可直接开关与调融合权重（0.2–1.5），
+  存 settings.json、下一步立即生效；provider 配置 `retrieval.graphExpansion` 仍是底座（配置关掉时面板无法打开）。
 - **可选 LLM 重排**：`retrieval.llm.enabled`，默认关。
 - **自动降级**：端点没配、进程没起、向量身份不匹配时，只走词法，不报错、不阻塞。
 - **面板主动语义检索**：记录页的「语义检索」开关走 `GET /memory/api/search`，用同一套召回排序
@@ -904,7 +906,7 @@ npm run verify:all
 ```
 
 ```
-✓ 单元 / 集成测试：1256 例 / 1255 pass / 1 skip / 0 fail（约 26s）
+✓ 单元 / 集成测试：1259 例 / 1258 pass / 1 skip / 0 fail（约 26s）
 ✓ 单包构建：85 文件 / 5035.0 KiB
 ✓ 面板 API 冒烟：16/16 接口通过
 ✓ 向量后端实测：http://127.0.0.1:8078/health · 1024 维

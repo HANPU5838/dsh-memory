@@ -2,6 +2,17 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.72.0 — 图增强面板开关（2026-11-18）
+
+- **设置项**：`graph`（`enabled` / `weight` 0.2–1.5，默认 0.8）纳入注入设置视图，存 settings.json；
+  面板「设置 → 检索 · 图增强」卡片可开关与调权重，改动即保存、下一步检索实时生效。
+- **语义分层**：provider 配置 `retrieval.graphExpansion` 是底座；面板值取「与」——
+  配置整体关闭时面板无法打开；配置权重作为默认值（settings 未显式写过时跟随）。
+- **检索接线**：`search()` 读 `injectSettings().graph`，图通道权重 = 面板权重 ×
+  `graphWeightFactor(queryProfile)`（0.68 的查询画像自适应仍然生效）。
+- **测试**：新增 `/settings` graph 读写持久化、权重夹紧、关闭后不再补召回且可恢复的用例；
+  全套 **1259 例 / 1258 pass / 1 skip / 0 fail**；`npm run verify:all` PASS。
+
 ## 0.71.0 — 记忆巩固升级：显式语义层 + consolidated 事件（2026-11-18）
 
 - **语义标记**：巩固产物统一追加 `consolidated` 标签（与用户标签并存、不覆盖），

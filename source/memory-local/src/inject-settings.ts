@@ -105,6 +105,18 @@ export interface SidebarSettings {
   enabled: boolean
 }
 
+/**
+ * 检索侧「图增强」的运行时开关（0.72.0）。
+ *
+ * 注意语义分层：provider 配置 `retrieval.graphExpansion` 是**底座**（离线/用户配置），
+ * 面板改的是运行中的覆盖值（存 settings.json）。底座关掉时面板也打不开（enabled 取与）。
+ */
+export interface GraphSettings {
+  enabled: boolean
+  /** 图通道在 RRF 融合里的权重（0.2–1.5，默认 0.8）。 */
+  weight: number
+}
+
 export interface InjectSettings {
   recall: RecallSettings
   digest: DigestSettings
@@ -116,11 +128,13 @@ export interface InjectSettings {
   autoRecall: AutoRecallSettings
   turnEnd: TurnEndSettings
   sidebar: SidebarSettings
+  graph: GraphSettings
 }
 
 export const DEFAULT_STATE_TTL_MS = 7 * 86_400_000
 
 export const defaultInjectSettings: InjectSettings = {
+  graph: { enabled: true, weight: 0.8 },
   recall: { enabled: true, topK: 5, tokenBudget: 500 },
   digest: { enabled: true, topK: 8, tokenBudget: 800, hintBudget: 160, hintMaxItems: 6 },
   impression: { enabled: true, chars: 120, dynamic: true },
@@ -163,6 +177,10 @@ export function normalizeInjectSettings(raw: unknown, base: InjectSettings = def
         ...((r.recall && typeof r.recall === 'object' ? r.recall : {}) as Record<string, unknown>),
       },
     }
+  }
+  const clampNumber = (value: unknown, min: number, max: number, fallback: number): number => {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
+    return Math.min(max, Math.max(min, value))
   }
   const section = (key: keyof InjectSettings): Record<string, unknown> => {
     const value = r[key]
@@ -234,6 +252,10 @@ export function normalizeInjectSettings(raw: unknown, base: InjectSettings = def
       useMemoryTags: bool(autoRecall.useMemoryTags, base.autoRecall.useMemoryTags),
     },
     turnEnd: { enabled: bool(turnEnd.enabled, base.turnEnd.enabled) },
+    graph: {
+      enabled: bool(section('graph').enabled, base.graph.enabled),
+      weight: clampNumber(section('graph').weight, 0.2, 1.5, base.graph.weight),
+    },
     sidebar: { enabled: bool(sidebar.enabled, base.sidebar.enabled) },
   }
 }

@@ -1211,6 +1211,7 @@ test('设置标签页:读取注入设置、渲染各组开关并能保存', asyn
     policy: { enabled: true },
     rules: { enabled: true, maxItems: 10, tokenBudget: 300, delta: true },
     turnEnd: { enabled: false },
+    graph: { enabled: true, weight: 0.8 },
   }
   const calls: Array<{ url: string; method?: string; body?: string }> = []
   let posted: Record<string, unknown> | null = null
@@ -1242,7 +1243,7 @@ test('设置标签页:读取注入设置、渲染各组开关并能保存', asyn
   hooks.runEffects(); await flush(); hooks.runEffects(); await flush()
 
   const text = textOf(current)
-  for (const label of ['每轮召回', '印象形态', '会话摘要', '记忆使用策略', '硬性规则', '轮末提醒']) {
+  for (const label of ['每轮召回', '印象形态', '会话摘要', '记忆使用策略', '硬性规则', '轮末提醒', '检索 · 图增强']) {
     assert.ok(text.includes(label), `设置页应显示「${label}」`)
   }
 

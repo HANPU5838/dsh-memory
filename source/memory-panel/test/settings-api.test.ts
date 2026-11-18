@@ -40,6 +40,9 @@ test('面板 /settings:GET 返回默认设置', async () => {
     assert.equal(res.out.body.ok, true)
     assert.equal(res.out.body.value.recall.enabled, true)
     assert.equal(res.out.body.value.turnEnd.enabled, false)
+    // 0.72.0：图增强设置默认跟随 provider 配置（默认开、权重 0.8）。
+    assert.equal(res.out.body.value.graph.enabled, true)
+    assert.equal(res.out.body.value.graph.weight, 0.8)
     svc.flushSync()
   } finally {
     rmSync(dir, { recursive: true, force: true })
@@ -251,3 +254,21 @@ test('面板 /audit v2:查询过滤、分页游标、stats 与 store 解耦', as
   assert.ok((exported.out.body as string).includes('"id":"s1:2"'))
 })
 
+test('0.72.0：/settings 支持图增强开关与权重，越界夹紧并持久化', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-memory-panel-graph-'))
+  const svc = new LocalMemoryService({ storeDir: dir, scopes: { global: true, project: true } })
+  try {
+    const res = fakeRes()
+    await handleRequest(ctxWith(svc), ROUTE, post(`${ROUTE}/settings`, { graph: { enabled: false, weight: 9 } }), res)
+    assert.equal(res.out.status, 200)
+    assert.equal(res.out.body.value.graph.enabled, false)
+    assert.equal(res.out.body.value.graph.weight, 1.5, '权重夹紧到 1.5')
+
+    const again = fakeRes()
+    await handleRequest(ctxWith(svc), ROUTE, get(`${ROUTE}/settings`), again)
+    assert.equal(again.out.body.value.graph.enabled, false, '设置已持久化')
+    svc.flushSync()
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

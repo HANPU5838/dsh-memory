@@ -105,6 +105,18 @@ export const DEFAULT_AUTO_RECALL_TAGS           = [
                   
  
 
+/**
+ * 检索侧「图增强」的运行时开关（0.72.0）。
+ *
+ * 注意语义分层：provider 配置 `retrieval.graphExpansion` 是**底座**（离线/用户配置），
+ * 面板改的是运行中的覆盖值（存 settings.json）。底座关掉时面板也打不开（enabled 取与）。
+ */
+                                
+                  
+                                         
+                
+ 
+
                                  
                         
                         
@@ -116,11 +128,13 @@ export const DEFAULT_AUTO_RECALL_TAGS           = [
                                 
                           
                           
+                      
  
 
 export const DEFAULT_STATE_TTL_MS = 7 * 86_400_000
 
 export const defaultInjectSettings                 = {
+  graph: { enabled: true, weight: 0.8 },
   recall: { enabled: true, topK: 5, tokenBudget: 500 },
   digest: { enabled: true, topK: 8, tokenBudget: 800, hintBudget: 160, hintMaxItems: 6 },
   impression: { enabled: true, chars: 120, dynamic: true },
@@ -163,6 +177,10 @@ export function normalizeInjectSettings(raw         , base                 = def
         ...((r.recall && typeof r.recall === 'object' ? r.recall : {})                           ),
       },
     }
+  }
+  const clampNumber = (value         , min        , max        , fallback        )         => {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
+    return Math.min(max, Math.max(min, value))
   }
   const section = (key                      )                          => {
     const value = r[key]
@@ -234,6 +252,10 @@ export function normalizeInjectSettings(raw         , base                 = def
       useMemoryTags: bool(autoRecall.useMemoryTags, base.autoRecall.useMemoryTags),
     },
     turnEnd: { enabled: bool(turnEnd.enabled, base.turnEnd.enabled) },
+    graph: {
+      enabled: bool(section('graph').enabled, base.graph.enabled),
+      weight: clampNumber(section('graph').weight, 0.2, 1.5, base.graph.weight),
+    },
     sidebar: { enabled: bool(sidebar.enabled, base.sidebar.enabled) },
   }
 }

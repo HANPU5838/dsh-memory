@@ -1757,6 +1757,12 @@ export class LocalMemoryService                             {
   /** 配置先给底,磁盘上的 settings.json 覆盖它;坏文件忽略而不是启动失败。 */
           loadInjectSettings(fromConfig         , hooksFromConfig          )                 {
     const base = normalizeInjectSettings(fromConfig)
+    // 0.72.0：面板的「图增强」默认跟随 provider 配置（retrieval.graphExpansion），
+    // settings.json 里显式写过 graph 小节时以磁盘为准。
+    const rawGraph = (fromConfig                                   )?.graph
+    if (rawGraph === undefined || rawGraph === null) {
+      base.graph = { enabled: this.cfg.graphExpansion.enabled, weight: this.cfg.graphExpansion.weight }
+    }
     // 无条件先给一份底座(配置里的 hooks),随后 settings.json 的 hooks 小节覆盖它。
     // 不这样做的话:没有 settings.json 时 hookCfg 就是 undefined,而有 settings.json
     // 时又只在文件分支里赋值 —— 两条路径不一致,且构造函数里那次赋值会把磁盘覆盖冲掉。
@@ -5239,9 +5245,11 @@ export class LocalMemoryService                             {
     // 路径/URL/版本/端口等实体起跳（HippoRAG 2 的 query-NER 步骤），不再要求先有命中。
     let graphIds           = []
     // 0.68.0：按查询画像自适应调权（代码型查询降权、自然语言提权）。
-    let graphWeight = this.cfg.graphExpansion.weight
-    if (this.cfg.graphExpansion.enabled) {
-      graphWeight = this.cfg.graphExpansion.weight * graphWeightFactor(queryProfile(query.text))
+    // 0.72.0：面板开关/权重（settings.json 的 graph 小节）实时生效。
+    const graphSettings = this.injectSettings().graph
+    let graphWeight = graphSettings.weight
+    if (this.cfg.graphExpansion.enabled && graphSettings.enabled) {
+      graphWeight = graphSettings.weight * graphWeightFactor(queryProfile(query.text))
       const eligible                                                                                                       = []
       for (const { store } of stores) {
         for (const rec of store.records.values()) {

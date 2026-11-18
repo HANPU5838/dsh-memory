@@ -212,3 +212,13 @@ test('0.70.0: impression.dynamic 默认开启、可显式关闭', () => {
   const off = normalizeInjectSettings({ impression: { dynamic: false } })
   assert.equal(off.impression.dynamic, false)
 })
+
+test('0.72.0: graph 设置默认开/权重 0.8，可关闭与夹紧', () => {
+  const defaults = normalizeInjectSettings({})
+  assert.deepEqual(defaults.graph, { enabled: true, weight: 0.8 })
+  const off = normalizeInjectSettings({ graph: { enabled: false } })
+  assert.equal(off.graph.enabled, false)
+  assert.equal(normalizeInjectSettings({ graph: { weight: 9 } }).graph.weight, 1.5)
+  assert.equal(normalizeInjectSettings({ graph: { weight: 0.01 } }).graph.weight, 0.2)
+  assert.equal(normalizeInjectSettings({ graph: { weight: 'abc' } }).graph.weight, 0.8, '非法值回落默认')
+})
