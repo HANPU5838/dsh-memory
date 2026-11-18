@@ -43,13 +43,14 @@
 
 ## 1.5 评测回归（CI 会跑，手动可选）
 
-`verify:all` 只回答「代码没坏」；检索**质量**由两个纯本地评测脚本守着，CI（`.github/workflows/ci.yml`）
+`verify:all` 只回答「代码没坏」；检索**质量**由三个纯本地评测脚本守着，CI（`.github/workflows/ci.yml`）
 每次 push 都会跑，本地也可以单独跑：
 
 | 脚本 | 测什么 | 通过口径 |
 | --- | --- | --- |
 | `npm run eval:graph` | 图增强多跳：合成「实体桥接」语料对比开关 | 桥接召回 0% → 100%，平均无关记录 0.00 |
-| `npm run eval:tune` | 参数扫描：桥接/精确/巩固/干扰项语料，单因子扫图权重/种子/门槛/语义层 boost | 默认值在扫描区间内指标不劣化；`semanticLayerBoost=0` 时巩固 top1 应为 0% |
+| `npm run eval:tune` | 参数扫描：桥接/精确/巩固/干扰项语料，单因子扫图权重/种子/门槛/语义层 boost/PRF；含小库场景与设置开关对比 | 默认值在扫描区间内指标不劣化；图增强关闭桥接 100%→0%；动态预算最高行 156 字 vs 固定 130 |
+| `npm run eval:summarize` | 召回摘要：关键结论都在正文后半段，对比前缀截断 vs TextRank | 关键结论保留率 0% → 100%，平均输出字数 80 → 67.5 |
 
 两者都是**确定性**的（固定语料、无随机量），退出码恒 0（用于观察而非阻断），耗时秒级。
 它们不联网、不碰真实记忆库（临时目录）。
@@ -103,6 +104,13 @@ npm run e2e:real -- --store /path # 指定其它库
 | Termux 无 glibc | Termux 未装 glibc、无系统 llama-server 时点面板安装 | **改走 pkg 装系统运行时**，不下载 glibc 托管运行时（旧行为会 ENOENT 失败） |
 | 自举（需显式开启） | 设 `autoBootstrap: 'auto'` 后删掉 llama-cpp 重启（Termux） | 自动 `pkg install` + 起服务；日志在 `<installRoot>/bootstrap.log` |
 | 本机端点发现 | 本机跑 Ollama 后重启 | 日志 `discovery found Ollama… adopted`，不下载任何东西 |
+| 联想标记（0.94–0.97） | 两条共享路径/URL 的记忆，查询只命中 A | 工具输出与注入正文里 B 带「联想」；审计「图增强联想（补召回）」分组列出 B |
+| 设置生效（0.98–0.99） | 面板关闭「图增强」后重复上面的查询 | 不再出现联想补召回；重新开启后恢复 |
+| 动态预算（0.98） | 面板开启/关闭「按相关度动态分配」 | 开启时高相关记忆占更多字数；关闭后每条同上限 |
+| 密钥安全（0.90） | `memory_save` 写一条含 `password: hunter2…` 或 `sk-…` 的内容 | 默认拒绝保存；`secrets.mode=redact` 时保存为 `[REDACTED:…]` |
+| UI 焦点（0.93） | Tab 键在输入框/下拉/折叠头之间移动 | 每个控件有 2px 品牌色焦点轮廓 |
+| 真实库验收（0.100） | `npm run e2e:real` | 复制真实库后全链路 PASS，线上数据不变 |
+| 文档守门（0.92） | `npm run check:docs` | 版本/badge/CHANGELOG/链接一致 → PASS |
 
 ---
 

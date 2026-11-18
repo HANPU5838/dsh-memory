@@ -2,6 +2,15 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.101.0 — 验收文档与最新能力对齐（2026-11-18）
+
+- **修正过期表述**：`docs/verification.md` §1.5 还写着「两个评测脚本」，实际 CI 跑三个
+  （graph/tune/summarize）；补 `eval:summarize` 行与设置开关对比口径。
+- **真机功能清单补齐 0.90+ 能力**：联想标记（工具/注入/审计）、图增强开关生效、动态预算、
+  密钥检测与脱敏、UI 键盘焦点、`e2e:real` 真实库验收、`check:docs` 文档守门。
+- **意义**：验收文档从「0.6x 时代的清单」变成与当前能力一致，避免“文档说能验、实际没有对应项”。
+- **全量**：1291 例 / 1290 pass / 1 skip / 0 fail；`verify:all` PASS；`check:docs` PASS。
+
 ## 0.100.0 — 真实库全链路验收（2026-11-18）
 
 - **新工具**：`tools/e2e-real.mjs`（`npm run e2e:real [-- --store /path]`）——把真实 `storeDir`
