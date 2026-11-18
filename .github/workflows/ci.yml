@@ -33,6 +33,10 @@ jobs:
       # 四层验收：全量测试 → 单包构建（产物与源码不同步是本项目最容易犯的错）
       # → 面板 API 冒烟（16 个关键接口，临时记忆库）→ 向量后端实测。
       # CI 上没有本机 llama-server，第 4 层自动 SKIP（不是失败）。
+      # 文档一致性守门：版本 / badge / CHANGELOG / IMPROVEMENTS / 链接 / build 版本。
+      - name: 文档一致性（check:docs）
+        run: npm run check:docs
+
       - name: 全功能验收（verify:all）
         run: npm run verify:all
 

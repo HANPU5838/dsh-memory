@@ -56,6 +56,17 @@
 
 ---
 
+## 1.6 一键体检与文档守门
+
+```bash
+npm run doctor        # 真实记忆库只读体检（数据完整性/设置/健康度/冲突/钩子/向量/备份）
+npm run check:docs    # 版本 / badge / CHANGELOG / IMPROVEMENTS / architecture / README 链接 / build 版本
+```
+
+- `doctor` 有数据损坏时退出码 1；全新库缺 `settings.json` 视为正常。
+- `check:docs` 在 `npm test` 与 CI 中都会跑：任何一次发版漏改版本号或文档链接都会直接失败。
+- 0.91.0 起检索层按记录缓存分词/实体提取，1200 条库图关 75→31ms、图开 181→121ms（见 CHANGELOG）。
+
 ## 2. 真机功能清单
 
 `npm run verify:all` 覆盖「代码没坏」，这一节覆盖「你面前这台机器上能用」。逐项打勾即可：

@@ -2,6 +2,19 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.92.0 — 文档与发布一致性守门（2026-11-18）
+
+- **发现**：README 的 version badge 从 0.85 之后一直停在 **v0.84.0**，而其余文档都更新了 ——
+  这类"发布漂移"靠人工检查迟早漏掉。
+- **新工具**：`tools/check-docs.mjs`（`npm run check:docs`）校验：
+  ① package.json 版本 = README badge / 「当前版本」行 / build 脚本 `--version`；
+  ② CHANGELOG 顶部条目、IMPROVEMENTS 条目、architecture 标题版本；
+  ③ README 引用的本地文档与 `preview/*.png` 是否存在；
+  ④ README 里是否有旧版本 badge 残留。
+- **接入**：`npm test` 内置文档一致性测试（漂移即失败）；CI 在 `verify:all` 前执行 `check:docs`。
+- **文档**：verification.md 补「一键体检 / 文档守门」小节；README 修正 badge 并更新验收说明。
+- **测试**：全套 **1283 例 / 1282 pass / 1 skip / 0 fail**；`npm run verify:all` PASS。
+
 ## 0.91.0 — 检索层规模优化：分词/实体缓存（2026-11-18）
 
 - **问题**：每次 `search()` 都会把所有记录**重新分词两遍**（词法通道一遍 + BM25 建索引一遍），

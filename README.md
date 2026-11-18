@@ -4,13 +4,15 @@
 
 **给 DeepSeek Harness 的本地优先长期记忆插件：多路检索 + 多跳图增强 + 上下文摘要 + 冲突消解**
 
-[![version](https://img.shields.io/badge/version-v0.84.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![version](https://img.shields.io/badge/version-v0.92.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
 [![license](https://img.shields.io/badge/license-MIT-3DA639.svg)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A522.13-3C873A.svg)](package.json)
 
 **[安装](#快速开始) · [能力](#它为什么是真正的记忆系统) · [配置](#配置参考) · [评测](#评测与验收) · [更新日志](CHANGELOG.md)**
 
 </div>
+
+**当前版本：v0.92.0** · [Release](https://github.com/HANPU5838/dsh-memory/releases) · [更新日志](CHANGELOG.md)
 
 ---
 
@@ -234,6 +236,15 @@ npm run doctor -- --store /path # 指定其它库
 只读检查，逐项报告：目录/JSONL 完整性（坏行会 FAIL）、settings.json 可解析与新键齐全、
 健康度分数、冲突中心、规则代码（含待审批钩子）、向量服务可达性、备份数量；退出码在有数据损坏时为 1。
 本机实测：**10 ok / 0 warn / 0 fail（PASS）**。
+
+### 文档一致性守门
+
+```bash
+npm run check:docs   # 版本 / badge / CHANGELOG / IMPROVEMENTS / 文档链接 / build 版本
+```
+
+在任何一次发版前，保证 README 徽章、package.json、CHANGELOG 顶部条目、architecture 标题完全同步；
+`npm test` 与 CI 都会跑它，漂移会直接失败。
 
 ### 一条命令验收
 
