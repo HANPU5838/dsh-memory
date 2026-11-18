@@ -2,6 +2,17 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.90.0 — 安全层补强：密钥检测规则扩展（2026-11-18）
+
+- **补齐**：密钥检测在原有 `sk-`/GitHub/AWS/Slack/Bearer/私钥/`password=` 之外，新增：
+  **JWT**（三段式）、**HuggingFace `hf_`**、**Google API `AIza`**、**Stripe `sk/rk_live|test_`**、
+  **npm token `npm_`**、**Basic-Auth 连接串**（`postgres://user:pass@host`）、**Telegram bot token**、
+  **中文凭据表述**（密码/密钥/令牌/口令/凭据 + 是/为/：/=）。
+- **不误报**：中文规则要求引导词 + 分隔符，普通句子（"密码错误时看日志"）不命中；
+  Basic-Auth 只识别带 `@` 的 URL，不会误伤 `127.0.0.1:5432`。
+- **测试**：新增 8 类格式的识别用例 + 2 条反误报断言；全套 **1281 例 / 1280 pass / 1 skip / 0 fail**；
+  `npm run verify:all` PASS。
+
 ## 0.89.0 — 一键体检 `npm run doctor`（2026-11-18）
 
 - **新工具**：`tools/doctor.mjs`（`npm run doctor [-- --store /path]`）—— 只读自检真实记忆库：

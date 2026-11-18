@@ -44,3 +44,23 @@ test('every scan finding is also caught after redaction', () => {
   const clean = redactSecrets(dirty)
   assert.equal(scanSecrets(clean).length, 0, 'redacted output is clean')
 })
+
+test('0.90.0：补齐 JWT / HF / Google / Stripe / npm / Basic-Auth / Telegram / 中文凭据', () => {
+  const samples = [
+    ['jwt', 'jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U'],
+    ['hf-token', 'hf_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'],
+    ['google-api-key', 'AIzaSyA1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q'],
+    ['stripe-key', `sk_live_${'A'.repeat(24)}`],
+    ['npm-token', 'npm_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'],
+    ['basic-auth-url', 'postgres://admin:hunter2supersecret@db.internal:5432/app'],
+    ['telegram-bot-token', '123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw'],
+    ['cjk-credential', '服务器密码是 Hunter2@prod'],
+  ]
+  for (const [kind, text] of samples) {
+    const kinds = new Set(scanSecrets(`记住：${text}`).map((finding) => finding.kind))
+    assert.ok(kinds.has(kind), `${kind} 应被识别（实际 ${[...kinds].join(',')}）`)
+  }
+  // 常见非凭据文本不能被误报。
+  assert.equal(scanSecrets('JWT 过期后需要重新登录；Google 搜索 API 文档').length, 0)
+  assert.equal(scanSecrets('数据库部署在 127.0.0.1:5432，密码错误时看日志').length, 0)
+})

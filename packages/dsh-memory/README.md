@@ -273,7 +273,9 @@ npm run verify:all
 ## 数据与隐私
 
 - 记忆、向量缓存、备份全部在 `<storeDir>` 下；不配置向量后端时**零网络请求**；
-- 写入时默认拒绝保存疑似凭据（API key/token/密码），可改为 `redact` 脱敏后保存；
+- 写入时默认拒绝保存疑似凭据（API key/token/密码），可改为 `redact` 脱敏后保存；识别覆盖
+  `sk-`/GitHub/AWS/Slack/Bearer/私钥、**JWT、HuggingFace、Google API、Stripe、npm、Basic-Auth 连接串、
+  Telegram bot token 与中文「密码/令牌：…」表述**（0.90.0 补齐）；
 - 范围外访问需要用户审批（会话级权限 + 审批卡），Agent 不能绕过；
 - `memory_block` 是“隐藏”不是删除；软删记录可在 30 天内恢复；
 - 升级插件只替换代码，不迁移/不重写记忆数据。
