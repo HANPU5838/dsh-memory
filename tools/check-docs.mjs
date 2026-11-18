@@ -18,6 +18,7 @@ const read = (path) => readFileSync(path, 'utf8')
 const checks = []
 const ok = (name, detail) => checks.push({ level: 'ok', name, detail })
 const fail = (name, detail) => checks.push({ level: 'fail', name, detail })
+const warn = (name, detail) => checks.push({ level: 'warn', name, detail })
 
 const pkg = JSON.parse(read('package.json'))
 const version = String(pkg.version ?? '')

@@ -4,7 +4,7 @@
 
 **给 DeepSeek Harness 的本地优先长期记忆插件：多路检索 + 多跳图增强 + 上下文摘要 + 冲突消解**
 
-[![version](https://img.shields.io/badge/version-v0.111.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![version](https://img.shields.io/badge/version-v1.0.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
 [![license](https://img.shields.io/badge/license-MIT-3DA639.svg)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A522.13-3C873A.svg)](package.json)
 
@@ -12,7 +12,7 @@
 
 </div>
 
-**当前版本：v0.111.0** · [Release](https://github.com/HANPU5838/dsh-memory/releases) · [更新日志](CHANGELOG.md)
+**当前版本：v1.0.0（正式版）** · [Release](https://github.com/HANPU5838/dsh-memory/releases) · [更新日志](CHANGELOG.md)
 
 ---
 
@@ -282,7 +282,7 @@ npm run probe:flake -- 10   # 怀疑偶发失败时：同一套测试连跑 N �
 四层：全量测试 → 单包构建 → 面板 API 冒烟（16 接口）→ 向量后端实测（没有后端时 SKIP 不算失败）。
 失败退出码非 0，可直接当 pre-push hook / CI 步骤。
 
-当前状态（0.111.0）：**1324 例 / 1323 pass / 1 skip / 0 fail**，验收集成 87 文件（约 2.4 MiB），
+当前状态（1.0.0）：**1327 例 / 1326 pass / 1 skip / 0 fail**，验收集成 87 文件（约 2.4 MiB），
 面板 API 16/16，向量后端实测通过。
 
 ### 检索质量评测（本地、确定性、进 CI）
@@ -346,7 +346,7 @@ npm run probe:flake -- 10   # 怀疑偶发失败时：同一套测试连跑 N �
 
 本仓库用 **tag + GitHub Release** 发布（不向 npm 发布）：推送 `v*` tag 后
 `.github/workflows/release.yml` 自动从 [CHANGELOG.md](CHANGELOG.md) 提取对应版本段落创建 Release。
-当前最新：**v0.111.0** —— 双时态检索 `asOf`（历史时刻的事实，含 supersede/validUntil/软删时间语义）；v0.110.0 模板转义 + 防篡改账本；v0.109.0 多进程配置一致性；
+当前最新：**v1.0.0 正式版** —— 全部功能收口：双时态 `asOf`、模板转义、防篡改账本、多进程配置一致性、审计 P1/P2 修复、备份纯手动；1327 例测试全绿 + flake 5/5；v0.111.0
 v0.82.0 图增强（类型边权 + 社区限流）；v0.81.0 召回 TextRank 摘要；v0.80.0 词法 PRF；
 v0.79.0 记录卡长作用域 UI 修复。
 

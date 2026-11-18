@@ -30,6 +30,11 @@
   architecture 工具与事件清单、analysis 模块引用、README `revoke-approval` 等全部对齐。
 - `check:docs` 新增「README 当前最新 vX」校验。
 
+## 1.0.0 正式版：审计 backlog 清零
+
+- 自举主流程编排测试（`bootstrap-flow.test.ts`）：采用端点短路、决策原样执行、
+  异常只写 bootstrap.log；不触发真实下载/装包。至此 0.108 审计 backlog 全部处理完。
+
 ## 0.111.0 新增
 
 - 双时态检索 `asOf`：按历史时间点回答「当时我相信什么」，测试覆盖修正前/当前、
