@@ -269,6 +269,13 @@ const EXTRA_DISK_RESERVE_BYTES = 200 * 1024 * 1024
  
 
 export function installPaths(root        , modelFile         = MODEL_FILE_NAME)               {
+  // 0.108.0：模型文件名只能是纯文件名 —— 这是最后一道防线（面板层已校验，
+  // 但配置文件 / 直接 API 调用也必须挡住 ../../ 路径穿越）。
+  const safeModelFile = typeof modelFile === 'string' ? modelFile.trim() : ''
+  if (safeModelFile === '' || safeModelFile !== modelFile || /[\\/]/.test(safeModelFile) || safeModelFile === '.' || safeModelFile === '..') {
+    throw new Error(`invalid model file name: ${String(modelFile)}`)
+  }
+  modelFile = safeModelFile
   const dir = join(root, RUNTIME_DIR_NAME)
   // 宿主平台决定可执行文件名：Windows 上 llama.cpp 的启动器带 .exe。
   const exeName = process.platform === 'win32' ? 'llama-server.exe' : 'llama-server'

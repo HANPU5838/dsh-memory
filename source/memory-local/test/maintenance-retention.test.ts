@@ -50,3 +50,21 @@ test('0.107.0：本地备份超过 20 份时裁掉最旧的，且不碰非 snaps
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('0.108.0：createBackup 不自动裁剪（备份纯手动，只有显式 pruneBackups 才清理）', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-backup-manual-'))
+  const svc = new LocalMemoryService({ storeDir: dir, scopes: { global: true }, retrieval: { vector: { enabled: false } } })
+  try {
+    const backupDir = join(dir, 'backups')
+    mkdirSync(backupDir, { recursive: true })
+    for (let i = 0; i < 25; i++) {
+      writeFileSync(join(backupDir, `snapshot-2026-02-${String(i + 1).padStart(2, '0')}T00-00-00-000Z.jsonl.gz`), 'x')
+    }
+    svc.createBackup()
+    assert.equal(readdirSync(backupDir).filter((name) => name.startsWith('snapshot-')).length, 26, '创建备份不应自动删除旧备份')
+    assert.equal(svc.pruneBackups(), 6, '显式清理才裁到 20 份')
+  } finally {
+    svc.flushSync()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

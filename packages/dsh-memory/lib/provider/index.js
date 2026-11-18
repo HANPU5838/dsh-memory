@@ -1638,8 +1638,8 @@ export class LocalMemoryService                             {
   }
 
   /** 真正跑一批钩子（工具 / 注入共用）。未批准的钩子不会执行。 */
-  runHooks(phase           , input                                )                {
-    return runHooks(this.hooks, phase, input, this.hookSettings())
+  runHooks(phase           , input                                , options                                 = {})                {
+    return runHooks(this.hooks, phase, input, this.hookSettings(), options)
   }
 
   /**
@@ -1652,6 +1652,9 @@ export class LocalMemoryService                             {
   runHookTrial(id        , input                                )                {
     const hook = this.hooks.get(id)
     if (hook === undefined) return []
+    // 0.108.0：试跑保留“先看行为再批准”的工作流，但明确标记脚本尚未批准，
+    // 并提示 vm 不是安全边界（审计 P2-6 的缓解：可见性 + 文档，而不是堵死流程）。
+    const unapproved = this.hookPendingApproval(id)
     const started = Date.now()
     const result = runHookCode(hook.code, hook.phase, input, this.hookSettings())
     const crashed = result.error !== undefined
@@ -1670,6 +1673,7 @@ export class LocalMemoryService                             {
       ...(crashed ? { error: result.error } : {}),
       ...(result.logs.length > 0 ? { logs: result.logs.slice(0, 20) } : {}),
       ...(result.raw !== undefined ? { raw: result.raw } : {}),
+      ...(unapproved ? { unapproved: true, message: `${result.message ?? ''}${result.message ? '；' : ''}注意：这是未批准脚本的试跑结果（vm 不是安全边界）。` } : {}),
     }]
   }
 
@@ -1701,6 +1705,8 @@ export class LocalMemoryService                             {
       let dropped = false
       // 同一批钩子里后面的脚本看到前面改写后的正文 —— 与保存路径的顺序一致。
       for (const hook of this.hooks.forRun('before-inject', { scope: record.scope, kind: record.kind }, settings)) {
+        // 0.108.0：只跑当前 hook —— 之前这里对每个 hook 调一次 runHooks，而 runHooks
+        // 内部又跑全部匹配 hook，N 个钩子会执行 N² 次（审计 P2-5）。
         const outcomes = this.runHooks('before-inject', {
           memory: {
             id: current.id,
@@ -1716,7 +1722,7 @@ export class LocalMemoryService                             {
           tool: 'inject',
           ...(sessionId !== undefined ? { sessionId } : {}),
           settings: settingsView,
-        })
+        }, { only: new Set([hook.id]) })
         const outcome = outcomes.find((item) => item.hook.id === hook.id)
         if (outcome === undefined) continue
         if (outcome.error !== undefined) {
@@ -2922,10 +2928,9 @@ export class LocalMemoryService                             {
       //  - 退役（superseded）、休眠、软删、过期/失效的都不参与；
       //  - 带 conflictWith 标记的记录**绝不合并** —— 它们是"措辞像但事实矛盾"的对，
       //    合并会把两个互相矛盾的事实揉成一条，比不巩固更糟。
-      const retired = new Set        ()
-      for (const rec of scopeStore.records.values()) {
-        if ((rec                           ).supersedes !== undefined) retired.add((rec                          ).supersedes)
-      }
+      // 0.108.0：退役集合必须跨作用域（项目里的旧记录可能被 global 的修正版取代），
+      // 否则巩固会把已被取代的旧事实重新合并进新记录（审计 P2-7）。
+      const retired = new Set(this.supersededIds())
       const candidates = [...scopeStore.records.values()].filter((rec) => {
         if (retired.has(rec.id)) return false
         if (!isRecordVisible(rec, { now })) return false
@@ -4647,8 +4652,13 @@ export class LocalMemoryService                             {
     // 作用域去修正另一作用域里的旧记录（project / global / session / 自定义均可）。
     // 之前这里用 `this.store.scope(scope).records.get(id)` 只查新记录自己的 scope，
     // 跨作用域一律报 SUPERSEDES_UNKNOWN；findById 会扫描全部已加载/已发现的 scope。
-    if (input.supersedes && !this.findById(input.supersedes)) {
-      throw memoryError('SUPERSEDES_UNKNOWN', `supersedes target ${input.supersedes} not found in any scope`)
+    // 0.108.0：冷进程里目标作用域可能尚未加载 —— 先发现再按 id 定位，
+    // 否则跨作用域修正会被误报 SUPERSEDES_UNKNOWN（审计 P2-1）。
+    if (input.supersedes) {
+      this.discoverScopes()
+      if (!this.findById(input.supersedes)) {
+        throw memoryError('SUPERSEDES_UNKNOWN', `supersedes target ${input.supersedes} not found in any scope`)
+      }
     }
     // 状态型记忆(state)默认带 TTL:写入时算一次绝对 expiresAt,读取时只比较时间。
     // 显式 expiresAt 优先;ttlMs 对任何 kind 都生效(便于测试/特殊用途)。
@@ -4665,22 +4675,27 @@ export class LocalMemoryService                             {
         : stateTtl !== undefined ? Date.now() + stateTtl : undefined)
     const saveInput = expiresAt !== undefined ? { ...input, expiredAt: expiresAt } : input
     // design §11: keep credentials out of the plaintext store and the embedder
-    if (this.cfg.secrets.enabled) {
-      const findings = scanSecrets(content)
-      if (findings.length > 0) {
-        if (this.cfg.secrets.mode === 'refuse') {
-          throw memoryError('SECRET_DETECTED', `content matches credential denylist: ${[...new Set(findings.map((f) => f.kind))].join(', ')}`)
-        }
-        content = redactSecrets(content)
+    // 0.108.0：扫描覆盖 content + tags + scopeRule + scopeDescription —— 此前只有 content，
+    // 明文密钥可以经标签 / 规则正文 / 作用域用途绕过 refuse 模式（审计 P2）。
+    const scanField = (text        , field        )         => {
+      if (!this.cfg.secrets.enabled) return text
+      const findings = scanSecrets(text)
+      if (findings.length === 0) return text
+      const kinds = [...new Set(findings.map((f) => f.kind))].join(', ')
+      if (this.cfg.secrets.mode === 'refuse') {
+        throw memoryError('SECRET_DETECTED', `${field} matches credential denylist: ${kinds}`)
       }
+      return redactSecrets(text)
     }
+    content = scanField(content, 'content')
+    const safeTags = Array.isArray(input.tags) ? input.tags.map((tag) => scanField(String(tag), 'tags')) : undefined
     // 0.24.0：自定义作用域的“创建”与“普通写入”分开判断。
     //   - Agent 新建自定义作用域必须带 scopeDescription（面板 / 导入等无 agent 路径不受限）；
     //   - 元数据存在但 status='pending'（上次初始化半途失败）时继续完成初始化；
     //   - 已有作用域带 scopeDescription = 更新用途，不写初始记忆。
     const initInput = input                                                                         
-    const description = normalizeScopeDescription(initInput.scopeDescription)
-    const ruleText = typeof initInput.scopeRule === 'string' ? initInput.scopeRule.trim() : ''
+    const description = scanField(normalizeScopeDescription(initInput.scopeDescription), 'scopeDescription')
+    const ruleText = typeof initInput.scopeRule === 'string' ? scanField(initInput.scopeRule.trim(), 'scopeRule') : ''
     const metaBefore = this.meta.get(scope)
     const newCustom = isCustomScope(scope) && this.store.peek(scope) === undefined && metaBefore === undefined
     const pendingInit = metaBefore?.status === 'pending'
@@ -4717,7 +4732,7 @@ export class LocalMemoryService                             {
       scope,
       kind: String(input.kind ?? 'note'),
       content,
-      tags: Array.isArray(input.tags) ? input.tags.map(String) : [],
+      tags: safeTags ?? (Array.isArray(input.tags) ? input.tags.map(String) : []),
       importance: typeof input.importance === 'number' ? input.importance : 0.8,
     }
     if (hookSettings.enabled) {
@@ -4760,6 +4775,7 @@ export class LocalMemoryService                             {
           ...saveInput,
           scope,
           content,
+          ...(safeTags !== undefined ? { tags: safeTags } : {}),
           // 0.33.0：新记录初始化"记忆强度"（FSRS 式 stability/difficulty + 效用计数），
           // 排序与遗忘曲线都基于它；老记录缺省时由 stabilityOf() 兼容推导。
           // 注意：这里只合并**强度字段**，不能整份 ...saveInput —— 那会用未规范化的
@@ -6424,8 +6440,8 @@ export class LocalMemoryService                             {
   }
 
   /**
-   * 0.107.0：本地备份最多保留 DEFAULT_MAX_BACKUPS 份（创建备份后自动裁掉最旧的）。
-   * 只删本插件自己生成的 `snapshot-*.jsonl(.gz)`，不碰目录里其它文件。
+   * 0.108.0：**显式调用**的备份清理（不自动执行）——保留最新 limit 份，删掉更旧的
+   * `snapshot-*`。备份策略是纯手动：插件不会自动创建、也不会自动删除任何备份。
    */
   pruneBackups(limit = 20)         {
     const keep = Math.max(1, Math.floor(limit))
@@ -6438,15 +6454,14 @@ export class LocalMemoryService                             {
     return removed
   }
 
-  /** 0.40.0：立即创建本地备份，返回文件名与大小。 */
-  createBackup()                                                                    {
+  /** 0.40.0：立即创建本地备份，返回文件名与大小。备份**完全手动**，不会自动创建/删除。 */
+  createBackup()                                                   {
     const dir = this.backupDir
     mkdirSync(dir, { recursive: true })
     const name = `snapshot-${new Date().toISOString().replace(/[:.]/g, '-')}.jsonl.gz`
     const file = join(dir, name)
     const result = this.snapshotStore(file)
-    const pruned = this.pruneBackups()
-    return { name, bytes: result.bytes, records: result.records, ...(pruned > 0 ? { pruned } : {}) }
+    return { name, bytes: result.bytes, records: result.records }
   }
 
   /** 0.40.0：从本地备份恢复（只允许 backupDir 下的文件名，防路径穿越）。 */

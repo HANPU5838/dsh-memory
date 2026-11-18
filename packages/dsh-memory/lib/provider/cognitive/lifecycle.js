@@ -149,6 +149,9 @@ export function markDormant(store             , options                 = {})   
     for (const record of [...scopeStore.records.values()]) {
       scanned++
       if (isTombstonedRecord(record) || isDormantRecord(record)) continue
+      // 0.108.0：规则/偏好是常驻约束（规则进系统提示、偏好影响行为），
+      // 不能因为低重要度长期未访问就静默休眠（审计 P2-2）。
+      if (record.kind === 'rule' || record.kind === 'preference') continue
       if (record.importance > maxImportance) continue
       if (now - lastSeenAt(record) < afterDays * DAY_MS) continue
       scopeStore.insert({ ...record, dormantAt: now }                   )

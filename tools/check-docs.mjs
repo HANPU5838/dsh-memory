@@ -74,6 +74,13 @@ const staleBadges = [...readme.matchAll(/badge\/version-(v[\d.]+)-/g)].map((m) =
 if (staleBadges.length === 0) ok('README 旧版本残留', '无')
 else fail('README 旧版本残留', staleBadges.join(', '))
 
+// ⑥b README「当前最新 vX」不能落后于 package.json（0.108.0）
+const latestLine = readme.split('\n').find((line) => line.includes('当前最新')) ?? ''
+const latestMatch = /当前最新：\*\*(v\d+\.\d+\.\d+)\*\*/.exec(latestLine)
+if (latestMatch === null) warn('README 当前最新', '没有找到「当前最新：**vX.Y.Z**」行')
+else if (latestMatch[1] === tag) ok('README 当前最新', tag)
+else fail('README 当前最新', `README 写 ${latestMatch[1]}，package.json 是 ${tag}`)
+
 // ⑥ 文档里引用的 npm 命令与工具路径必须真实存在（0.105.0）
 const docFiles = ['README.md', ...readdirSync('docs').filter((file) => file.endsWith('.md')).map((file) => `docs/${file}`)]
 const referencedScripts = new Set()

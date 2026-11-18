@@ -2,6 +2,32 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 0.108.0 — 全面审计修复 + 备份纯手动 + 代码标识符分词（2026-11-18）
+
+> 4 位审计员（检索/生命周期/安全、面板、测试/文档、历史会话）只读审计后的集中修复。
+> 完整结论与 backlog 见 [docs/audit-0.108.md](docs/audit-0.108.md)。
+
+- **安全 P1**：
+  - 面板 `/embed/install` 的 `custom.file` 路径穿越（可覆盖任意可写文件）→ 双层纯文件名校验；
+  - 密钥扫描只覆盖 `content` → 现在 `tags` / `scopeRule` / `scopeDescription` 同样 refuse/redact；
+  - `memory_hooks run` 试跑未批准代码 → 保留「先试跑再批准」流程，但结果带 `unapproved:true`
+    与「vm 非安全边界」提示，正式运行仍受审批门禁。
+- **正确性 P2**：
+  - 冷进程跨作用域 `supersedes` 误报 SUPERSEDES_UNKNOWN → 先 discoverScopes 再定位；
+  - `markDormant` 会休眠 rule/preference（硬约束无声消失）→ 跳过这两类；
+  - before-inject 钩子 N² 执行 → `runHooks` 支持 `only`，每个钩子恰好执行一次；
+  - `consolidateNow` 的退役集合只算本 scope → 改用全局 supersededIds；
+  - 审批日志 / 嵌入缓存的 tmp 文件名加 pid+随机串。
+- **备份策略**：按用户要求**纯手动** —— `createBackup()` 不再自动裁剪；`pruneBackups()`
+  仅在显式调用时清理旧 `snapshot-*`；doctor 文案同步。
+- **检索**：分词器拆分 camelCase/PascalCase/缩写/snake_case，整词保留（历史群聊点名的
+  「代码标识符检索」缺口）；新增 identifier-tokenize 测试。
+- **文档**：README 测试数字/当前最新、verification 数字与自举口径、comparison 快照、
+  architecture 工具/事件清单、analysis 模块引用、README revoke-approval 全部对齐；
+  `check:docs` 新增「README 当前最新」校验；新增 docs/audit-0.108.md（含 backlog）。
+- **验证**：**1307 例 / 1306 pass / 1 skip / 0 fail**；`verify:all` PASS；`check:docs` PASS；
+  `release:check` PASS；`doctor` 11 ok；`e2e:real` 真实库全链路 PASS。
+
 ## 0.107.0 — 长期运行维护：日志轮转与备份保留（2026-11-18）
 
 - **慢性增长 1**：`approvals.jsonl` 只有追加、没有上限，长期使用会无限增长。现在超过 1MB

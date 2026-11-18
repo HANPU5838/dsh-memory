@@ -1236,6 +1236,8 @@ window.__ModuleLoader__.load({
       const [ttlDays, setTtlDays] = React.useState(
         rec.expiredAt ? Math.max(1, Math.round((Number(rec.expiredAt) - Date.now()) / 86_400_000)) : 7,
       )
+      // 0.108.0：编辑其他字段不应静默延寿/复活过期 state —— 只有用户动过 TTL 才发 ttlMs。
+      const [ttlTouched, setTtlTouched] = React.useState(false)
       const [busy, setBusy] = React.useState(false)
       const [error, setError] = React.useState('')
       const [copied, setCopied] = React.useState(false)
@@ -1276,7 +1278,9 @@ window.__ModuleLoader__.load({
             importance: Number(importance) || 0,
             tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
             ...(kind === 'procedure' ? { triggers: triggers.split(',').map((t) => t.trim()).filter(Boolean) } : {}),
-            ...(kind === 'state' ? { ttlMs: Math.max(1, Number(ttlDays) || 7) * 86_400_000 } : {}),
+            ...(kind === 'state' && ttlTouched
+              ? { ttlMs: Math.max(1, Number(ttlDays) || 7) * 86_400_000 }
+              : (rec.expiredAt ? { expiresAt: Number(rec.expiredAt) } : {})),
           })
           setEditing(false)
           onSaved()
@@ -1382,7 +1386,7 @@ window.__ModuleLoader__.load({
                         h('input', { type: 'number', min: 0, max: 1, step: 0.1, value: importance, onChange: (e) => setImportance(e.target.value) })),
                       kind === 'state'
                         ? h('label', null, '有效期(天) ',
-                            h('input', { type: 'number', min: 1, max: 365, step: 1, value: ttlDays, onChange: (e) => setTtlDays(e.target.value) }))
+                            h('input', { type: 'number', min: 1, max: 365, step: 1, value: ttlDays, onChange: (e) => { setTtlTouched(true); setTtlDays(e.target.value) } }))
                         : null,
                     ),
                     h('div', { className: 'acts' },
@@ -3160,18 +3164,27 @@ window.__ModuleLoader__.load({
               value: draft.phase,
               onChange: (value) => setDraft({ ...draft, phase: value }),
             })),
-          h('label', { className: 'set-field' }, '适用范围 ',
+          // 0.108.0：作用域与类型分开编辑。此前一个输入框用「有没有冒号」猜分类，
+          // 会把裸名自定义作用域（handbook）误判成 kind，保存后钩子适用范围被悄悄改掉。
+          h('label', { className: 'set-field' }, '作用域 ',
             h('input', {
-              type: 'text', style: { width: 210 },
-              placeholder: '作用域 / 类型，逗号分隔；空 = 全部',
-              value: [...draft.scopes, ...draft.kinds].join(', '),
-              onChange: (e) => {
-                const parts = e.target.value.split(',').map((item) => item.trim()).filter((item) => item !== '')
-                // 简单约定：带 : 或等于 global/project/session 的算作用域，其余算类型。
-                const scopes = parts.filter((item) => item === 'global' || item === 'project' || item === 'session' || item.includes(':') || item.includes('*'))
-                const kinds = parts.filter((item) => !scopes.includes(item))
-                setDraft({ ...draft, scopes, kinds })
-              },
+              type: 'text', style: { width: 200 },
+              placeholder: 'global / project:<路径> / session:<id> / 自定义名；空 = 全部',
+              value: draft.scopes.join(', '),
+              onChange: (e) => setDraft({
+                ...draft,
+                scopes: e.target.value.split(',').map((item) => item.trim()).filter((item) => item !== ''),
+              }),
+            })),
+          h('label', { className: 'set-field' }, '类型 ',
+            h('input', {
+              type: 'text', style: { width: 150 },
+              placeholder: 'fact / rule / …；空 = 全部',
+              value: draft.kinds.join(', '),
+              onChange: (e) => setDraft({
+                ...draft,
+                kinds: e.target.value.split(',').map((item) => item.trim()).filter((item) => item !== ''),
+              }),
             })),
         ),
         h('div', { className: 'hook-edit-hint' }, phaseHint[draft.phase] || ''),
@@ -3492,7 +3505,9 @@ window.__ModuleLoader__.load({
             tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
             ...(kind === 'procedure' ? { triggers: triggers.split(',').map((t) => t.trim()).filter(Boolean) } : {}),
             importance: Number(importance),
-            ...(kind === 'state' ? { ttlMs: Math.max(1, Number(ttlDays) || 7) * 86_400_000 } : {}),
+            ...(kind === 'state' && ttlTouched
+              ? { ttlMs: Math.max(1, Number(ttlDays) || 7) * 86_400_000 }
+              : (rec.expiredAt ? { expiresAt: Number(rec.expiredAt) } : {})),
           })
           setBusy(false)
           onCreated()
@@ -5809,6 +5824,9 @@ window.__ModuleLoader__.load({
       const [records, setRecords] = React.useState([])
       const [scopes, setScopes] = React.useState([])
       const [blockedCount, setBlockedCount] = React.useState(0)
+      // 0.108.0：服务端会返回当前工作区 project 键；解除工作区级屏蔽必须用它，
+      // 不能只从记录 scope 猜（global/custom 记录的 scope 不是工作区键）。
+      const [workspaceKey, setWorkspaceKey] = React.useState('')
       const [showBlocked, setShowBlocked] = React.useState(false)
       const [loading, setLoading] = React.useState(true)
       const [error, setError] = React.useState('')
@@ -5830,6 +5848,7 @@ window.__ModuleLoader__.load({
           setRecords(Array.isArray(value.records) ? value.records : [])
           setScopes(Array.isArray(value.scopes) ? value.scopes : [])
           setBlockedCount(Number(value.blockedCount) || 0)
+          setWorkspaceKey(typeof value.workspace === 'string' ? value.workspace : '')
         } catch (e) {
           setError(String(e.message || e))
         }
@@ -5846,7 +5865,10 @@ window.__ModuleLoader__.load({
        */
       const unblock = async (rec) => {
         const level = rec.blockedLevel === 'workspace' ? 'workspace' : 'session'
-        const workspace = typeof rec.scope === 'string' && rec.scope.startsWith('project:') ? rec.scope : ''
+        // 工作区级屏蔽用服务端给的 workspace 键；没有时再退回 project: scope。
+        const workspace = workspaceKey !== ''
+          ? workspaceKey
+          : (typeof rec.scope === 'string' && rec.scope.startsWith('project:') ? rec.scope : '')
         const value = await api('blocks', {
           level,
           session: sessionId,

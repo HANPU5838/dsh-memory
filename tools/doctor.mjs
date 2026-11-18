@@ -80,7 +80,7 @@ if (!existsSync(storeDir)) {
   const backups = existsSync(backupDir) ? readdirSync(backupDir).filter((f) => f.endsWith('.jsonl.gz')) : []
   add(backups.length <= 20 ? 'ok' : 'warn', '备份',
     backups.length === 0 ? '暂无备份（面板「维护 → 立即备份」可创建）' : `${backups.length} 个本地备份`,
-    backups.length <= 20 ? undefined : '备份超过 20 份：下次「立即备份」会自动裁掉最旧的；也可手动清理 backups/。')
+    backups.length <= 20 ? undefined : '备份超过 20 份：备份为纯手动策略，插件不会自动创建/删除；可手动清理 backups/ 或显式调用 pruneBackups。')
   // ⑦b 审批旁路日志大小（0.107.0 起自动轮转，这里只做可见性检查）
   try {
     const approvalsLog = join(storeDir, 'approvals.jsonl')

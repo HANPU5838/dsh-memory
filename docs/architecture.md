@@ -1,4 +1,4 @@
-# 架构说明（本仓库独立维护版 0.107.0）
+# 架构说明（本仓库独立维护版 0.108.0）
 
 > 本文说明这套记忆插件「为什么是插件」：哪些属于宿主、哪些属于插件、平台差异放在哪里。
 > 本仓库 **[HANPU5838/dsh-memory](https://github.com/HANPU5838/dsh-memory)** 是 DSH 记忆系统的独立维护版
@@ -13,7 +13,7 @@
 ┌──────────────────────────────────────────────────────────────┐
 │  宿主桥接层（host bridge）—— 只用 DSH 官方扩展点              │
 │  · Cordis service：ctx.memory                                │
-│  · 工具：memory_save / search / list / get / forget / scopes  │
+│  · 工具：save / search / list / get / forget / scopes / block / hooks │
 │  · 面板：client slot + 服务端路由 /memory/api/*               │
 │  · 生命周期：ctx.inject / ctx.on('session/created') / ctx.effect │
 │  · 事件出口：ctx.emit('memory/record-saved' …)                │
@@ -125,8 +125,9 @@ retrieval.vector.provider
 
 ```
 memory/record-saved      { scope, id, kind, chars, deduped }
-memory/recalled          { query, hits, topScopes, vector }
+memory/recalled          { query, hits, topScopes, vector, graphExpanded? }
 memory/record-forgotten  { scope, ids }
+memory/consolidated      { scope, ids, from }
 ```
 
 - 经宿主 `ctx.emit` 转发；拿不到 `ctx.emit` 时降级为进程内广播。
@@ -197,6 +198,8 @@ Personalized PageRank（带重启随机游走，alpha=0.85，最多 24 次幂迭
   （重要度→更新时间→id 确定性），败者保留不删、审计 reason=conflict。
 - **图边权与社区（0.82.0）**：边权乘实体类型因子（具体对象 > 泛标签）；`detectCommunities()`
   标签传播划分主题社区，补充候选按社区限流（`maxPerCommunity`，默认 3）。
+- **全面审计修复（0.108.0）**：安装路径穿越/密钥字段/试跑标记、跨域 supersedes、规则防休眠、
+  before-inject N²、巩固跨域退役；备份纯手动；代码标识符分词；backlog 见 docs/audit-0.108.md。
 - **长期运行维护（0.107.0）**：审批日志超 1MB 轮转（保留 2000 行）；本地备份保留 20 份；doctor 预警。
 - **文档守门扩展（0.106.0）**：check:docs 校验文档命令/工具路径；architecture 发布流程与联想链路对齐；
   修复 memory_block 对 memory_search 无效（工具未透传 agent）。

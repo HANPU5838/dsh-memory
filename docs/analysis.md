@@ -18,7 +18,7 @@
 
 ```
 Memory Data Loader       读取记忆（不在分析中修改任何记忆）
-Entity Extractor         复用 cognitive/graph.ts 的规则实体抽取（11 类）
+Entity Extractor         复用 analysis/entities.ts 的规则实体抽取（11 类）
 Semantic Analyzer        复用存储的 bge-m3 向量（cosine）
 Relationship Detector    实体共现 + 语义相似 → 候选关系 + 证据 + 置信度
 Conflict Detector        critical-detail + contradiction + 时间演化分类

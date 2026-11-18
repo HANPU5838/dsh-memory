@@ -595,7 +595,7 @@ export function runHooks(
   phase: HookPhase,
   input: HookRunInput,
   settings: HookSettings,
-  options: { ignoreApproval?: boolean } = {},
+  options: { ignoreApproval?: boolean; only?: ReadonlySet<string> } = {},
 ): HookOutcome[] {
   if (!settings.enabled) return []
   const out: HookOutcome[] = []
@@ -605,6 +605,7 @@ export function runHooks(
     settings,
     options.ignoreApproval === true,
   )) {
+    if (options.only !== undefined && !options.only.has(hook.id)) continue
     const started = Date.now()
     const result = runHookCode(hook.code, phase, input, settings)
     const crashed = result.error !== undefined

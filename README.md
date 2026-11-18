@@ -4,7 +4,7 @@
 
 **给 DeepSeek Harness 的本地优先长期记忆插件：多路检索 + 多跳图增强 + 上下文摘要 + 冲突消解**
 
-[![version](https://img.shields.io/badge/version-v0.107.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![version](https://img.shields.io/badge/version-v0.108.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
 [![license](https://img.shields.io/badge/license-MIT-3DA639.svg)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A522.13-3C873A.svg)](package.json)
 
@@ -12,7 +12,7 @@
 
 </div>
 
-**当前版本：v0.107.0** · [Release](https://github.com/HANPU5838/dsh-memory/releases) · [更新日志](CHANGELOG.md)
+**当前版本：v0.108.0** · [Release](https://github.com/HANPU5838/dsh-memory/releases) · [更新日志](CHANGELOG.md)
 
 ---
 
@@ -126,7 +126,7 @@ DSH 记忆系统是一个**完全本地**的长期记忆插件：Agent 用八个
 | `memory_forget` | 删除（软删/物理删按参数，规则与作用域受审批保护） |
 | `memory_scopes` | 作用域目录：`list` / `edit`（用途、别名）/ `request`（申请范围外权限） |
 | `memory_block` | 主动屏蔽：`block` / `unblock` / `list`（会话级或工作区级） |
-| `memory_hooks` | 规则代码钩子：`list` / `get` / `save` / `delete` / `approve` / `enable` / `disable` / `run`（试跑不写记忆） |
+| `memory_hooks` | 规则代码钩子：`list` / `get` / `save` / `delete` / `approve` / `revoke-approval` / `enable` / `disable` / `run`（试跑不写记忆，且只对已批准脚本生效） |
 
 ## 面板
 
@@ -282,7 +282,7 @@ npm run probe:flake -- 10   # 怀疑偶发失败时：同一套测试连跑 N �
 四层：全量测试 → 单包构建 → 面板 API 冒烟（16 接口）→ 向量后端实测（没有后端时 SKIP 不算失败）。
 失败退出码非 0，可直接当 pre-push hook / CI 步骤。
 
-当前状态（0.84.0）：**1274 例 / 1273 pass / 1 skip / 0 fail**，验收集成 87 文件（约 2.4 MiB），
+当前状态（0.108.0）：**1307 例 / 1306 pass / 1 skip / 0 fail**，验收集成 87 文件（约 2.4 MiB），
 面板 API 16/16，向量后端实测通过。
 
 ### 检索质量评测（本地、确定性、进 CI）
@@ -305,6 +305,7 @@ npm run probe:flake -- 10   # 怀疑偶发失败时：同一套测试连跑 N �
 | [docs/analysis.md](docs/analysis.md) | 关系分析（关系发现/冲突/聚类/时间线）设计与证据口径 |
 | [docs/comparison.md](docs/comparison.md) | 与 Mem0 / Zep / Letta / Cognee 等记忆系统的对照 |
 | [docs/benchmark.md](docs/benchmark.md) | 性能基准方法（存储、检索、嵌入吞吐） |
+| [docs/audit-0.108.md](docs/audit-0.108.md) | 0.108.0 全面审计结论（已修 + 待办 backlog） |
 | [CHANGELOG.md](CHANGELOG.md) | 逐版本变更记录 |
 
 实现上是一个包 + 一条 Loader entry，四个半边（provider / tools / inject / panel）组合在
@@ -319,7 +320,7 @@ npm run probe:flake -- 10   # 怀疑偶发失败时：同一套测试连跑 N �
 - 范围外访问需要用户审批（会话级权限 + 审批卡），Agent 不能绕过；
 - `memory_block` 是“隐藏”不是删除；软删记录可在 30 天内恢复；
 - **长期运行有界**：审批旁路日志 `approvals.jsonl` 超过 1MB 自动轮转（保留最近 2000 行）；
-  本地备份最多保留 20 份（创建新备份时裁掉最旧的），doctor 会对两者给出提示；
+  备份**纯手动**：插件不会自动创建或删除备份；需要时显式调用 `pruneBackups()` 清理旧快照；doctor 会对日志/备份增长给出提示；
 - 升级插件只替换代码，不迁移/不重写记忆数据。
 
 ## 常见问题
@@ -345,7 +346,7 @@ npm run probe:flake -- 10   # 怀疑偶发失败时：同一套测试连跑 N �
 
 本仓库用 **tag + GitHub Release** 发布（不向 npm 发布）：推送 `v*` tag 后
 `.github/workflows/release.yml` 自动从 [CHANGELOG.md](CHANGELOG.md) 提取对应版本段落创建 Release。
-当前最新：**v0.84.0** —— 记录卡预览两行 clamp（UI 收尾）；v0.83.0 注入前冲突消解；
+当前最新：**v0.108.0** —— 备份纯手动、代码标识符分词、审计 P1/P2 修复（路径穿越/密钥绕过/试跑审批/N² 执行等）；v0.107.0 长期运行维护；
 v0.82.0 图增强（类型边权 + 社区限流）；v0.81.0 召回 TextRank 摘要；v0.80.0 词法 PRF；
 v0.79.0 记录卡长作用域 UI 修复。
 

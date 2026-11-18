@@ -26,8 +26,8 @@
 正常输出：
 
 ```
-✓ 单元 / 集成测试：1257 例 / 1256 pass / 0 fail（20s）
-✓ 单包构建：85 文件 / 2523.8 KiB
+✓ 单元 / 集成测试：1307 例 / 1306 pass / 1 skip / 0 fail（约 30s）
+✓ 单包构建：87 文件 / 约 2.5 MiB
 ✓ 面板 API 冒烟：16/16 接口通过
 ✓ 向量后端实测：http://127.0.0.1:8078/health · 1024 维
 结论：PASS（4 通过 / 0 失败 / 0 跳过）
@@ -114,7 +114,7 @@ npm run probe:flake -- 10
 | 端口冲突 | 先占用 8078 再重启插件 | 自动换到 8079，日志可见「端口 8078 被占用，自动改用 8079」 |
 | 自动安装（默认，0.63.0 恢复） | 全新环境（无运行时/模型）启动 | 自动 `pkg install`（Termux）+ 只下模型；日志在 `<installRoot>/bootstrap.log` |
 | Termux 无 glibc | Termux 未装 glibc、无系统 llama-server 时点面板安装 | **改走 pkg 装系统运行时**，不下载 glibc 托管运行时（旧行为会 ENOENT 失败） |
-| 自举（需显式开启） | 设 `autoBootstrap: 'auto'` 后删掉 llama-cpp 重启（Termux） | 自动 `pkg install` + 起服务；日志在 `<installRoot>/bootstrap.log` |
+| 自举（默认 auto；`autoBootstrap: 'off'` 可关） | 删掉 llama-cpp 重启（Termux） | 自动 `pkg install` + 起服务；日志在 `<installRoot>/bootstrap.log` |
 | 本机端点发现 | 本机跑 Ollama 后重启 | 日志 `discovery found Ollama… adopted`，不下载任何东西 |
 | 联想标记（0.94–0.97） | 两条共享路径/URL 的记忆，查询只命中 A | 工具输出与注入正文里 B 带「联想」；审计「图增强联想（补召回）」分组列出 B |
 | 设置生效（0.98–0.99） | 面板关闭「图增强」后重复上面的查询 | 不再出现联想补召回；重新开启后恢复 |

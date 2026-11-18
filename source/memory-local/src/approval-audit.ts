@@ -75,7 +75,7 @@ export class ApprovalAuditStore {
       if (statSync(this.file).size <= this.maxBytes) return
       const lines = readFileSync(this.file, 'utf8').split('\n').filter((line) => line.trim() !== '')
       const kept = lines.slice(-this.keepLines)
-      const tmp = `${this.file}.tmp`
+      const tmp = `${this.file}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`
       writeFileSync(tmp, kept.length === 0 ? '' : `${kept.join('\n')}\n`, 'utf8')
       renameSync(tmp, this.file)
     } catch { /* 轮转失败不影响后续追加 */ }

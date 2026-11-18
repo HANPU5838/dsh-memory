@@ -383,7 +383,7 @@ export class EmbedCache {
   flushSync()       {
     if (this.file === undefined || !this.dirty) return
     const file = this.file
-    const tmp = `${file}.tmp`
+    const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`
     const lines           = [`${CACHE_HEADER_PREFIX}\t${CACHE_FILE_VERSION}\t${this.identityKey}\t${this.identity.dims}`]
     for (const [key, vector] of this.docs) lines.push(`${key}\t${encodeVector(vector)}`)
     try {

@@ -12,10 +12,42 @@
            
  
 
+/**
+ * 0.108.0：标识符拆分 —— 开发者记忆里大量 camelCase / snake_case / 缩写词
+ * （handleUserLogin、memory_block、HTTPServer）。此前整词小写成一个 token，
+ * 搜 `login` / `block` / `server` 命中不了。现在保留整词（精确匹配）并额外产出：
+ *   - 按 `_` 分段；
+ *   - camelCase / PascalCase 边界；
+ *   - 连续大写缩写边界（HTTPServer → HTTP + Server）；
+ * 只为含大写或下划线的 token 拆分，普通单词 / 版本号（v1.2.3）保持原样。
+ */
+function identifierParts(raw        )           {
+  if (!/[A-Z_]/.test(raw)) return []
+  const out = new Set        ()
+  for (const chunk of raw.split('_')) {
+    const split = chunk
+      .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+      .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+      .split(' ')
+    for (const part of split) {
+      const lower = part.toLowerCase()
+      if (lower.length >= 2) out.add(lower)
+    }
+  }
+  return [...out]
+}
+
 export function tokenize(text        )           {
-  const lower = text.toLowerCase()
   const tokens           = []
-  for (const m of lower.matchAll(/[a-z0-9][a-z0-9_+\-.]{1,}/g)) tokens.push(m[0])
+  for (const m of text.matchAll(/[A-Za-z0-9][A-Za-z0-9_+\-.]{1,}/g)) {
+    const raw = m[0]
+    const base = raw.toLowerCase()
+    tokens.push(base)
+    for (const part of identifierParts(raw)) {
+      if (part !== base) tokens.push(part)
+    }
+  }
+  const lower = text.toLowerCase()
   for (const run of lower.matchAll(/[\u3400-\u4dbf\u4e00-\u9fff]+/g)) {
     const chars = [...run[0]]
     for (const c of chars) tokens.push(c)

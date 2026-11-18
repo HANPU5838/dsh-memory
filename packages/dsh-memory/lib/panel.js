@@ -1556,10 +1556,16 @@ async function handle(ctx, routePath, req, res) {
         const url = String(body.custom.url ?? '')
         const dims = Number(body.custom.dims)
         if (url === '' || !Number.isFinite(dims) || dims <= 0) throw new ApiError(400, 'CUSTOM_MODEL_INVALID', '自定义模型需要 url 与 dims')
+        // 0.108.0：custom.file 会成为安装器的落盘文件名 —— 必须只允许纯文件名，
+        // 否则 ../../.bashrc 可覆盖任意可写文件（审计 P1）。
+        const customFile = body.custom.file ? String(body.custom.file).trim() : ''
+        if (customFile !== '' && (!/^[\w.-]+\.gguf$/i.test(customFile) || customFile.includes('/') || customFile.includes('\\') || customFile === '.' || customFile === '..')) {
+          throw new ApiError(400, 'CUSTOM_MODEL_FILE_INVALID', 'custom.file 必须是纯文件名（字母/数字/._-）且以 .gguf 结尾')
+        }
         override.custom = {
           url,
           dims,
-          ...(body.custom.file ? { file: String(body.custom.file) } : {}),
+          ...(customFile !== '' ? { file: customFile } : {}),
           ...(body.custom.pooling ? { pooling: String(body.custom.pooling) } : {}),
         }
       }
