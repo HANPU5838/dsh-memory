@@ -2,6 +2,22 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 1.1.0 — cross-encoder 重排 + 打包修复（2026-11-21）
+
+- **新增 cross-encoder 重排通道（HTTP）**：`source/memory-local/src/rerank-http.ts`。
+  兼容 llama.cpp `/v1/rerank`、Cohere、Jina 三种响应形状；按 `index` 映射回候选 id，
+  分数归一化（已在 [0,1] 原样保留、logits 走 min-max），任何失败（禁用/无端点/候选<2/
+  超时/非 2xx/坏 JSON/索引越界）都返回 null 并保持召回顺序。
+- **重排通道二选一**：`retrieval.rerank`（cross-encoder）优先，没端点或失败时回落到
+  `retrieval.llm` 的 LLM-as-judge，二者都关时保持召回顺序；整形阶段按「有重排」给
+  双倍余量，让重排有得选。重排结果复用 `RerankCache`（键前缀 `http:`）。
+- **测试**：`source/memory-local/test/rerank-http.test.ts`（16 例：端点/请求体/三种响应
+  形状/归一化/失败降级/blend 权重/管线集成——重排能翻转顺序、端点挂了保持原序）。
+- **打包修复**：根 `package.json` 的 `files` 白名单缺 `packages/dsh-memory/skills/`，
+  从 GitHub 安装后随包技能 `memory-hook-scripts` 不注册；补齐后技能随包可用。
+- 测试环境：`store-flush-failure` 用例在 root 下自动跳过（root 的 CAP_DAC_OVERRIDE 会绕过 chmod，无法注入写失败）；CI 普通用户下照常执行。
+- 文档：README 检索通道表与配置表补 cross-encoder；architecture 更新检索流水线。
+
 ## 1.0.0 — 正式版（2026-11-19）
 
 > 0.108–0.111 的全部加固成果收口，宣布稳定版。

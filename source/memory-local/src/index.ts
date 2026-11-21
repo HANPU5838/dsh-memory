@@ -112,6 +112,7 @@ import { createEmbeddingProvider, type EmbeddingProvider, type EmbeddingProvider
 import { discoverLocalEndpoint, type DiscoveredEndpoint } from './endpoint-discovery.ts'
 import { canExecute, describePlatform, detectPlatform, detectRuntimeEnvironment, findSystemLlamaServer, freeDiskBytes } from './platform.ts'
 import { DailyBudget, blendScores, rerank, type LlmInvoke, type RerankConfig } from './rerank.ts'
+import { blendHttpScores, httpRerank, resolveRerankEndpoint, defaultHttpRerankConfig, type HttpRerankConfig } from './rerank-http.ts'
 import { RerankCache } from './rerank-cache.ts'
 import { scanSecrets, redactSecrets } from './secrets.ts'
 import { EmbedServerManager, type EmbedServerConfig, type EmbedServerState } from './embed-server.ts'
@@ -364,6 +365,31 @@ export interface MemoryLocalConfig {
       /** 作为 RRF 额外通道时的权重（默认 0.8）。 */
       weight?: number
     }
+    /**
+     * 0.112.0：cross-encoder 重排（HTTP）。
+     *
+     * 与 `llm` 小节的重排**互斥优先**：本小节 enabled 且 endpoint 可用时走
+     * cross-encoder（本地 llama.cpp `--rerank` / Cohere / Jina），否则回落到
+     * `llm` 的 LLM-as-judge。两者都关时保持召回顺序。
+     *
+     * 端点是「查询 + 候选正文」一次 POST，响应按 `index` 映射回候选；
+     * 任何失败（超时/非 2xx/坏 JSON/索引越界）都静默降级，不阻断检索。
+     */
+    rerank?: {
+      enabled?: boolean
+      /** 完整 URL；只写 host:port 时自动补 `/v1/rerank`。 */
+      endpoint?: string
+      /** 服务端模型名；llama.cpp 单模型时留空。 */
+      model?: string
+      /** 可选 Bearer token（托管 Cohere/Jina）。 */
+      apiKey?: string
+      /** 最多送多少条候选打分（默认 20）。 */
+      topN?: number
+      /** 融合权重：终态分 = (1-w)×召回分 + w×cross-encoder 分（默认 0.7）。 */
+      weight?: number
+      /** 请求超时（默认 2000ms）。 */
+      timeoutMs?: number
+    }
   }
   limits?: { maxRecordsPerScope?: number; maxRecordChars?: number; /** 0.62.5：空会话作用域保留天数（0=禁用，默认 1）。 */ sessionScopeMaxAgeDays?: number }
   /** 0.32.0：认知层（语义合并 / 冲突标记 / 生命周期）。缺省全部开启。 */
@@ -475,6 +501,8 @@ export interface ResolvedConfig {
     spawnExplicit: boolean
   }
   llm: RerankConfig
+  /** 0.112.0：cross-encoder HTTP 重排（优先于 llm）。 */
+  rerank: HttpRerankConfig
   maxRecordsPerScope: number
   sessionScopeMaxAgeDays: number
   maxRecordChars: number
@@ -982,6 +1010,19 @@ export function resolveConfig(config: MemoryLocalConfig = {}): ResolvedConfig {
       weight: config.retrieval?.llm?.weight ?? 0.6,
       topN: config.retrieval?.llm?.topN ?? 10,
     },
+    // 0.112.0：cross-encoder 重排默认关（需要用户显式给端点）。端点通常就是
+    // 本机再起一个 llama-server（`--rerank -m bge-reranker-v2-m3`），
+    // 与嵌入服务分开端口，互不影响。
+    rerank: {
+      ...defaultHttpRerankConfig,
+      enabled: config.retrieval?.rerank?.enabled ?? defaultHttpRerankConfig.enabled,
+      endpoint: config.retrieval?.rerank?.endpoint ?? defaultHttpRerankConfig.endpoint,
+      model: config.retrieval?.rerank?.model ?? defaultHttpRerankConfig.model,
+      apiKey: config.retrieval?.rerank?.apiKey ?? defaultHttpRerankConfig.apiKey,
+      topN: config.retrieval?.rerank?.topN ?? defaultHttpRerankConfig.topN,
+      weight: Math.min(1, Math.max(0, config.retrieval?.rerank?.weight ?? defaultHttpRerankConfig.weight)),
+      timeoutMs: config.retrieval?.rerank?.timeoutMs ?? defaultHttpRerankConfig.timeoutMs,
+    },
     maxRecordsPerScope: config.limits?.maxRecordsPerScope ?? 2000,
     // 0.62.5：空会话作用域的保留天数。默认 1 天——空作用域没有数据，重建零成本。
     sessionScopeMaxAgeDays: config.limits?.sessionScopeMaxAgeDays ?? 1,
@@ -1389,6 +1430,8 @@ export class LocalMemoryService implements MemoryServiceApi {
   private rerankCache = new RerankCache()
   /** Host-provided one-shot LLM call; null = rerank disabled (recall order). */
   private llmInvoke: LlmInvoke | null = null
+  /** 0.112.0：cross-encoder 重排用的 fetch；测试注入，生产走 globalThis.fetch。 */
+  private rerankFetch: typeof fetch | undefined
   /** 写路径的默认口径(tools.defaultScope);'session' 拿不到会话时回退 project。 */
   private defaultWriteScope: 'session' | 'project' | 'global' = 'session'
   /** 显式配置的项目 scope 键(未配置 = undefined,由 resolveCurrentScopes 按会话 cwd 决定)。 */
@@ -3206,6 +3249,14 @@ export class LocalMemoryService implements MemoryServiceApi {
    */
   setLlmInvoke(invoke: LlmInvoke | null): void {
     this.llmInvoke = invoke
+  }
+
+  /**
+   * 0.112.0：注入 cross-encoder 重排用的 fetch（单元测试用假响应；生产不调用，
+   * 默认走 globalThis.fetch）。传 undefined 恢复默认。
+   */
+  setRerankFetch(fetchImpl: typeof fetch | undefined): void {
+    this.rerankFetch = fetchImpl
   }
 
   /** 写路径默认口径('session' | 'project' | 'global')。 */
@@ -5730,6 +5781,12 @@ export class LocalMemoryService implements MemoryServiceApi {
     // 0.111.0：历史视角过滤。放在所有召回通道之后统一做，避免漏掉 BM25/PRF/图增强
     // 补进来的候选（它们没有各自传 asOf）。
     if (asOf !== undefined) shaped = shaped.filter((c) => this.recordValidAtImpl(c.record, asOf))
+    // 0.112.0：重排通道二选一 —— cross-encoder（HTTP，本地小模型）优先，
+    // 没有可用端点时回落到 `llm` 的 LLM-as-judge，二者都关时保持召回顺序。
+    const httpRerankActive = this.cfg.rerank.enabled
+      && resolveRerankEndpoint(this.cfg.rerank.endpoint) !== ''
+    const llmRerankActive = this.cfg.llm.enabled && this.llmInvoke !== null
+    const rerankActive = httpRerankActive || llmRerankActive
     const mergedIds: string[] = []
     if (shapingEnabled) {
       // 地板分作用在**匹配强度**(recallScore: 词法校准分/余弦)上，而不是衰减后的
@@ -5740,8 +5797,8 @@ export class LocalMemoryService implements MemoryServiceApi {
         shaped = dedupe.hits
         mergedIds.push(...dedupe.merged)
       }
-      // 有 LLM 重排时给两倍余量，让重排有得选；没有就按 topK 直接收敛。
-      const pickN = this.cfg.llm.enabled
+      // 有重排时给两倍余量，让重排有得选；没有就按 topK 直接收敛。
+      const pickN = rerankActive
         ? Math.min(shaped.length, Math.max(topK * 2, topK))
         : Math.min(shaped.length, topK)
       shaped = this.cfg.shaping.mmr && shaped.length > 1
@@ -5754,13 +5811,44 @@ export class LocalMemoryService implements MemoryServiceApi {
     // 同一个 `undefined` 键上:排序数组本身是对的,但每条命中拿到的都是最后一个候选的
     // 分数(面板上表现为「每条相关度都一样」),重排的候选 id 也全成了 undefined。
     const finalScores = new Map<string, number>(shaped.map((c) => [c.record.id, c.score]))
-    if (this.cfg.llm.enabled && this.llmInvoke && shaped.length >= 2) {
+    // 0.112.0：channel 3 改成"cross-encoder 优先、LLM 兜底"。
+    //   - cross-encoder 走 HTTP（llama.cpp --rerank / Cohere / Jina），不占 LLM 配额；
+    //   - 没端点或调用失败时，才回落到原来的 LLM-as-judge；
+    //   - 两条都失败 = 保持召回顺序，绝不阻断检索。
+    let reranked = false
+    if (httpRerankActive && shaped.length >= 2) {
+      const asCands = shaped.map((c) => ({ id: c.record.id, content: c.record.content, recallScore: finalScores.get(c.record.id)! }))
+      const modelKey = this.cfg.rerank.model.trim() === ''
+        ? this.cfg.rerank.endpoint
+        : `${this.cfg.rerank.model}@${this.cfg.rerank.endpoint}`
+      const cacheKey = RerankCache.key(query.text, shaped.map((c) => c.record.id), `http:${modelKey}`)
+      let cached = this.rerankCache.get(cacheKey)
+      if (!cached) {
+        const outcome = await httpRerank({
+          cfg: this.cfg.rerank,
+          query: query.text,
+          candidates: asCands,
+          ...(query.signal !== undefined ? { signal: query.signal } : {}),
+          ...(this.rerankFetch !== undefined ? { fetchImpl: this.rerankFetch } : {}),
+        })
+        if (outcome) {
+          cached = { scores: outcome.scores, tokensSpent: 0 }
+          this.rerankCache.set(cacheKey, cached)
+        }
+      }
+      if (cached) {
+        for (const { id, score } of blendHttpScores(asCands, cached.scores, this.cfg.rerank.weight)) {
+          finalScores.set(id, score)
+        }
+        reranked = true
+      }
+    } else if (llmRerankActive && shaped.length >= 2) {
       const asCands = shaped.map((c) => ({ id: c.record.id, content: c.record.content, recallScore: finalScores.get(c.record.id)! }))
       const cacheKey = RerankCache.key(query.text, shaped.map((c) => c.record.id), this.cfg.llm.model)
       let outcome = this.rerankCache.get(cacheKey)
       if (!outcome) {
         outcome = await rerank({
-          invoke: this.llmInvoke,
+          invoke: this.llmInvoke!,
           cfg: this.cfg.llm,
           query: query.text,
           candidates: asCands,
@@ -5773,9 +5861,12 @@ export class LocalMemoryService implements MemoryServiceApi {
         for (const { id, score } of blendScores(asCands, outcome, this.cfg.llm.weight)) {
           finalScores.set(id, score)
         }
+        reranked = true
       }
-      // 重排必须能改变顺序,否则它只改了显示分数、召回序列原样输出。没有重排时
-      // finalScores 就等于 shape(),这个二次排序与原顺序完全一致(同一套 tie-break)。
+    }
+    // 重排必须能改变顺序,否则它只改了显示分数、召回序列原样输出。没有重排时
+    // finalScores 就等于 shape(),这个二次排序与原顺序完全一致(同一套 tie-break)。
+    if (reranked) {
       shaped.sort((a, b) => finalScores.get(b.record.id)! - finalScores.get(a.record.id)!
         || scopeTier(a.record.scope) - scopeTier(b.record.scope)
         || a.record.id.localeCompare(b.record.id))
