@@ -4,7 +4,7 @@
 
 **给 DeepSeek Harness 的本地优先长期记忆插件：多路检索 + 多跳图增强 + 上下文摘要 + 冲突消解**
 
-[![version](https://img.shields.io/badge/version-v1.0.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![version](https://img.shields.io/badge/version-v1.1.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
 [![license](https://img.shields.io/badge/license-MIT-3DA639.svg)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A522.13-3C873A.svg)](package.json)
 
@@ -12,7 +12,7 @@
 
 </div>
 
-**当前版本：v1.0.0（正式版）** · [Release](https://github.com/HANPU5838/dsh-memory/releases) · [更新日志](CHANGELOG.md)
+**当前版本：v1.1.0（正式版）** · [Release](https://github.com/HANPU5838/dsh-memory/releases) · [更新日志](CHANGELOG.md)
 
 ---
 
@@ -47,7 +47,7 @@ DSH 记忆系统是一个**完全本地**的长期记忆插件：Agent 用八个
 ```
 写入层   作用域 / 类型 / 重要度 / 标签 / 有效期 / 密钥脱敏
    ↓
-检索层   词法(BM25) + 向量(bge-m3) + 图增强(PPR 多跳) + PRF 查询扩展 → RRF 融合
+检索层   词法(BM25) + 向量(bge-m3) + 图增强(PPR 多跳) + PRF 查询扩展 → RRF 融合 → cross-encoder 重排
    ↓
 上下文层 动态 token 预算 → TextRank 摘要 → 冲突消解 → 注入
    ↓
@@ -65,6 +65,7 @@ DSH 记忆系统是一个**完全本地**的长期记忆插件：Agent 用八个
 | **图增强多跳（PPR）** | 记忆之间共享实体（路径/URL/版本/标签）时互相桥接，补召回「字面搜不到」的相关记忆 |
 | **PRF 查询扩展** | 无向量时也能用首轮命中记忆自己的措辞补全查询（如「上线失败」→ `deploy.sh --dry-run`） |
 | **RRF 融合** | 多路结果按排名融合，只做排序加成，不覆盖相关度 |
+| **Cross-encoder 重排** | 本地小模型（bge-reranker 等）对 (查询,候选) 逐对打分，纠正「召回对但排序错」；没有重排端点时自动回落到 LLM 重排或原顺序 |
 
 补充设计：
 
@@ -172,6 +173,27 @@ dsh plugin --profile web add "github:HANPU5838/dsh-memory#main"
 （Termux/Android 走 `pkg install llama-cpp` + 只下模型；Linux/macOS/Windows 下载托管运行时 + 模型）。
 默认自动检测本机已有 llama-server / Ollama / LM Studio 等兼容端点，可用时零下载直接采用。
 
+### 可选：本地 cross-encoder 重排（1.1.0）
+
+召回准了但排序未必对。加一层本地重排不需要云端、不占 LLM token：
+
+```bash
+# 在另一个端口起一个重排服务（llama.cpp 自带 --rerank，模型换成 bge-reranker-v2-m3 等）
+llama-server -m bge-reranker-v2-m3-Q4_K_M.gguf --rerank --host 127.0.0.1 --port 8081
+```
+
+```yaml
+config:
+  retrieval:
+    rerank:
+      enabled: true
+      endpoint: 'http://127.0.0.1:8081'   # 只写 host:port 会自动补 /v1/rerank
+      weight: 0.7                          # 终态分 = 0.3×召回分 + 0.7×重排分
+```
+
+优先级：**cross-encoder → LLM 重排 → 原顺序**。重排端点超时/非 2xx/返回坏 JSON 时自动
+降级，绝不阻断检索；同一 (查询, 候选集, 模型) 的结果会进缓存。
+
 ### 最小配置（可选）
 
 把下面的键放在插件 entry 的 `config` 里（宿主 cordis 配置；运行时开关也可以在面板改）：
@@ -211,7 +233,10 @@ config:
 | `retrieval.vector.provider` | `local` | `local`（llama-server）/ `openai` / `ollama` / `off` |
 | `retrieval.vector.endpoint` | `127.0.0.1:8078/v1/embeddings` | 兼容 OpenAI `/v1/embeddings` |
 | `retrieval.vector.ann.enabled` | `false` | 大库（>2000 条/作用域）再开 HNSW |
-| `retrieval.llm.enabled` | `false` | 可选 LLM 重排（调用你自己的模型端点） |
+| `retrieval.rerank.enabled` | `false` | cross-encoder 重排（本地 `llama-server --rerank` / Cohere / Jina），优先于 `llm` 重排 |
+| `retrieval.rerank.endpoint` | — | 重排端点；只写 `host:port` 时自动补 `/v1/rerank` |
+| `retrieval.rerank.weight` | `0.7` | 终态分 = (1-w)×召回分 + w×重排分 |
+| `retrieval.llm.enabled` | `false` | 可选 LLM 重排（调用你自己的模型端点），cross-encoder 不可用时兜底 |
 | `retrieval.lexicalPrf.enabled` | `true` | 词法伪相关反馈（候选 ≤2 时触发） |
 | `retrieval.graphExpansion.enabled` | `true` | 图增强多跳召回 |
 | `retrieval.semanticLayerBoost` | `0.04` | 巩固产物优先系数（0–0.2） |
@@ -346,7 +371,7 @@ npm run probe:flake -- 10   # 怀疑偶发失败时：同一套测试连跑 N �
 
 本仓库用 **tag + GitHub Release** 发布（不向 npm 发布）：推送 `v*` tag 后
 `.github/workflows/release.yml` 自动从 [CHANGELOG.md](CHANGELOG.md) 提取对应版本段落创建 Release。
-当前最新：**v1.0.0**（正式版）—— 全部功能收口：双时态 `asOf`、模板转义、防篡改账本、多进程配置一致性、审计 P1/P2 修复、备份纯手动；1327 例测试全绿 + flake 5/5；v0.111.0
+当前最新：**v1.1.0**（正式版）—— 新增 cross-encoder 本地重排（llama.cpp `--rerank` / Cohere / Jina 兼容）、重排通道二选一（cross-encoder 优先、LLM 兜底）、打包清单补 `skills/`；v1.0.0
 v0.82.0 图增强（类型边权 + 社区限流）；v0.81.0 召回 TextRank 摘要；v0.80.0 词法 PRF；
 v0.79.0 记录卡长作用域 UI 修复。
 

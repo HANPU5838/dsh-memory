@@ -16,7 +16,11 @@ import { MemoryStore } from '../src/store.ts'
 
 type SaveScope = Parameters<MemoryStore['save']>[0]['scope']
 
-test('flush 写盘失败不抛；增量保留，恢复权限后能补写', () => {
+// root 会绕过 chmod 权限位（CAP_DAC_OVERRIDE），注入不了写失败；
+// 这是测试环境的限制，不是实现的问题 —— CI 以普通用户跑，本机 root 跑时跳过。
+const isRoot = typeof process.getuid === 'function' && process.getuid() === 0
+
+test('flush 写盘失败不抛；增量保留，恢复权限后能补写', { skip: isRoot ? 'root 绕过权限位，无法注入写失败' : false }, () => {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-flush-fail-'))
   const scope = 'project:/tmp/dsh-flush-fail' as SaveScope
   try {
