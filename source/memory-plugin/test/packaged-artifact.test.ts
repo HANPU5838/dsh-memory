@@ -27,7 +27,7 @@ test('0.102.0：files 清单里的每个路径都真实存在（缺文件 = 安�
   for (const entry of meta.files ?? []) {
     assert.ok(existsSync(join(PKG, entry)), `${entry} 在 files 里但产物中不存在`)
   }
-  for (const required of ['lib/index.js', 'lib/client.js', 'locale/zh.json', 'locale/en.json', 'icon.svg', 'README.md', 'CHANGELOG.md', 'LICENSE', 'cordis.patch.yml']) {
+  for (const required of ['lib/index.js', 'lib/client.js', 'locale/zh.json', 'locale/en.json', 'icon.png', 'README.md', 'CHANGELOG.md', 'LICENSE', 'cordis.patch.yml']) {
     assert.ok(existsSync(join(PKG, required)), `${required} 缺失`)
   }
 })
@@ -95,12 +95,12 @@ test('插件列表里显示中文名 / 描述,而不是包名', () => {
   }
 })
 
-test('图标:包内 SVG,体积在宿主上限(256 KiB)内', () => {
+test('图标:包内 PNG,体积在宿主上限(512 KiB)内', () => {
   const meta = JSON.parse(need('package.json'))
-  assert.equal(meta.icon, './icon.svg')
-  const xml = need('icon.svg')
-  assert.ok(xml.trimStart().startsWith('<svg'), 'icon.svg 必须是 SVG 文档')
-  assert.ok(Buffer.byteLength(xml) < 256 * 1024, 'icon.svg 超过宿主 256 KiB 上限')
+  assert.equal(meta.icon, './icon.png')
+  const bytes = readFileSync(join(PKG, 'icon.png'))
+  assert.deepEqual([...bytes.subarray(0, 4)], [0x89, 0x50, 0x4e, 0x47], 'icon.png 必须是 PNG 图像')
+  assert.ok(bytes.length < 512 * 1024, 'icon.png 超过宿主 512 KiB 上限')
 })
 
 test('入口是一个,并且四条半边都在里面', () => {
