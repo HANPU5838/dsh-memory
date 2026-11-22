@@ -2,6 +2,13 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 1.9.1 — 自省工具测试与文档（2026-11-22）
+
+- `memory_insight` 补工具层测试（report 只读 / reflect 写候选 / 不支持时明确报错），
+  此前只测了纯函数层。
+- README 增加「元认知自省」章节：七类信号各自的来源与用途。
+- 全仓 1407 例 / 1406 pass / 1 skip / 0 fail。
+
 ## 1.9.0 — 元认知自省（2026-11-22）
 
 - 新增 `memory_insight` 工具与 `insightReport()` provider API：把系统自身的运行信号
