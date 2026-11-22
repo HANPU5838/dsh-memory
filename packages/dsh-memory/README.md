@@ -4,7 +4,7 @@
 
 **给 DeepSeek Harness 的本地优先长期记忆插件：多路检索 + 多跳图增强 + 上下文摘要 + 冲突消解**
 
-[![version](https://img.shields.io/badge/version-v1.8.1-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![version](https://img.shields.io/badge/version-v1.8.3-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
 [![license](https://img.shields.io/badge/license-MIT-3DA639.svg)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A522.13-3C873A.svg)](package.json)
 
@@ -12,7 +12,7 @@
 
 </div>
 
-**当前版本：v1.8.1（正式版）** · [Release](https://github.com/HANPU5838/dsh-memory/releases) · [更新日志](CHANGELOG.md)
+**当前版本：v1.8.3（正式版）** · [Release](https://github.com/HANPU5838/dsh-memory/releases) · [更新日志](CHANGELOG.md)
 
 <div align="center">
 
@@ -265,6 +265,19 @@ config:
 面板「设置」里能改的项会写入 `<storeDir>/settings.json`，优先级高于配置文件；删掉 `settings.json`
 里的对应小节即回到配置值。
 
+## 配置与生效
+
+| 配置 | 位置 | 生效方式 |
+| --- | --- | --- |
+| 注入开关（recall / digest / rules / procedures / turnEnd / sidebar） | `~/.dsh-memory/settings.json`，或面板「设置」 | 面板改立即生效；手改文件需重启 `dsh web`（插件只在启动时加载一次） |
+| 写入裁决（ADD/UPDATE/NOOP） | 插件配置 `cognitive.arbiter`（profile 的 cordis 配置） | **默认开启**；设 `enabled: false` 关闭，改后重启 |
+| 生命周期（休眠 / 墓碑保留天数） | `cognitive.lifecycle` | 同上 |
+| 向量后端 | 面板「服务」一键安装，或 `retrieval.vector` | 装完即用 |
+
+> 为什么默认值不写进 `settings.json`：`settings.json` 只存**用户显式改过**的注入开关，
+> 其余取代码默认值，避免“文件里一堆与代码重复的默认值”漂移。裁决与生命周期属于
+> provider 配置，不在 `settings.json` 里，改它们要动 profile 配置。
+
 ## 评测与验收
 
 ### 真实库全链路验收
@@ -384,7 +397,7 @@ npm run probe:flake -- 10   # 怀疑偶发失败时：同一套测试连跑 N �
 
 本仓库用 **tag + GitHub Release** 发布（不向 npm 发布）：推送 `v*` tag 后
 `.github/workflows/release.yml` 自动从 [CHANGELOG.md](CHANGELOG.md) 提取对应版本段落创建 Release。
-当前最新：**v1.8.1**（正式版）—— 新增 cross-encoder 本地重排（llama.cpp `--rerank` / Cohere / Jina 兼容）、重排通道二选一（cross-encoder 优先、LLM 兜底）、打包清单补 `skills/`；v1.0.0
+当前最新：**v1.8.3**（正式版）—— 新增 cross-encoder 本地重排（llama.cpp `--rerank` / Cohere / Jina 兼容）、重排通道二选一（cross-encoder 优先、LLM 兜底）、打包清单补 `skills/`；v1.0.0
 v0.82.0 图增强（类型边权 + 社区限流）；v0.81.0 召回 TextRank 摘要；v0.80.0 词法 PRF；
 v0.79.0 记录卡长作用域 UI 修复。
 

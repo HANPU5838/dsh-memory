@@ -37,6 +37,9 @@ jobs:
       - name: 文档一致性（check:docs）
         run: npm run check:docs
 
+      - name: 发布链路检查（release:check）
+        run: npm run release:check
+
       - name: 全功能验收（verify:all）
         run: npm run verify:all
 

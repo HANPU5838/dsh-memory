@@ -2,6 +2,13 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 1.8.3 — 包内文档同步（2026-11-22）
+
+- `verify:all` 的构建走 `--no-place`，只更新 `.verify-run`，导致 `packages/dsh-memory` 里的
+  README / CHANGELOG 停留在上一版；`release:check` 因此 FAIL。本次重新 place 并同步。
+- CI 增加 `release:check` 步骤，这类漂移在推送前就会被拦下。
+- 全仓 1400 例 / 1399 pass / 1 skip / 0 fail。
+
 ## 1.8.2 — 配置口径文档化（2026-11-22）
 
 - README 新增「配置与生效」：注入开关 / 写入裁决 / 生命周期各自存在哪、怎么生效、为什么
