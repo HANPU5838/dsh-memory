@@ -2889,7 +2889,14 @@ export function memoryInsightTool(opts                    )                     
           throw toolError(new MemoryToolError('UNSUPPORTED', '当前 provider 不支持认知节律（请升级 @restregular/dsh-memory）'))
         }
         const tick = await service.proactiveTick()
-        return { ...tick, report: service.insightReport() }
+        // 顶层直接展开报告字段：渲染器按 totals/signals 读取，嵌套会显示成 0 条。
+        const report = service.insightReport()
+        return {
+          ...report,
+          reflected: tick.reflected,
+          proposalIds: tick.proposalIds,
+          ...(tick.reflectionId !== undefined ? { reflectionId: tick.reflectionId } : {}),
+        }
       }
       const report = service.insightReport()
       if (action !== 'reflect') return { ...report }

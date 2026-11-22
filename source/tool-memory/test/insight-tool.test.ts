@@ -44,3 +44,18 @@ test('memory_insight 在 provider 不支持时明确报错', async () => {
   const tool = memoryInsightTool({ getService: () => ({}) } as never)
   await assert.rejects(tool.execute({ action: 'report' }, {} as never), /不支持自省报告/)
 })
+
+
+test('memory_insight tick 报告字段在顶层（渲染器读得到）', async () => {
+  const tool = memoryInsightTool({
+    getService: () => ({
+      insightReport: () => report,
+      proactiveTick: async () => ({ reflected: true, proposalIds: ['p1'], reflectionId: 'r1' }),
+    }),
+  } as never)
+  const out = (await tool.execute({ action: 'tick' }, {} as never)) as Record<string, unknown>
+  assert.equal((out.totals as { records: number }).records, 5)
+  assert.equal(out.reflected, true)
+  assert.equal(out.reflectionId, 'r1')
+  assert.deepEqual(out.proposalIds, ['p1'])
+})
