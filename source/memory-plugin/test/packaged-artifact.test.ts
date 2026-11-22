@@ -95,12 +95,12 @@ test('插件列表里显示中文名 / 描述,而不是包名', () => {
   }
 })
 
-test('图标:包内 PNG,体积在宿主上限(512 KiB)内', () => {
+test('图标:包内 PNG,体积在宿主上限(256 KiB)内', () => {
   const meta = JSON.parse(need('package.json'))
   assert.equal(meta.icon, './icon.png')
   const bytes = readFileSync(join(PKG, 'icon.png'))
   assert.deepEqual([...bytes.subarray(0, 4)], [0x89, 0x50, 0x4e, 0x47], 'icon.png 必须是 PNG 图像')
-  assert.ok(bytes.length < 512 * 1024, 'icon.png 超过宿主 512 KiB 上限')
+  assert.ok(bytes.length < 256 * 1024, 'icon.png 超过宿主 256 KiB 上限')
 })
 
 test('入口是一个,并且四条半边都在里面', () => {

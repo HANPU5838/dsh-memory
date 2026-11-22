@@ -327,7 +327,7 @@ for (const lang of ['en', 'zh']) {
 // 图标:宿主只接受包内 svg/png/jpeg/webp 且 ≤256 KiB。
 const iconFile = join(OUT, 'icon.png')
 if (!existsSync(iconFile)) { console.error('ICON FAIL: missing icon.png'); bad++ }
-else if (statSync(iconFile).size > 512 * 1024) { console.error(`ICON FAIL: icon.png exceeds 512 KiB (${statSync(iconFile).size} bytes)`); bad++ }
+else if (statSync(iconFile).size > 256 * 1024) { console.error(`ICON FAIL: icon.png exceeds 256 KiB (${statSync(iconFile).size} bytes)`); bad++ }
 else if (!readFileSync(iconFile).subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47]))) { console.error('ICON FAIL: icon.png is not a PNG image'); bad++ }
 // 客户端 bundle:注册 id 必须 == 包名(client-modules 按包名建图行)
 const client = readFileSync(join(OUT, 'lib', 'client.js'), 'utf8')
