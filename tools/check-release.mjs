@@ -50,6 +50,14 @@ const packed = JSON.parse(readFileSync(join(packedDir, 'package.json'), 'utf8'))
 if (packed.version === version) ok('产物版本', `${version}（仓库与产物一致）`)
 else fail('产物版本', `产物 ${packed.version} ≠ 仓库 ${version}（先 npm run build）`)
 
+// ①b 文档一致：装的是仓库源码，包内 README/CHANGELOG 不同步 = 用户看到旧版说明。
+for (const name of ['README.md', 'CHANGELOG.md']) {
+  const rootText = readFileSync(name, 'utf8')
+  const packedText = readFileSync(join(packedDir, name), 'utf8')
+  if (rootText === packedText) ok('文档一致', name)
+  else fail('文档一致', `${name} 根目录与 packages/dsh-memory/ 不一致（cp 同步后再发）`)
+}
+
 // ② npm pack 清单
 try {
   const raw = run('npm', ['pack', '--dry-run', '--json'], { cwd: packedDir })
