@@ -2,6 +2,13 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 1.12.2 — 修复联想空态提示不触发（2026-11-22）
+
+- 1.12.1 的提示按 `Object.keys(coreBlocks()).length` 判断是否为空，而 provider 永远返回
+  `{identity, profile, goal}` 三个键（未设置为 `undefined`），条件恒真 → 提示从未出现。
+  改为按值判断（`content.trim() !== ''`），回归测试也改用真实形状，避免同类误判再溜过去。
+- 全仓 1413 例 / 1412 pass / 1 skip / 0 fail。
+
 ## 1.12.1 — 联想空态提示与文档补全（2026-11-22）
 
 - `memory_insight action="associate"` 在核心块为空时不再只回“没有结果”：结果里带 `hint`，

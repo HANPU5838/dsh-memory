@@ -2892,8 +2892,10 @@ export function memoryInsightTool(opts                    )                     
         }
         const items = await service.associativeRecall()
         // 1.12.1：联想只认核心块做种子；块为空时给出可操作的下一步，而不是一句“没有结果”。
+        // 注意 coreBlocks() 永远返回 {identity, profile, goal} 三个键（未设置为 undefined），
+        // 不能按 key 数量判断，必须按值判断。
         const blocks = service.coreBlocks?.() ?? {}
-        const hasCore = Object.keys(blocks).length > 0
+        const hasCore = Object.values(blocks).some((block) => block !== undefined && block !== null && block.content.trim() !== '')
         const hint = items.length === 0 && !hasCore
           ? '核心块为空：自发联想以 identity / profile / goal 为种子。可先用 memory_core 写入任意一个槽位，再让联想跑起来。'
           : undefined

@@ -79,7 +79,8 @@ test('memory_insight associate 空结果且核心块为空时给出开箱提示'
     getService: () => ({
       insightReport: () => report,
       associativeRecall: async () => [],
-      coreBlocks: () => ({}),
+      // 真实 provider 的形状：三个键永远在，值是 undefined。按 key 判断会漏掉空态。
+      coreBlocks: () => ({ identity: undefined, profile: undefined, goal: undefined }),
     }),
   } as never)
   const out = (await tool.execute({ action: 'associate' }, {} as never)) as { items: unknown[]; hint?: string }
@@ -92,7 +93,7 @@ test('memory_insight associate 核心块已有内容时不再提示', async () =
     getService: () => ({
       insightReport: () => report,
       associativeRecall: async () => [],
-      coreBlocks: () => ({ goal: { content: '把版本推到 1.12.1', version: 1 } }),
+      coreBlocks: () => ({ identity: undefined, profile: undefined, goal: { content: '把版本推到 1.12.2', version: 1, updatedAt: 1, updatedBy: 'user' } }),
     }),
   } as never)
   const out = (await tool.execute({ action: 'associate' }, {} as never)) as { items: unknown[]; hint?: string }
