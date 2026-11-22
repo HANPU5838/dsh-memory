@@ -3,7 +3,7 @@
  * atomic compaction (tmp + rename). Vectors live in memory for M1; the .vec
  * sidecar format arrives in M1.5.
  */
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { appendFileSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createHash, randomUUID } from 'node:crypto'
 import { Buffer } from 'node:buffer'
 import { dirname, join } from 'node:path'
@@ -366,8 +366,22 @@ function writeJsonlAtomic(file: string, records: Map<string, MemoryRecord>): voi
   mkdirSync(dirname(file), { recursive: true })
   const tmp = tmpPathFor(file)
   const lines = [...records.values()].map((r) => JSON.stringify(r))
-  writeFileSync(tmp, lines.length ? `${lines.join('\n')}\n` : '', 'utf8')
+  const data = lines.length ? `${lines.join('\n')}\n` : ''
+  // 先 fsync 再 rename：否则断电/内核崩溃时 rename 可能先落盘、数据块没落盘，
+  // 留下 0 字节的 scope 文件，整个作用域的记忆会整份消失(f2fs/NTFS/移动存储尤甚)。
+  const fd = openSync(tmp, 'w')
+  try {
+    writeFileSync(fd, data, 'utf8')
+    try { fsyncSync(fd) } catch { /* 不支持 fsync 的文件系统退化为原行为 */ }
+  } finally {
+    closeSync(fd)
+  }
   renameSync(tmp, file)
+  // POSIX 上再 fsync 父目录，保证 rename 本身落盘；Windows 不能 open 目录，忽略。
+  try {
+    const dirFd = openSync(dirname(file), 'r')
+    try { fsyncSync(dirFd) } catch { /* 目录 fsync 不支持 */ } finally { closeSync(dirFd) }
+  } catch { /* Windows / 特殊文件系统 */ }
 }
 
 /** 文件的时间戳快照,用来判断"别的进程有没有改过它"。 */

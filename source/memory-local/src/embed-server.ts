@@ -542,6 +542,11 @@ export class EmbedServerManager {
       ...(launch.wrapped ? { env: this.wrappedEnv() } : {}),
     }
     const child = this.deps.spawn(launch.file, launch.args, spawnOptions)
+    // Windows 上父进程持有日志句柄会让卸载/清理日志报 EBUSY；子进程已继承副本，
+    // 这里必须立刻关掉，同时避免每次自愈重拉泄漏一个 fd。
+    if (typeof out === 'number') {
+      try { closeSync(out) } catch { /* 已关闭或被继承，无害 */ }
+    }
     this.child = child
     this.owned = true
     this.pid = child.pid ?? null
@@ -568,7 +573,7 @@ export class EmbedServerManager {
       }
       // 稳定跑了很久才崩(而不是启动即崩)→ 重新给满 3 次自愈机会。
       if (aliveMs > STABLE_RUN_MS) this.restartAttempts = 0
-      void this.scheduleRestart(`进程异常退出(code=${code ?? 'null'} signal=${signal ?? 'none'})`)
+      void this.scheduleRestart(`进程异常退出(code=${code ?? 'null'} signal=${signal ?? 'none'})`).catch(() => {})
     })
     child.once('error', (error) => {
       // spawn 失败（exe 不存在、无执行权限、glibc 解释器缺失）不会触发 exit，
@@ -615,6 +620,10 @@ export class EmbedServerManager {
         // spawn 失败(端口被占 / loader 缺失):继续按下一档退避重试。
       }
       this.markUnavailable(`llama-server 连续异常退出（${exitReason}），已重试 ${RESTART_BACKOFF_MS.length} 次`)
+    } catch (error) {
+      // 自愈循环本身抛错（spawn 抛 EACCES/ENOENT、sleep 被中断…）绝不能变成
+      // unhandled rejection —— 那会把宿主进程带走。降级为「后端不可用」即可。
+      this.markUnavailable(`自愈重拉异常：${error instanceof Error ? error.message : String(error)}`)
     } finally {
       this.restartLoopActive = false
     }
