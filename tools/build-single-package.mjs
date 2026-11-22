@@ -223,6 +223,7 @@ writeClientBundle(join(OUT, 'lib', 'client.js'), join(panelDir, 'lib'))
 // 文件名必须是 client.<name>.js:宿主只按这个模式认 chunk。
 // 0.73.0：2D/3D 星图视图已移除，不再打包 2.5MB 的 three.js chunk。
 cpSync(join(panelDir, 'icon.svg'), join(OUT, 'icon.svg'))
+if (existsSync(join(process.cwd(), 'icon.png'))) cpSync(join(process.cwd(), 'icon.png'), join(OUT, 'icon.png'))
 // 显示名 / 描述由宿主的 readPluginMeta 读 `<包>/locale/<lang>.json` 的 meta.title /
 // meta.description,并且**必须通过 exports 能解析到**(Node ESM 解析)。所以 locale
 // 目录要原样进包,exports 也要放行。
@@ -237,7 +238,7 @@ writeJson(join(OUT, 'package.json'), {
   name: NAME,
   version: VERSION,
   description: 'DeepSeek Harness 记忆系统(单包单入口):JSONL 存储 + 本地向量检索(BGE-M3)+ 八个模型工具 + 自动召回注入 + 管理面板。',
-  icon: './icon.svg',
+  icon: './icon.png',
   type: 'module',
   exports: {
     '.': './lib/index.js',
@@ -246,7 +247,7 @@ writeJson(join(OUT, 'package.json'), {
     './locale/zh.json': './locale/zh.json',
     './package.json': './package.json',
   },
-  files: ['lib/', 'locale/', 'skills/', 'cordis.patch.yml', 'icon.svg', 'README.md', 'CHANGELOG.md', 'LICENSE'],
+  files: ['lib/', 'locale/', 'skills/', 'cordis.patch.yml', 'icon.svg', 'icon.png', 'README.md', 'CHANGELOG.md', 'LICENSE'],
   dsh: {
     bundle: { patch: './cordis.patch.yml' },
     client: { inject: ['@deepseek-ai/dsh-client-ui-slots'], platform: 'web' },
@@ -324,10 +325,10 @@ for (const lang of ['en', 'zh']) {
   if (meta.exports?.[`./locale/${lang}.json`] !== `./locale/${lang}.json`) { console.error(`LOCALE FAIL: exports is missing "./locale/${lang}.json"`); bad++ }
 }
 // 图标:宿主只接受包内 svg/png/jpeg/webp 且 ≤256 KiB。
-const iconFile = join(OUT, 'icon.svg')
-if (!existsSync(iconFile)) { console.error('ICON FAIL: missing icon.svg'); bad++ }
-else if (statSync(iconFile).size > 256 * 1024) { console.error(`ICON FAIL: icon.svg exceeds 256 KiB (${statSync(iconFile).size} bytes)`); bad++ }
-else if (!readFileSync(iconFile, 'utf8').trimStart().startsWith('<svg')) { console.error('ICON FAIL: icon.svg is not an SVG document'); bad++ }
+const iconFile = join(OUT, 'icon.png')
+if (!existsSync(iconFile)) { console.error('ICON FAIL: missing icon.png'); bad++ }
+else if (statSync(iconFile).size > 512 * 1024) { console.error(`ICON FAIL: icon.png exceeds 512 KiB (${statSync(iconFile).size} bytes)`); bad++ }
+else if (!readFileSync(iconFile).subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47]))) { console.error('ICON FAIL: icon.png is not a PNG image'); bad++ }
 // 客户端 bundle:注册 id 必须 == 包名(client-modules 按包名建图行)
 const client = readFileSync(join(OUT, 'lib', 'client.js'), 'utf8')
 const declared = client.match(/__ModuleLoader__\.load\(\{\s*id:\s*'([^']+)'/)

@@ -4,7 +4,7 @@
 
 **给 DeepSeek Harness 的本地优先长期记忆插件：多路检索 + 多跳图增强 + 上下文摘要 + 冲突消解**
 
-[![version](https://img.shields.io/badge/version-v1.7.1-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![version](https://img.shields.io/badge/version-v1.7.2-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
 [![license](https://img.shields.io/badge/license-MIT-3DA639.svg)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A522.13-3C873A.svg)](package.json)
 
@@ -12,7 +12,7 @@
 
 </div>
 
-**当前版本：v1.7.1（正式版）** · [Release](https://github.com/HANPU5838/dsh-memory/releases) · [更新日志](CHANGELOG.md)
+**当前版本：v1.7.2（正式版）** · [Release](https://github.com/HANPU5838/dsh-memory/releases) · [更新日志](CHANGELOG.md)
 
 <div align="center">
 
@@ -379,7 +379,7 @@ npm run probe:flake -- 10   # 怀疑偶发失败时：同一套测试连跑 N �
 
 本仓库用 **tag + GitHub Release** 发布（不向 npm 发布）：推送 `v*` tag 后
 `.github/workflows/release.yml` 自动从 [CHANGELOG.md](CHANGELOG.md) 提取对应版本段落创建 Release。
-当前最新：**v1.7.1**（正式版）—— 新增 cross-encoder 本地重排（llama.cpp `--rerank` / Cohere / Jina 兼容）、重排通道二选一（cross-encoder 优先、LLM 兜底）、打包清单补 `skills/`；v1.0.0
+当前最新：**v1.7.2**（正式版）—— 新增 cross-encoder 本地重排（llama.cpp `--rerank` / Cohere / Jina 兼容）、重排通道二选一（cross-encoder 优先、LLM 兜底）、打包清单补 `skills/`；v1.0.0
 v0.82.0 图增强（类型边权 + 社区限流）；v0.81.0 召回 TextRank 摘要；v0.80.0 词法 PRF；
 v0.79.0 记录卡长作用域 UI 修复。
 
