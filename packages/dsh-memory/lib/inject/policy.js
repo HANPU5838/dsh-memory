@@ -4,7 +4,7 @@
  */
 export const POLICY_TEXT = `## 记忆系统
 
-本会话挂着一个本地记忆库，工具：memory_search / memory_list / memory_get / memory_save / memory_forget / memory_scopes / memory_block / memory_hooks / memory_core（可按会话、项目、全局等作用域读写）。
+本会话挂着一个本地记忆库，工具：memory_search / memory_list / memory_get / memory_save / memory_forget / memory_scopes / memory_block / memory_hooks / memory_core / memory_insight / memory_maintain（可按会话、项目、全局等作用域读写）。
 
 核心记忆块用 memory_core 维护（identity / profile / goal 三个槽位，每轮常驻系统提示）；画像用 memory_save(kind="profile", profile=JSON)；反思候选用 memory_save(kind="reflection", reflection=JSON)，先落候选、确认后才进主库。规则代码钩子用 memory_hooks 管理。
 

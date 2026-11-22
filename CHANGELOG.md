@@ -2,6 +2,12 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 1.11.1 — 联想渲染与策略文本（2026-11-22）
+
+- `action="associate"` 返回的 items 被按报告格式渲染，显示成“0 条记忆”；补专用渲染分支。
+- 注入策略文本还停在 9 个工具，补上 `memory_insight` / `memory_maintain`。
+- 全仓 1415 例 / 1414 pass / 1 skip / 0 fail。
+
 ## 1.11.0 — 自发联想（2026-11-22）
 
 - 新增 `associativeRecall()`：不用查询，以「goal + profile + identity」核心块为种子，
