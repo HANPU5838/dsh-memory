@@ -309,6 +309,8 @@ export function apply(ctx         , config                     = {}) {
   /** 本轮已经发生过的 signal 驱动召回:每轮最多一次,同 tag/query 也跳过。 */
   const signalRecallTurn = new Map                                                                    ()
   const tagCache = new Map                                        ()
+  /** 1.12.0：自发联想每会话只注入一次（避免每轮重复占 token）。 */
+  const primedSessions = new Set        ()
   /** 系统提示 rules 段的同源渲染缓存：pre-step 算一次，section 回调复用。 */
   const rulesCache = new Map                                                               ()
   /** 流程索引的匹配上下文:最近一次用户消息 + 最近调用过的工具名。 */
@@ -1253,6 +1255,27 @@ export function apply(ctx         , config                     = {}) {
       }
     } else if (step === 1) {
       stage(auditBase('digest', { kind: 'evaluation', stage: 'skipped', outcome: 'skipped', reasonCode: 'disabled' }))
+    }
+
+    // 1.12.0：自发联想（每会话一次）—— 不等查询，用核心块做种子想起 2-3 条。
+    // 预算：每条截断 100 字，最多 3 条；失败/空结果都不影响注入。
+    if (step === 1 && sessionId !== undefined && settings.digest.enabled && !primedSessions.has(sessionId)) {
+      primedSessions.add(sessionId)
+      if (primedSessions.size > 500) primedSessions.clear()
+      const associate = (memory                        
+                                                                                                                                         
+       ).associativeRecall
+      if (typeof associate === 'function') {
+        try {
+          const items = await associate.call(memory, { limit: 3 })
+          if (items.length > 0) {
+            parts.push([
+              '## 可能相关（没有查询，由当前目标与画像触发的联想）',
+              ...items.map((item) => `- ${String(item.content ?? '').replace(/\s+/g, ' ').slice(0, 100)}`),
+            ].join('\n'))
+          }
+        } catch { /* 联想失败不影响注入 */ }
+      }
     }
 
     // 规则段：只做一次渲染，并把同一份结果交给系统提示（若宿主先跑 pre-step 再 assemble）。
