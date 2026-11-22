@@ -110,7 +110,7 @@ import { decideWrite,                                          } from './cogniti
 import { parseProfileField } from './profile.js'
 import { parseReflectionField } from './reflection.js'
 import { buildInsight } from './insight.js'
-import { reflectionDue, proposalDue, inferGoalCandidates,                  } from './cognitive/rhythm.js'
+import { reflectionDue, proposalDue, inferGoalCandidates, hasRecentCandidate,                  } from './cognitive/rhythm.js'
 import {
   CORE_SLOTS,
   CoreMemoryStore,
@@ -6686,6 +6686,17 @@ export class LocalMemoryService                             {
       const report = this.insightReport()
       const active = report.signals.filter((signal) => signal.severity !== 'ok')
       if (active.length > 0) {
+        const conclusion = report.suggestions[0] ?? '节律自省未发现需要立即处理的问题'
+        const recent = this.store.allScopes().flatMap((scopeStore) => [...scopeStore.records.values()])
+        const seen = hasRecentCandidate(recent.map((record) => ({
+          kind: record.kind,
+          content: record.content,
+          updatedAt: record.updatedAt,
+          ...(record                                            ).reflection?.conclusion !== undefined
+            ? { conclusion: (record                                            ).reflection .conclusion  }
+            : {},
+        })), conclusion, { now })
+        if (!seen) {
         const saved = await this.save({
           scope: 'global',
           kind: 'reflection',
@@ -6704,6 +6715,7 @@ export class LocalMemoryService                             {
           }),
         })
         out.reflectionId = saved.id
+        }
       }
       out.reflected = true
       state.lastReflectAt = now

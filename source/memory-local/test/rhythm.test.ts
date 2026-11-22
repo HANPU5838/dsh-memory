@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { reflectionDue, proposalDue, inferGoalCandidates } from '../src/cognitive/rhythm.ts'
+import { reflectionDue, proposalDue, inferGoalCandidates, hasRecentCandidate } from '../src/cognitive/rhythm.ts'
 
 const DAY = 86_400_000
 const now = 1_800_000_000_000
@@ -25,4 +25,12 @@ test('目标提案：近期高重要度且带线索的记忆入选', () => {
   assert.equal(candidates.length, 1)
   assert.match(candidates[0]!.conclusion, /联想预热/)
   assert.ok(candidates[0]!.confidence > 0.5)
+})
+
+
+test('相近候选去重：同结论近期已存在则跳过', () => {
+  const records = [{ kind: 'reflection', content: '节律自省：修正偏多', conclusion: '修正次数偏多：检查同类记忆', updatedAt: now - DAY }]
+  assert.equal(hasRecentCandidate(records, '修正次数偏多：检查同类记忆', { now }), true)
+  assert.equal(hasRecentCandidate(records, '完全不同的结论', { now }), false)
+  assert.equal(hasRecentCandidate(records, '修正次数偏多：检查同类记忆', { now, proposeEveryMs: DAY / 2 }), false)
 })

@@ -78,4 +78,20 @@ export function inferGoalCandidates(records                       , options     
 }
 
 
+/** 近期是否已有同一结论的候选：避免节律每次自省都写一条近重复记录。 */
+export function hasRecentCandidate(
+  records                                                                                          ,
+  conclusion        ,
+  options                                          = {},
+)          {
+  const now = options.now ?? Date.now()
+  const windowMs = options.proposeEveryMs ?? 7 * DAY
+  const key = conclusion.trim()
+  if (key === '') return false
+  return records.some((record) => record.kind === (options.kind ?? 'reflection')
+    && record.updatedAt > now - windowMs
+    && (record.conclusion ?? record.content).includes(key.slice(0, 40)))
+}
+
+
 //# sourceURL=source/memory-local/src/cognitive/rhythm.ts
