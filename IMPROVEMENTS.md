@@ -5,6 +5,11 @@
 > 以下为自维护以来的完整改进清单（每一项都有源码改动 + 回归测试，不是临时补丁），
 > 安装、发布、更新**只以本仓库为准**。
 
+## 1.5.0
+
+- 默认开启：turnEnd、sidebar、cognitive.arbiter；面板页脚新增「赞赏作者」入口。
+- 全仓 1377 例 / 1376 pass / 1 skip / 0 fail。
+
 ## 1.4.0
 
 - `kind=profile` 用户画像：结构化字段（type/topic/statement/confidence/evidence）+ 严格校验。

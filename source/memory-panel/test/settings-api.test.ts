@@ -39,7 +39,7 @@ test('面板 /settings:GET 返回默认设置', async () => {
     assert.equal(res.out.status, 200)
     assert.equal(res.out.body.ok, true)
     assert.equal(res.out.body.value.recall.enabled, true)
-    assert.equal(res.out.body.value.turnEnd.enabled, false)
+    assert.equal(res.out.body.value.turnEnd.enabled, true)
     // 0.72.0：图增强设置默认跟随 provider 配置（默认开、权重 0.8）。
     assert.equal(res.out.body.value.graph.enabled, true)
     assert.equal(res.out.body.value.graph.weight, 0.8)

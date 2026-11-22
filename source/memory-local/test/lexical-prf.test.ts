@@ -14,6 +14,7 @@ import { LocalMemoryService } from '../src/index.ts'
 async function seedAndSearch(enabled) {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-prf-'))
   const svc = new LocalMemoryService({
+      cognitive: { arbiter: { enabled: false } },
     storeDir: dir,
     scopes: { global: true, project: true },
     retrieval: { vector: { enabled: false }, lexicalPrf: { enabled } },

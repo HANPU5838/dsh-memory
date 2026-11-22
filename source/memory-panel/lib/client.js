@@ -5589,6 +5589,8 @@ window.__ModuleLoader__.load({
         h('a', { href: 'https://github.com/HANPU5838/dsh-memory', target: '_blank', rel: 'noreferrer' }, '⭐ 去 GitHub 点个 Star'),
         ' · ',
         h('a', { href: 'https://github.com/HANPU5838/dsh-memory/issues/new', target: '_blank', rel: 'noreferrer' }, '💬 反馈建议 / 提 issue'),
+        ' · ',
+        h('a', { href: 'https://github.com/HANPU5838/dsh-memory#支持这个项目', target: '_blank', rel: 'noreferrer' }, '💛 赞赏作者'),
       )
       const overviewBody = h('div', { className: 'memp-body' }, h(HealthCard, { api, onChanged: () => load() }), serverCard, maintenanceCard, footer)
 

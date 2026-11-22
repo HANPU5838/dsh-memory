@@ -149,8 +149,8 @@ export const defaultInjectSettings                 = {
     tags: DEFAULT_AUTO_RECALL_TAGS,
     useMemoryTags: true,
   },
-  turnEnd: { enabled: false },
-  sidebar: { enabled: false },
+  turnEnd: { enabled: true },
+  sidebar: { enabled: true },
 }
 
 const clampInt = (value         , min        , max        , fallback        )         => {

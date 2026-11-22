@@ -16,6 +16,7 @@ const label = (scope: string): string => (scope === 'global' ? '全局' : scope)
 test('0.95.0：图增强补召回在真实服务 → 工具输出 → 渲染里都带「联想」标记', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-e2e-graph-'))
   const svc = new LocalMemoryService({
+      cognitive: { arbiter: { enabled: false } },
     storeDir: dir,
     scopes: { global: true },
     retrieval: { vector: { enabled: false }, lexicalPrf: { enabled: false } },

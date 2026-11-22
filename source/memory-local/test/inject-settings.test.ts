@@ -90,10 +90,10 @@ test('provider: listSync 只读已加载的 scope,按 kind 过滤', async () => 
     rmSync(dir, { recursive: true, force: true })
   }
 })
-test('sidebar: 默认关闭,面板可把它打开', () => {
-  assert.equal(normalizeInjectSettings(undefined).sidebar.enabled, false)
-  const merged = mergeInjectSettings(defaultInjectSettings, { sidebar: { enabled: true } })
-  assert.equal(merged.sidebar.enabled, true)
+test('sidebar: 默认开启,面板可把它关掉', () => {
+  assert.equal(normalizeInjectSettings(undefined).sidebar.enabled, true)
+  const merged = mergeInjectSettings(defaultInjectSettings, { sidebar: { enabled: false } })
+  assert.equal(merged.sidebar.enabled, false)
 })
 
 test('provider: listSync 默认退役 superseded 旧规则,includeSuperseded 可取回历史', async () => {

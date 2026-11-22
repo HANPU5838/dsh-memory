@@ -76,7 +76,8 @@ test('resolveCurrentScopes: 宿主给的正斜杠 cwd 与 path 参数落同一�
 
 test('save: 显式 project:<路径> 的不同写法落到同一个 scope', async () => {
   const dir = tempDir()
-  const svc = new LocalMemoryService({ storeDir: dir, scopes: { global: true, project: true } })
+  const svc = new LocalMemoryService({
+      cognitive: { arbiter: { enabled: false } }, storeDir: dir, scopes: { global: true, project: true } })
   try {
     const first = await svc.save({ scope: WIN_VARIANT, kind: 'note', content: '正斜杠写入的一条' })
     assert.equal(first.scope, WIN, '落盘键必须是规范写法')
@@ -95,7 +96,8 @@ test('save: 显式 project:<路径> 的不同写法落到同一个 scope', async
 
 test('memory_save({ path }): 正斜杠 / 反斜杠路径写同一个 scope,别名照旧生效', async () => {
   const dir = tempDir()
-  const svc = new LocalMemoryService({ storeDir: dir, scopes: { global: true, project: true } })
+  const svc = new LocalMemoryService({
+      cognitive: { arbiter: { enabled: false } }, storeDir: dir, scopes: { global: true, project: true } })
   try {
     const tools = memoryTools({ getService: () => svc as never, defaultScope: 'project' })
     const forward = await tools.memory_save.execute({ content: 'path 参数的一条', path: 'D:/Edge Cases/repo', scope: '演示项目' })
@@ -127,7 +129,8 @@ test('reconcileScopes: 历史分叉的 scope 并到规范键,别名跟着走、�
   seed.close()
   assert.ok(existsSync(projectFile(dir, WIN_VARIANT)), 'precondition: 两个文件都在')
 
-  const svc = new LocalMemoryService({ storeDir: dir, scopes: { global: true, project: true } })
+  const svc = new LocalMemoryService({
+      cognitive: { arbiter: { enabled: false } }, storeDir: dir, scopes: { global: true, project: true } })
   try {
     const { merged } = svc.reconcileScopes()
     assert.equal(merged, 1, '合并掉一个变体')
@@ -150,7 +153,8 @@ test('discoverScopes 会顺带合并(面板 / memory_list 这么发现作用域)
   seed.save({ scope: WIN_VARIANT, kind: 'note', content: '只有变体里的一条' }, { importance: 0.5, source: { origin: 'explicit' } })
   seed.close()
 
-  const svc = new LocalMemoryService({ storeDir: dir, scopes: { global: true, project: true } })
+  const svc = new LocalMemoryService({
+      cognitive: { arbiter: { enabled: false } }, storeDir: dir, scopes: { global: true, project: true } })
   try {
     const found = svc.discoverScopes()
     assert.ok(found.includes(WIN), '规范键出现在发现结果里')

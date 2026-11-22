@@ -21,6 +21,7 @@ async function seed(svc) {
 async function order(boost) {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-semantic-layer-'))
   const svc = new LocalMemoryService({
+      cognitive: { arbiter: { enabled: false } },
     storeDir: dir,
     scopes: { global: true },
     retrieval: { semanticLayerBoost: boost },

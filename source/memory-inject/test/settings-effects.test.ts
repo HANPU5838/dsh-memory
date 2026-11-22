@@ -16,6 +16,7 @@ import { defaultInjectConfig } from '../src/inject.ts'
 test('0.98.0：settings 的 graph.enabled 实时改变检索（关闭后没有联想补召回）', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-settings-graph-'))
   const svc = new LocalMemoryService({
+      cognitive: { arbiter: { enabled: false } },
     storeDir: dir,
     scopes: { global: true },
     retrieval: { vector: { enabled: false }, lexicalPrf: { enabled: false } },
@@ -45,7 +46,8 @@ test('0.98.0：settings 的 graph.enabled 实时改变检索（关闭后没有�
 
 test('0.98.0：settings 持久化 —— updateInjectSettings 写入 settings.json 并可读回', () => {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-settings-persist-'))
-  const svc = new LocalMemoryService({ storeDir: dir, scopes: { global: true }, retrieval: { vector: { enabled: false } } })
+  const svc = new LocalMemoryService({
+      cognitive: { arbiter: { enabled: false } }, storeDir: dir, scopes: { global: true }, retrieval: { vector: { enabled: false } } })
   try {
     svc.updateInjectSettings({ graph: { enabled: false, weight: 0.55 }, impression: { dynamic: false } })
     svc.flushSync()

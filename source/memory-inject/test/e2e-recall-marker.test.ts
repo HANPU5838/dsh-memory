@@ -15,6 +15,7 @@ import { MemoryInjector, defaultInjectConfig } from '../src/inject.ts'
 test('0.96.0：真实服务召回的联想记录，在注入正文里带「（联想）」标记', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-inject-marker-'))
   const svc = new LocalMemoryService({
+      cognitive: { arbiter: { enabled: false } },
     storeDir: dir,
     scopes: { global: true },
     retrieval: { vector: { enabled: false }, lexicalPrf: { enabled: false } },

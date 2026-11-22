@@ -1141,9 +1141,9 @@ export function resolveConfig(config: MemoryLocalConfig = {}): ResolvedConfig {
       consolidationMaxClusters: config.cognitive?.consolidation?.maxClusters ?? 2,
       consolidationLexicalFallback: config.cognitive?.consolidation?.lexicalFallback ?? true,
       consolidationLexicalThreshold: config.cognitive?.consolidation?.lexicalThreshold ?? 0.8,
-      // 写入裁决默认关闭：词法启发式在"同模板不同条目"（ph0/ph1、deploy0/deploy1）上
-      // 会把标号差异误判成事实修正。开启前建议先用 shadow 观察一段时间。
-      arbiterEnabled: config.cognitive?.arbiter?.enabled ?? false,
+      // 写入裁决默认开启（1.5.0）：重复写入不再膨胀。若遇到"同模板不同条目"
+      // （ph0/ph1）被误合并，可用 cognitive.arbiter.enabled=false 关闭。
+      arbiterEnabled: config.cognitive?.arbiter?.enabled ?? true,
       arbiterShadow: config.cognitive?.arbiter?.shadow ?? false,
       arbiterNoopThreshold: config.cognitive?.arbiter?.noopThreshold ?? 0.92,
       arbiterUpdateThreshold: config.cognitive?.arbiter?.updateThreshold ?? 0.75,
