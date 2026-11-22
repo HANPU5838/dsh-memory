@@ -2,6 +2,14 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 1.8.4 — 屏蔽解除前缀修复（2026-11-22）
+
+- `memory_block` 的 `block` 接受 8 位 id 前缀，`unblock` 却只认完整 id：用前缀解除会提示
+  “没有找到匹配的屏蔽记录”，而 `list` 里明明还在。`MemoryBlocksStore.remove` 现在与前缀
+  入参保持一致（≥8 位、<36 位按前缀匹配）。
+- 新增回归测试 `block-prefix.test.ts`。
+- 全仓 1401 例 / 1400 pass / 1 skip / 0 fail。
+
 ## 1.8.3 — 包内文档同步（2026-11-22）
 
 - `verify:all` 的构建走 `--no-place`，只更新 `.verify-run`，导致 `packages/dsh-memory` 里的

@@ -226,7 +226,13 @@ export class MemoryBlocksStore {
       if (match.id !== undefined && item.id === match.id) return false
       if (match.scope !== undefined && item.scope === match.scope) return false
       const target = match.recordId ?? match.prefix
-      if (target !== undefined && (item.recordId === target || item.prefix === target)) return false
+      if (target !== undefined) {
+        if (item.recordId === target || item.prefix === target) return false
+        // block 接受 8 位前缀，unblock 也必须接受：否则「屏蔽用前缀、解除要全 id」的
+        // 不对称会让用户以为解除失败（0.32.0 起就存在）。
+        if (target.length >= 8 && target.length < 36
+          && ((item.recordId ?? '').startsWith(target) || (item.prefix ?? '').startsWith(target))) return false
+      }
       return true
     })
     return this.write(level, key, rest)
