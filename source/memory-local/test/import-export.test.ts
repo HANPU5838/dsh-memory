@@ -33,7 +33,7 @@ test('exportAll: 纯文本 + 元数据,不含向量', async () => {
     await svc.save({ scope: 'global', kind: 'fact', content: '全局事实' })
     await svc.save({ scope: 'project:C:\\w', kind: 'rule', content: '项目规则' })
     const doc = svc.exportAll()
-    assert.equal(doc.version, 1)
+    assert.equal(doc.version, 2)
     assert.equal(typeof doc.exportedAt, 'number')
     assert.equal(doc.records.length, 2)
     for (const r of doc.records) {

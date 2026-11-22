@@ -104,6 +104,21 @@ export class CoreMemoryStore {
     renameSync(tmp, this.file)
   }
 
+  /** 导出当前状态（备份用）。 */
+  snapshot(): CoreFile {
+    return this.state
+  }
+
+  /** 从备份整体恢复；非法输入保持原状。 */
+  replaceAll(raw: unknown): boolean {
+    if (raw === null || typeof raw !== 'object') return false
+    const candidate = raw as Partial<CoreFile>
+    if (candidate.version !== 1 || typeof candidate.slots !== 'object' || candidate.slots === null) return false
+    this.state = { version: 1, slots: candidate.slots, history: candidate.history ?? {} }
+    this.persist()
+    return true
+  }
+
   get(slot: CoreSlot): CoreSlotState | undefined {
     return this.state.slots[slot]
   }

@@ -6752,6 +6752,11 @@ export class LocalMemoryService implements MemoryServiceApi {
     const name = `snapshot-${new Date().toISOString().replace(/[:.]/g, '-')}.jsonl.gz`
     const file = join(dir, name)
     const result = this.snapshotStore(file)
+    // 核心块不在 JSONL 里，单独随备份落一份，恢复时一并还原。
+    try {
+      const stamp = name.replace(/^snapshot-/, '').replace(/\.jsonl\.gz$/, '')
+      writeFileSync(join(dir, `core-${stamp}.json`), `${JSON.stringify(this.core.snapshot(), null, 2)}\n`, 'utf8')
+    } catch { /* 核心块备份失败不影响主备份 */ }
     return { name, bytes: result.bytes, records: result.records }
   }
 
@@ -6761,7 +6766,13 @@ export class LocalMemoryService implements MemoryServiceApi {
     if (base === '' || base !== name || !/^[\w.\-]+\.jsonl(\.gz)?$/.test(base)) {
       throw memoryError('BACKUP_NAME_INVALID', `备份文件名非法：${String(name)}`)
     }
-    return this.restoreStore(join(this.backupDir, base))
+    const result = this.restoreStore(join(this.backupDir, base))
+    const stamp = base.replace(/^snapshot-/, '').replace(/\.jsonl(\.gz)?$/, '')
+    const corePath = join(this.backupDir, `core-${stamp}.json`)
+    try {
+      if (existsSync(corePath)) this.core.replaceAll(JSON.parse(readFileSync(corePath, 'utf8')))
+    } catch { /* 核心块恢复失败不影响记录恢复 */ }
+    return result
   }
 
   /** 0.32.0：导出记忆快照（gzip JSONL，不含向量；导入后按当前模型重新嵌入）。 */
@@ -7003,7 +7014,7 @@ export class LocalMemoryService implements MemoryServiceApi {
    * 所以换过模型也照样导得回去。
    */
   exportAll(now = Date.now()): {
-    version: 1
+    version: 2
     exportedAt: number
     records: Array<{
       scope: MemoryScope
@@ -7038,11 +7049,15 @@ export class LocalMemoryService implements MemoryServiceApi {
             : {}),
           ...(rec.expiredAt !== undefined ? { expiredAt: rec.expiredAt } : {}),
           ...((rec as MemoryRecord & { initial?: unknown }).initial === true ? { initial: true } : {}),
+          ...(rec.supersedes !== undefined ? { supersedes: rec.supersedes } : {}),
+          ...((rec as MemoryRecord & { generation?: unknown }).generation !== undefined ? { generation: (rec as MemoryRecord & { generation?: unknown }).generation } : {}),
+          ...((rec as MemoryRecord & { profile?: unknown }).profile !== undefined ? { profile: (rec as MemoryRecord & { profile?: unknown }).profile } : {}),
+          ...((rec as MemoryRecord & { reflection?: unknown }).reflection !== undefined ? { reflection: (rec as MemoryRecord & { reflection?: unknown }).reflection } : {}),
         })
       }
     }
     records.sort((a, b) => a.scope.localeCompare(b.scope) || a.createdAt - b.createdAt)
-    return { version: 1, exportedAt: now, records }
+    return { version: 2, exportedAt: now, records }
   }
 
   /**

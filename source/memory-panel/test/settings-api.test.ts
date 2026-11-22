@@ -98,7 +98,7 @@ test('面板 /export + /import:文本往返,重复导入跳过', async () => {
     const exported = fakeRes()
     await handleRequest(ctxWith(svc), ROUTE, get(`${ROUTE}/export`), exported)
     assert.equal(exported.out.status, 200)
-    assert.equal(exported.out.body.value.version, 1)
+    assert.equal(exported.out.body.value.version, 2)
     assert.equal(exported.out.body.value.records.length, 1)
     assert.equal(exported.out.body.value.records[0].content, '导出用的一条')
     assert.equal('vector' in exported.out.body.value.records[0], false)

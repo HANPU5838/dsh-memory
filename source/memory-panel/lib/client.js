@@ -949,7 +949,7 @@ window.__ModuleLoader__.load({
     }
 
     /** 记忆类型 → 中文名 + 树里的强调色(与宿主主题无关的固定色相,底色用 color-mix 自适应)。 */
-    const KIND_ORDER = ['fact', 'decision', 'preference', 'procedure', 'note', 'rule', 'state']
+    const KIND_ORDER = ['fact', 'decision', 'preference', 'procedure', 'note', 'rule', 'state', 'profile', 'reflection']
     const KIND_META = {
       fact: { label: '事实', color: '#5B8DEF' },
       decision: { label: '决策', color: '#D99A2B' },

@@ -2,6 +2,17 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 1.6.1 — 集成缺口修复（2026-11-22）
+
+- **注入策略补全新工具**：系统提示的「记忆系统」段现在列出 `memory_hooks` / `memory_core`，
+  并说明核心块、画像、反思候选的用法 —— 新功能不再"存在但模型不知道"。
+- **面板 kind 列表**补 `profile` / `reflection`，筛选与排序不再漏新类型。
+- **导出升级 v2**：保留 `supersedes` / `generation` / `profile` / `reflection`，
+  导出再导入不再丢版本链与画像元数据。
+- **备份覆盖核心块**：`createBackup` 额外写 `core-<时间戳>.json`，`restoreBackup`
+  一并还原 identity / profile / goal；核心块不再随备份丢失。
+- **测试**：新增 2 例（备份核心块往返、导出 v2 字段）；全仓 1391 例 / 1390 pass / 1 skip / 0 fail。
+
 ## 1.6.0 — 反思候选 + 跨平台进程治理（2026-11-22）
 
 - **反思候选 `kind=reflection`**：候选元数据存 `reflection` 字段（status / conclusion /
