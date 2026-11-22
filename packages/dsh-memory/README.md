@@ -8,11 +8,19 @@
 [![license](https://img.shields.io/badge/license-MIT-3DA639.svg)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A522.13-3C873A.svg)](package.json)
 
-**[安装](#快速开始) · [能力](#它为什么是真正的记忆系统) · [配置](#配置参考) · [评测](#评测与验收) · [更新日志](CHANGELOG.md)**
+**[安装](#快速开始) · [能力](#它为什么是真正的记忆系统) · [配置](#配置参考) · [评测](#评测与验收) · [支持](#支持这个项目) · [更新日志](CHANGELOG.md)**
 
 </div>
 
 **当前版本：v1.1.0（正式版）** · [Release](https://github.com/HANPU5838/dsh-memory/releases) · [更新日志](CHANGELOG.md)
+
+<div align="center">
+
+<a href="#支持这个项目"><img src="https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/preview/sponsor-qr.png" width="168" alt="赞赏码 · 感谢支持"></a>
+
+**如果它替你把「上次好像记过」变成了一次真正的命中，欢迎请作者喝杯咖啡。**
+
+</div>
 
 ---
 
@@ -172,6 +180,27 @@ dsh plugin --profile web add "github:HANPU5838/dsh-memory#main"
 不写任何配置就能用：检索退化为词法，不联网。要继续用语义检索，在面板「服务 → 向量服务」点一键安装即可
 （Termux/Android 走 `pkg install llama-cpp` + 只下模型；Linux/macOS/Windows 下载托管运行时 + 模型）。
 默认自动检测本机已有 llama-server / Ollama / LM Studio 等兼容端点，可用时零下载直接采用。
+
+### 可选：本地 cross-encoder 重排（1.1.0）
+
+召回准了但排序未必对。加一层本地重排不需要云端、不占 LLM token：
+
+```bash
+# 在另一个端口起一个重排服务（llama.cpp 自带 --rerank，模型换成 bge-reranker-v2-m3 等）
+llama-server -m bge-reranker-v2-m3-Q4_K_M.gguf --rerank --host 127.0.0.1 --port 8081
+```
+
+```yaml
+config:
+  retrieval:
+    rerank:
+      enabled: true
+      endpoint: 'http://127.0.0.1:8081'   # 只写 host:port 会自动补 /v1/rerank
+      weight: 0.7                          # 终态分 = 0.3×召回分 + 0.7×重排分
+```
+
+优先级：**cross-encoder → LLM 重排 → 原顺序**。重排端点超时/非 2xx/返回坏 JSON 时自动
+降级，绝不阻断检索；同一 (查询, 候选集, 模型) 的结果会进缓存。
 
 ### 最小配置（可选）
 
@@ -353,6 +382,30 @@ npm run probe:flake -- 10   # 怀疑偶发失败时：同一套测试连跑 N �
 当前最新：**v1.1.0**（正式版）—— 新增 cross-encoder 本地重排（llama.cpp `--rerank` / Cohere / Jina 兼容）、重排通道二选一（cross-encoder 优先、LLM 兜底）、打包清单补 `skills/`；v1.0.0
 v0.82.0 图增强（类型边权 + 社区限流）；v0.81.0 召回 TextRank 摘要；v0.80.0 词法 PRF；
 v0.79.0 记录卡长作用域 UI 修复。
+
+## 支持这个项目
+
+<div align="center">
+
+<img src="https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/preview/sponsor-qr.png" width="240" alt="赞赏码 · 感谢支持">
+
+<br>
+
+**不扫，也完全没关系。**
+
+</div>
+
+DSH 记忆系统是免费的、本地的、没有付费墙的。写它的人没打算靠它赚钱，
+只是希望「换个会话就忘光」这件事，能少发生几次。
+
+如果你用它的时候，真的少翻了一次旧对话、少解释了一遍约定、少踩了一个
+「上次明明记过」的坑——那可以扫上面的码，请作者喝杯咖啡。这笔钱不换任何功能，
+只会换来一句「谢谢，我收到了」。
+
+更轻的支持一样算数：点个 **Star**、把仓库转给同样在用 DSH 的人、
+遇到问题时提一个能复现的 **Issue**。这些有时候比一杯咖啡更有用。
+
+---
 
 ## 致谢与许可
 

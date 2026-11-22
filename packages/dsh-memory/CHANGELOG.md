@@ -15,6 +15,7 @@
   形状/归一化/失败降级/blend 权重/管线集成——重排能翻转顺序、端点挂了保持原序）。
 - **打包修复**：根 `package.json` 的 `files` 白名单缺 `packages/dsh-memory/skills/`，
   从 GitHub 安装后随包技能 `memory-hook-scripts` 不注册；补齐后技能随包可用。
+- 测试环境：`store-flush-failure` 用例在 root 下自动跳过（root 的 CAP_DAC_OVERRIDE 会绕过 chmod，无法注入写失败）；CI 普通用户下照常执行。
 - 文档：README 检索通道表与配置表补 cross-encoder；architecture 更新检索流水线。
 
 ## 1.0.0 — 正式版（2026-11-19）
