@@ -219,6 +219,12 @@ export interface MemoryToolService {
   search(input: unknown): Promise<Array<{ record: { id: string; scope: string; kind: string; updatedAt: number; content: string; tags?: string[]; importance?: number }; score: number }>>
   forget(input: unknown): Promise<{ removed: number; ids: string[] }>
   list(input?: unknown): Promise<Array<{ id: string; scope: string; kind: string; updatedAt: number; content: string; tags?: string[]; importance?: number; createdAt?: number; expiresAt?: number }>>
+  /** 认知节律：按时间尺度跑自省与目标提案（1.10.0）。 */
+  proactiveTick?(options?: { now?: number; reflectEveryMs?: number; proposeEveryMs?: number }): Promise<{
+    reflected: boolean
+    proposalIds: string[]
+    reflectionId?: string
+  }>
   /** 元认知自省报告（1.9.0）。 */
   insightReport?(): {
     generatedAt: number
@@ -2869,7 +2875,7 @@ export function memoryInsightTool(opts: MemoryToolsOptions): ToolSpec<Record<str
     name: 'memory_insight',
     description: 'Metacognitive self-audit: read the memory system\'s own runtime signals (recent corrections, unresolved conflicts, low-utility records, stale rules, never-retrieved memories, hook veto rate, health score) and suggest what to review. action="report" only reads; action="reflect" also saves the findings as a kind=reflection candidate (status=candidate) so it can be reviewed before adoption. Nothing is changed automatically.',
     parameters: {
-      action: { type: 'string', enum: ['report', 'reflect'], description: 'report（默认，只读）/ reflect（额外写一条反思候选）' },
+      action: { type: 'string', enum: ['report', 'reflect', 'tick'], description: 'report（默认，只读）/ reflect（额外写一条反思候选）/ tick（按节律跑自省与目标提案，到点才执行）' },
       scope: { type: 'string', description: 'reflect 时反思候选保存到哪个作用域（默认当前项目）' },
     },
     async execute(args, exec) {
@@ -2877,8 +2883,15 @@ export function memoryInsightTool(opts: MemoryToolsOptions): ToolSpec<Record<str
       if (typeof service.insightReport !== 'function') {
         throw toolError(new MemoryToolError('UNSUPPORTED', '当前 provider 不支持自省报告（请升级 @restregular/dsh-memory）'))
       }
-      const report = service.insightReport()
       const action = typeof args.action === 'string' ? args.action : 'report'
+      if (action === 'tick') {
+        if (typeof service.proactiveTick !== 'function') {
+          throw toolError(new MemoryToolError('UNSUPPORTED', '当前 provider 不支持认知节律（请升级 @restregular/dsh-memory）'))
+        }
+        const tick = await service.proactiveTick()
+        return { ...tick, report: service.insightReport() }
+      }
+      const report = service.insightReport()
       if (action !== 'reflect') return { ...report }
       const active = report.signals.filter((signal) => signal.severity !== 'ok')
       const lines = [

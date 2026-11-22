@@ -110,6 +110,7 @@ import { decideWrite, type ArbiterNeighbor, type ArbiterResult } from './cogniti
 import { parseProfileField } from './profile.ts'
 import { parseReflectionField } from './reflection.ts'
 import { buildInsight } from './insight.ts'
+import { reflectionDue, proposalDue, inferGoalCandidates, type RhythmState } from './cognitive/rhythm.ts'
 import {
   CORE_SLOTS,
   CoreMemoryStore,
@@ -6661,6 +6662,82 @@ export class LocalMemoryService implements MemoryServiceApi {
       for (const [id, vec] of scopeStore.vectors) vectors.set(id, vec)
     }
     return computeHealth(records, { vectors, now: Date.now(), excludeFromDuplicates: retired })
+  }
+
+  /**
+   * 认知节律（1.10.0）：按自己的时间尺度执行自省与目标提案。
+   *  - 自省：到点就跑维护 + 自省，有需要关注项就落一条反思候选；
+   *  - 目标提案：从近期 decision/state/procedure 里找目标线索，落成 reflection(kindHint=goal) 候选。
+   * 都不会改核心 goal 块——采纳权在人这一侧。
+   */
+  async proactiveTick(options: { now?: number; reflectEveryMs?: number; proposeEveryMs?: number } = {}): Promise<{
+    reflected: boolean
+    proposalIds: string[]
+    reflectionId?: string
+  }> {
+    const now = options.now ?? Date.now()
+    const statePath = join(this.cfg.storeDir, 'proactive.json')
+    let state: RhythmState = {}
+    try { state = JSON.parse(readFileSync(statePath, 'utf8')) as RhythmState } catch { state = {} }
+    const out: { reflected: boolean; proposalIds: string[]; reflectionId?: string } = { reflected: false, proposalIds: [] }
+
+    if (reflectionDue(state, { now, ...(options.reflectEveryMs !== undefined ? { reflectEveryMs: options.reflectEveryMs } : {}) })) {
+      this.runHousekeeping()
+      const report = this.insightReport()
+      const active = report.signals.filter((signal) => signal.severity !== 'ok')
+      if (active.length > 0) {
+        const saved = await this.save({
+          scope: 'global',
+          kind: 'reflection',
+          content: [
+            `节律自省（${new Date(now).toISOString().slice(0, 10)}）：共 ${report.totals.records} 条记忆。`,
+            ...active.map((signal) => `- ${signal.label}：${signal.detail}`),
+            ...(report.suggestions.length > 0 ? [`建议：${report.suggestions.join(' ')}`] : []),
+          ].join('\n'),
+          importance: 0.5,
+          reflection: JSON.stringify({
+            status: 'candidate',
+            conclusion: report.suggestions[0] ?? '节律自省未发现需要立即处理的问题',
+            evidence: active.map((signal) => `${signal.label}：${signal.detail}`),
+            confidence: 0.6,
+            kindHint: 'note',
+          }),
+        })
+        out.reflectionId = saved.id
+      }
+      out.reflected = true
+      state.lastReflectAt = now
+    }
+
+    if (proposalDue(state, { now, ...(options.proposeEveryMs !== undefined ? { proposeEveryMs: options.proposeEveryMs } : {}) })) {
+      this.discoverScopes()
+      const records: Array<{ id: string; kind: string; content: string; importance: number; updatedAt: number }> = []
+      for (const scopeStore of this.store.allScopes()) {
+        for (const record of scopeStore.records.values()) {
+          records.push({ id: record.id, kind: record.kind, content: record.content, importance: record.importance, updatedAt: record.updatedAt })
+        }
+      }
+      for (const candidate of inferGoalCandidates(records, { now })) {
+        const saved = await this.save({
+          scope: 'global',
+          kind: 'reflection',
+          content: `候选目标：${candidate.conclusion}`,
+          importance: 0.5,
+          reflection: JSON.stringify({
+            status: 'candidate',
+            conclusion: candidate.conclusion,
+            evidence: candidate.evidence,
+            confidence: candidate.confidence,
+            kindHint: 'goal',
+          }),
+        })
+        out.proposalIds.push(saved.id)
+      }
+      state.lastProposeAt = now
+    }
+
+    try { writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8') } catch { /* 状态写失败只影响下次节律时间 */ }
+    return out
   }
 
   /**

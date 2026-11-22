@@ -466,6 +466,11 @@ export class CordisMemoryService extends Service {
     return this.impl.injectSettings()
   }
 
+  /** 认知节律（memory_insight action=tick）。 */
+  proactiveTick(options                                                     )                                                  {
+    return this.impl.proactiveTick(options ?? {})
+  }
+
   /** 元认知自省（memory_insight 工具）：只读报告。 */
   insightReport()                                                  {
     return this.impl.insightReport()

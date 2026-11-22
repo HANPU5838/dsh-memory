@@ -2,6 +2,15 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 1.10.0 — 认知节律与目标提案（2026-11-22）
+
+- 新增 `proactiveTick()`：按自己的时间尺度跑自省（默认 24h）与目标提案（默认 72h）；
+  状态落 `proactive.json`，到点才执行。
+- 目标提案从近期 decision/state/procedure 中提取「下一步 / 待办 / 需要 / 计划」线索，
+  写成 `reflection(kindHint=goal)` 候选；不改核心 goal 块，采纳权在人。
+- `memory_insight` 新增 `action="tick"`；纯函数层 `cognitive/rhythm.ts` + 2 例测试。
+- 全仓 1412 例 / 1411 pass / 1 skip / 0 fail。
+
 ## 1.9.1 — 自省工具测试与文档（2026-11-22）
 
 - `memory_insight` 补工具层测试（report 只读 / reflect 写候选 / 不支持时明确报错），
