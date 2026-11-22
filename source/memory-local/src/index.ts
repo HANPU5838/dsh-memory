@@ -3223,6 +3223,8 @@ export class LocalMemoryService implements MemoryServiceApi {
       const report = this.healthReport()
       health = { score: report.score, conflictRate: report.conflictRate, duplicateRate: report.duplicateRate, quarantined: report.quarantined, pending: report.pending }
     } catch { /* 健康度是增强，失败不影响维护 */ }
+    // 维护会删除记录（过期 / 墓碑）；不落盘的话健康报告与磁盘会长期不一致。
+    this.store.scheduleFlush(0)
     return { purged, evicted, dormant, tombstones, consolidated, prunedScopes, ...(health !== undefined ? { health } : {}) }
   }
 

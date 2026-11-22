@@ -2,6 +2,12 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 1.7.8 — 维护后落盘（2026-11-22）
+
+- `runHousekeeping` 删除记录后没有触发 flush，出现「内存健康 100 / 磁盘仍 92」的不一致；
+  维护结束显式 `scheduleFlush(0)`。
+- 全仓 1398 例 / 1397 pass / 1 skip / 0 fail。
+
 ## 1.7.7 — 维护接口显式转发（2026-11-22）
 
 - `memory_maintain` 在真实 profile 里报“provider 不支持”：包装层依赖 Proxy 动态委托，
