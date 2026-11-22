@@ -2,6 +2,16 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 1.6.2 — 核心块服务转发修复（2026-11-22）
+
+- **根因**：provider 注册的是 `CordisMemoryService` 包装实例，1.6.0/1.6.1 只把
+  `coreBlocks/coreGet/coreHistory/coreSet/coreClear` 加在 `LocalMemoryService` 上，
+  包装层没有转发 → 真实环境里 `memory_core` 报「provider 不支持核心记忆块」，
+  而单测直接 `new LocalMemoryService` 完全看不见。
+- **修复**：包装层显式转发五个核心块方法；新增回归测试
+  （`service-delegation.test.ts` 断言包装原型暴露 core* 方法）。
+- **验证**：全仓 1392 例 / 1391 pass / 1 skip / 0 fail。
+
 ## 1.6.1 — 集成缺口修复（2026-11-22）
 
 - **注入策略补全新工具**：系统提示的「记忆系统」段现在列出 `memory_hooks` / `memory_core`，

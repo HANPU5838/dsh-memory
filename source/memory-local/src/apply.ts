@@ -455,6 +455,32 @@ export class CordisMemoryService extends Service {
     return this.impl.injectSettings()
   }
 
+  // ---------------------------------------------------------------- 核心记忆块（1.6.0）
+  /**
+   * 面板与工具通过 `ctx.get('memory')` 拿到的是包装实例，不是 LocalMemoryService。
+   * 新增 provider 方法必须在这里显式转发，否则真实 profile 里是 undefined
+   * （单测直接 new LocalMemoryService 看不见这类缺口）。
+   */
+  coreBlocks(): ReturnType<LocalMemoryService['coreBlocks']> {
+    return this.impl.coreBlocks()
+  }
+
+  coreGet(slot: Parameters<LocalMemoryService['coreGet']>[0]): ReturnType<LocalMemoryService['coreGet']> {
+    return this.impl.coreGet(slot)
+  }
+
+  coreHistory(slot: Parameters<LocalMemoryService['coreHistory']>[0], limit?: number): ReturnType<LocalMemoryService['coreHistory']> {
+    return this.impl.coreHistory(slot, limit)
+  }
+
+  coreSet(input: Parameters<LocalMemoryService['coreSet']>[0]): ReturnType<LocalMemoryService['coreSet']> {
+    return this.impl.coreSet(input)
+  }
+
+  coreClear(slot: Parameters<LocalMemoryService['coreClear']>[0], agent?: unknown): ReturnType<LocalMemoryService['coreClear']> {
+    return this.impl.coreClear(slot, agent)
+  }
+
   // ---------------------------------------------------------------- 记忆钩子（0.35.0）
   /**
    * 钩子能力必须在这里**逐个转发**：面板与工具拿到的都是本包装实例，

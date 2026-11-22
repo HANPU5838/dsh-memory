@@ -77,3 +77,12 @@ test('CordisMemoryService 暴露记忆钩子接口', () => {
     )
   }
 })
+
+test('CordisMemoryService 转发核心记忆块方法', () => {
+  // 1.6.0 的 core API 只加在 LocalMemoryService 上；包装层漏转发时，
+  // memory_core 工具会报「provider 不支持核心记忆块」。
+  const proto = CordisMemoryService.prototype as unknown as Record<string, unknown>
+  for (const name of ['coreBlocks', 'coreGet', 'coreHistory', 'coreSet', 'coreClear']) {
+    assert.equal(typeof proto[name], 'function', `ctx.get('memory').${name} 必须存在，否则 memory_core 不可用`)
+  }
+})

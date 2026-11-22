@@ -5,6 +5,11 @@
 > 以下为自维护以来的完整改进清单（每一项都有源码改动 + 回归测试，不是临时补丁），
 > 安装、发布、更新**只以本仓库为准**。
 
+## 1.6.2
+
+- 修复 provider 包装层未转发 core* 方法（memory_core 报不支持的根因）；新增回归测试。
+- 全仓 1392 例 / 1391 pass / 1 skip / 0 fail。
+
 ## 1.6.1
 
 - 注入策略补 memory_core / memory_hooks 与新类型用法；面板 kind 补 profile/reflection。
