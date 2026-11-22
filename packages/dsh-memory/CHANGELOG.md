@@ -2,6 +2,16 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 1.4.0 — 用户画像（kind=profile）（2026-11-22）
+
+- **新增 `kind=profile`**：一条记录 = 一个可复用的画像单元，结构化元数据存 `profile`
+  字段（type / topic / statement / confidence / evidence），正文保持人类可读。
+- **工具层**：`memory_save` 增加 `profile` 参数（JSON 字符串，DSH 参数 schema 只允许扁平类型）；
+  `kind` 枚举加入 `profile`。
+- **校验**：type 限定 preference/trait/habit/constraint/skill/event；topic 与 statement 必填；
+  置信度夹紧到 0–1；证据最多 20 条。非法时返回 `PROFILE_INVALID`。
+- **测试**：新增 5 例；全仓 1377 例 / 1376 pass / 1 skip / 0 fail。
+
 ## 1.3.0 — 核心记忆块（2026-11-22）
 
 - **核心记忆块**（`source/memory-local/src/core.ts`）：identity / profile / goal 三个常驻槽位，

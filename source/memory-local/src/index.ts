@@ -107,6 +107,7 @@ import { resolveConflict, applyConflictResolution } from './cognitive/resolve.ts
 import { scanMemoryContent, quarantineRecord, clearQuarantine } from './cognitive/guard.ts'
 import { MERGE_THRESHOLD, planNearDuplicateMerge } from './cognitive/merge.ts'
 import { decideWrite, type ArbiterNeighbor, type ArbiterResult } from './cognitive/arbiter.ts'
+import { parseProfileField } from './profile.ts'
 import {
   CORE_SLOTS,
   CoreMemoryStore,
@@ -4952,6 +4953,12 @@ export class LocalMemoryService implements MemoryServiceApi {
           + '按提示改好 content 后重新调用 memory_save（这不是权限问题，不需要审批）。',
         )
       }
+    }
+
+    // 画像字段：kind=profile 时可带结构化元数据（工具层以 JSON 字符串传入）。
+    const profileRaw = (input as MemorySaveInput & { profile?: unknown }).profile
+    if (profileRaw !== undefined) {
+      saveInput = { ...saveInput, profile: parseProfileField(profileRaw) }
     }
 
     // 写入裁决：同一作用域内的重复/修正写入在这里被拦截或转成 supersedes 链。

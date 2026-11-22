@@ -1267,6 +1267,10 @@ export class MemoryStore {
       ...(Array.isArray((input                                            ).triggers)
         ? { triggers: ((input                                            ).triggers             ).map(String) }
         : {}),
+      // 用户画像元数据（kind=profile 时由 provider 校验后带进来）。
+      ...((input                                           ).profile !== undefined
+        ? { profile: (input                                           ).profile }
+        : {}),
       // 0.24.0：初始化流程创建的记录带来源标记（可选字段，旧记录缺省 = 非初始）。
       ...((input                                           ).initial === true ? { initial: true } : {}),
       // 0.33.0：记忆强度 / 有效期 / 巩固字段（可选；由认知层算好后带进来，store 只负责持久化）。

@@ -51,13 +51,13 @@ function fakeCtx() {
   return { ctx, tools, routes, handlers, skills, holder }
 }
 
-test('0.109.0：apply 装配四半边：8 个工具 + 面板路由 + 注入监听 + 技能注册', () => {
+test('0.109.0：apply 装配四半边：9 个工具 + 面板路由 + 注入监听 + 技能注册', () => {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-assembly-'))
   try {
     const env = fakeCtx()
     apply(env.ctx, { storeDir: dir, scopes: { global: true }, retrieval: { vector: { enabled: false } }, inject: { enabled: false } })
     const names = env.tools.map((tool) => tool.name).sort()
-    assert.deepEqual(names, ['memory_block', 'memory_forget', 'memory_get', 'memory_hooks', 'memory_list', 'memory_save', 'memory_scopes', 'memory_search'])
+    assert.deepEqual(names, ['memory_block', 'memory_core', 'memory_forget', 'memory_get', 'memory_hooks', 'memory_list', 'memory_save', 'memory_scopes', 'memory_search'])
     assert.ok(env.holder.memory !== undefined, 'provider 必须注册 memory 服务')
     assert.ok(env.routes.some((route) => route.path === '/memory/api'), '面板路由必须注册')
     assert.ok(env.handlers.size > 0, '注入侧必须挂上 pre-step / event 监听')
@@ -80,7 +80,7 @@ test('0.109.0：单半边失败不影响其它半边（part 的隔离语义）',
       return undefined
     }
     apply(env.ctx, { storeDir: dir, scopes: { global: true }, retrieval: { vector: { enabled: false } }, inject: { enabled: false } })
-    assert.equal(env.tools.length, 8, '面板失败不应影响工具注册')
+    assert.equal(env.tools.length, 9, '面板失败不应影响工具注册')
     assert.ok(env.handlers.size > 0, '面板失败不应影响注入监听')
   } finally {
     rmSync(dir, { recursive: true, force: true })

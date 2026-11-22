@@ -1267,6 +1267,10 @@ export class MemoryStore {
       ...(Array.isArray((input as MemorySaveInput & { triggers?: unknown }).triggers)
         ? { triggers: ((input as MemorySaveInput & { triggers?: unknown }).triggers as unknown[]).map(String) }
         : {}),
+      // 用户画像元数据（kind=profile 时由 provider 校验后带进来）。
+      ...((input as MemorySaveInput & { profile?: unknown }).profile !== undefined
+        ? { profile: (input as MemorySaveInput & { profile?: unknown }).profile }
+        : {}),
       // 0.24.0：初始化流程创建的记录带来源标记（可选字段，旧记录缺省 = 非初始）。
       ...((input as MemorySaveInput & { initial?: unknown }).initial === true ? { initial: true } : {}),
       // 0.33.0：记忆强度 / 有效期 / 巩固字段（可选；由认知层算好后带进来，store 只负责持久化）。
