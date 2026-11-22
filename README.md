@@ -4,7 +4,7 @@
 
 **给 DeepSeek Harness 的本地优先长期记忆插件：多路检索 + 多跳图增强 + 上下文摘要 + 冲突消解**
 
-[![version](https://img.shields.io/badge/version-v1.12.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![version](https://img.shields.io/badge/version-v1.12.1-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
 [![license](https://img.shields.io/badge/license-MIT-3DA639.svg)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A522.13-3C873A.svg)](package.json)
 
@@ -12,7 +12,7 @@
 
 </div>
 
-**当前版本：v1.12.0（正式版）** · [Release](https://github.com/HANPU5838/dsh-memory/releases) · [更新日志](CHANGELOG.md)
+**当前版本：v1.12.1（正式版）** · [Release](https://github.com/HANPU5838/dsh-memory/releases) · [更新日志](CHANGELOG.md)
 
 <div align="center">
 
@@ -129,7 +129,7 @@ DSH 记忆系统是一个**完全本地**的长期记忆插件：Agent 用十一
 | 规则代码钩子 | `kind=rule` 的记忆可附带脚本（保存前校验 / 保存后观察 / 注入前解析），代码在面板逐行审查后才能启用 |
 | 事件 | 写入/召回/删除/巩固四类旁路事件（只带元数据，绝不含正文），其他插件可订阅 |
 
-## 八个工具
+## 十一个工具
 
 | 工具 | 用途 |
 | --- | --- |
@@ -141,6 +141,9 @@ DSH 记忆系统是一个**完全本地**的长期记忆插件：Agent 用十一
 | `memory_scopes` | 作用域目录：`list` / `edit`（用途、别名）/ `request`（申请范围外权限） |
 | `memory_block` | 主动屏蔽：`block` / `unblock` / `list`（会话级或工作区级） |
 | `memory_hooks` | 规则代码钩子：`list` / `get` / `save` / `delete` / `approve` / `revoke-approval` / `enable` / `disable` / `run`（试跑不写记忆，且只对已批准脚本生效） |
+| `memory_core` | 核心记忆块：`get` / `set` / `history` / `restore`（identity / profile / goal 三个常驻槽位，版本链可回滚） |
+| `memory_insight` | 元认知：`report`（只读自省）/ `reflect`（写反思候选）/ `tick`（按节律自省与目标提案）/ `associate`（不用查询的自发联想） |
+| `memory_maintain` | 立即维护：过期清理 / 容量回收 / 休眠标记 / 巩固 / 空作用域回收，返回健康分；`purgeTombstones` 可物理清除软删记录 |
 
 ## 面板
 
@@ -264,6 +267,31 @@ config:
 
 面板「设置」里能改的项会写入 `<storeDir>/settings.json`，优先级高于配置文件；删掉 `settings.json`
 里的对应小节即回到配置值。
+
+## 核心记忆块与用户画像
+
+三个常驻槽位（`identity` / `profile` / `goal`）单独存放在 `<数据目录>/core.json`，
+不进检索、不参与合并；写入走版本链，可回滚：
+
+| 槽位 | 内容 | 上限 |
+| --- | --- | --- |
+| `identity` | 这个 Agent 是谁、怎么工作 | ≤ 55 token |
+| `profile` | 用户是谁、偏好与约束 | ≤ 150 token |
+| `goal` | 当前要完成什么 | ≤ 40 token |
+
+用 `memory_core` 读写（`get` / `set` / `history` / `restore`，`set` 支持 `expectedVersion`
+乐观并发）。非空槽位会作为「核心记忆」段常驻每一轮系统提示。
+
+**用户画像**用 `kind=profile` 记录：一条 = 一个可复用的画像单元，结构化元数据放 `profile`
+字段（type / topic / statement / confidence / evidence），正文保持人类可读。
+
+## 自发联想
+
+`memory_insight action="associate"` 不问问题，直接以「目标 + 画像 + 身份」为种子召回 2–3 条，
+回答“没被问的时候会想起什么”。会话首步还会自动注入一次「可能相关」段（每会话仅一次，预算 3×100 字）。
+
+> 种子来自核心块：**核心块为空时联想必然为空**。先写一个 `memory_core` 槽位，联想才跑得起来；
+> 空态会直接给出这条提示，而不是只回一句“没有结果”。
 
 ## 元认知自省
 
@@ -424,7 +452,7 @@ npm run probe:flake -- 10   # 怀疑偶发失败时：同一套测试连跑 N �
 
 本仓库用 **tag + GitHub Release** 发布（不向 npm 发布）：推送 `v*` tag 后
 `.github/workflows/release.yml` 自动从 [CHANGELOG.md](CHANGELOG.md) 提取对应版本段落创建 Release。
-当前最新：**v1.12.0**（正式版）—— 新增 cross-encoder 本地重排（llama.cpp `--rerank` / Cohere / Jina 兼容）、重排通道二选一（cross-encoder 优先、LLM 兜底）、打包清单补 `skills/`；v1.0.0
+当前最新：**v1.12.1**（正式版）—— 联想空态给出可操作提示、README 补齐核心记忆块/用户画像/自发联想；v1.12.0 cross-encoder 本地重排（llama.cpp `--rerank` / Cohere / Jina 兼容）、重排通道二选一（cross-encoder 优先、LLM 兜底）、打包清单补 `skills/`；v1.0.0
 v0.82.0 图增强（类型边权 + 社区限流）；v0.81.0 召回 TextRank 摘要；v0.80.0 词法 PRF；
 v0.79.0 记录卡长作用域 UI 修复。
 

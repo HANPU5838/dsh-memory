@@ -2891,7 +2891,13 @@ export function memoryInsightTool(opts                    )                     
           throw toolError(new MemoryToolError('UNSUPPORTED', '当前 provider 不支持自发联想（请升级 @restregular/dsh-memory）'))
         }
         const items = await service.associativeRecall()
-        return { items }
+        // 1.12.1：联想只认核心块做种子；块为空时给出可操作的下一步，而不是一句“没有结果”。
+        const blocks = service.coreBlocks?.() ?? {}
+        const hasCore = Object.keys(blocks).length > 0
+        const hint = items.length === 0 && !hasCore
+          ? '核心块为空：自发联想以 identity / profile / goal 为种子。可先用 memory_core 写入任意一个槽位，再让联想跑起来。'
+          : undefined
+        return { items, ...(hint !== undefined ? { hint } : {}) }
       }
       if (action === 'tick') {
         if (typeof service.proactiveTick !== 'function') {

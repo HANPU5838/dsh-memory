@@ -194,9 +194,12 @@ export function apply(ctx: any, config: ToolMemoryConfig = {}) {
   })
 
   register(tools.memory_insight, (value) => {
-    const data = value as { totals?: { records?: number }; signals?: Array<{ label?: string; severity?: string; detail?: string }>; suggestions?: string[]; reflectionId?: string; items?: Array<{ content?: string }> }
+    const data = value as { totals?: { records?: number }; signals?: Array<{ label?: string; severity?: string; detail?: string }>; suggestions?: string[]; reflectionId?: string; items?: Array<{ content?: string }>; hint?: string }
     if (Array.isArray(data.items)) {
-      if (data.items.length === 0) return '自发联想：没有找到相关记忆（库为空或种子为空）'
+      if (data.items.length === 0) {
+        const hint = typeof data.hint === 'string' && data.hint !== '' ? `\n${data.hint}` : ''
+        return `自发联想：没有找到相关记忆（库为空或种子为空）${hint}`
+      }
       return ['自发联想（由当前目标 / 画像触发）：', ...data.items.map((item) => `- ${item.content ?? ''}`)].join('\n')
     }
     const active = (data.signals ?? []).filter((signal) => signal.severity !== 'ok')

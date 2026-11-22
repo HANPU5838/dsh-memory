@@ -72,3 +72,30 @@ test('memory_insight associate 返回种子联想结果', async () => {
   assert.equal(out.items.length, 1)
   assert.equal(out.items[0]!.id, 'r1')
 })
+
+
+test('memory_insight associate 空结果且核心块为空时给出开箱提示', async () => {
+  const tool = memoryInsightTool({
+    getService: () => ({
+      insightReport: () => report,
+      associativeRecall: async () => [],
+      coreBlocks: () => ({}),
+    }),
+  } as never)
+  const out = (await tool.execute({ action: 'associate' }, {} as never)) as { items: unknown[]; hint?: string }
+  assert.equal(out.items.length, 0)
+  assert.match(String(out.hint), /memory_core/, '空态应指向 memory_core，而不是只说没有结果')
+})
+
+test('memory_insight associate 核心块已有内容时不再提示', async () => {
+  const tool = memoryInsightTool({
+    getService: () => ({
+      insightReport: () => report,
+      associativeRecall: async () => [],
+      coreBlocks: () => ({ goal: { content: '把版本推到 1.12.1', version: 1 } }),
+    }),
+  } as never)
+  const out = (await tool.execute({ action: 'associate' }, {} as never)) as { items: unknown[]; hint?: string }
+  assert.equal(out.items.length, 0)
+  assert.equal(out.hint, undefined)
+})
