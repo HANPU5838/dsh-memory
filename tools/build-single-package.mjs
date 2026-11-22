@@ -199,6 +199,7 @@ SOFTWARE.
 // 包的 README 直接用仓库根目录那份:单一来源,免得 npm 页面上讲的还是旧按钮/旧按钮名。
 const README = readFileSync(join(ROOT, 'README.md'), 'utf8')
 const CHANGELOG = readFileSync(join(ROOT, 'CHANGELOG.md'), 'utf8')
+const IMPROVEMENTS = readFileSync(join(ROOT, 'IMPROVEMENTS.md'), 'utf8')
 
 
 // ------------------------------------------------------------------ build
@@ -247,7 +248,7 @@ writeJson(join(OUT, 'package.json'), {
     './locale/zh.json': './locale/zh.json',
     './package.json': './package.json',
   },
-  files: ['lib/', 'locale/', 'skills/', 'cordis.patch.yml', 'icon.svg', 'icon.png', 'README.md', 'CHANGELOG.md', 'LICENSE'],
+  files: ['lib/', 'locale/', 'skills/', 'cordis.patch.yml', 'icon.svg', 'icon.png', 'README.md', 'CHANGELOG.md', 'IMPROVEMENTS.md', 'LICENSE'],
   dsh: {
     bundle: { patch: './cordis.patch.yml' },
     client: { inject: ['@deepseek-ai/dsh-client-ui-slots'], platform: 'web' },
@@ -281,6 +282,7 @@ writeJson(join(OUT, 'package.json'), {
 writeFileSync(join(OUT, 'cordis.patch.yml'), PATCH, 'utf8')
 writeFileSync(join(OUT, 'README.md'), README, 'utf8')
 writeFileSync(join(OUT, 'CHANGELOG.md'), CHANGELOG, 'utf8')
+writeFileSync(join(OUT, 'IMPROVEMENTS.md'), IMPROVEMENTS, 'utf8')
 writeFileSync(join(OUT, 'LICENSE'), MIT_LICENSE, 'utf8')
 
 // ------------------------------------------------------------------ checks

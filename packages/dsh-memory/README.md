@@ -4,7 +4,7 @@
 
 **给 DeepSeek Harness 的本地优先长期记忆插件：多路检索 + 多跳图增强 + 上下文摘要 + 冲突消解**
 
-[![version](https://img.shields.io/badge/version-v1.8.0-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![version](https://img.shields.io/badge/version-v1.8.1-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
 [![license](https://img.shields.io/badge/license-MIT-3DA639.svg)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A522.13-3C873A.svg)](package.json)
 
@@ -12,7 +12,7 @@
 
 </div>
 
-**当前版本：v1.8.0（正式版）** · [Release](https://github.com/HANPU5838/dsh-memory/releases) · [更新日志](CHANGELOG.md)
+**当前版本：v1.8.1（正式版）** · [Release](https://github.com/HANPU5838/dsh-memory/releases) · [更新日志](CHANGELOG.md)
 
 <div align="center">
 
@@ -30,12 +30,17 @@
 
 ## 这是什么
 
-DSH 记忆系统是一个**完全本地**的长期记忆插件：Agent 用八个工具读写记忆，插件在每一轮把相关记忆
+DSH 记忆系统是一个**完全本地**的长期记忆插件：Agent 用十个工具读写记忆，插件在每一轮把相关记忆
 检索出来、压缩成上下文注入；记忆本身有强度、会衰减、会巩固、会裁决冲突，而不是一堆只进不出的文本。
 
 - **数据在本机**：默认 `~/.dsh-memory`（JSONL + 向量缓存），不依赖任何云服务。
 - **零配置可用**：不装向量后端就自动退化为纯词法检索，不产生网络请求。
 - **语义检索可选**：面板一键安装 llama.cpp 运行时 + bge-m3 模型（或接你自己的 OpenAI 兼容端点）。
+- **常驻核心块**：`identity` / `profile` / `goal` 三个槽位每轮注入，有独立上限与版本历史
+  （`memory_core` 读写），不用检索就能一直“记得自己是谁、用户是谁、现在在干嘛”。
+- **反思先落候选**：`kind=reflection` 带证据 / 前提 / 不适用条件，确认后才进主库 —— 防“脑补变事实”。
+- **九种记忆形态**：fact / decision / preference / procedure / note / rule / state / profile / reflection。
+- **可运维**：`memory_maintain` 手动触发维护（过期清理 / 墓碑清除 / 巩固 / 健康分），健康分可到 100。
 - **可解释**：检索结果带来源标记（词法/向量/图增强/联想）——**工具输出也会把图增强补召回标成
   「联想」**（0.94.0），并由端到端测试保证 provider→工具→渲染全链路一致（0.95.0），模型能区分
   直接命中与多跳联想；面板「审计」能看每次注入的完整决策链。
@@ -309,7 +314,7 @@ npm run verify:all
 npm run probe:flake -- 10   # 怀疑偶发失败时：同一套测试连跑 N 轮并列出失败项
 ```
 
-`verify:all` 四段分别归因（测试 / 构建 / 面板冒烟 / 向量），某段失败不会把其它段误报成
+`verify:all` 五段分别归因（测试 / 构建 / **打包产物安装验证** / 面板冒烟 / 向量），某段失败不会把其它段误报成
 「构建失败」；测试失败时完整输出落盘到 `.verify-last-tests.log` 便于回看。
 
 四层：全量测试 → 单包构建 → 面板 API 冒烟（16 接口）→ 向量后端实测（没有后端时 SKIP 不算失败）。
@@ -379,7 +384,7 @@ npm run probe:flake -- 10   # 怀疑偶发失败时：同一套测试连跑 N �
 
 本仓库用 **tag + GitHub Release** 发布（不向 npm 发布）：推送 `v*` tag 后
 `.github/workflows/release.yml` 自动从 [CHANGELOG.md](CHANGELOG.md) 提取对应版本段落创建 Release。
-当前最新：**v1.8.0**（正式版）—— 新增 cross-encoder 本地重排（llama.cpp `--rerank` / Cohere / Jina 兼容）、重排通道二选一（cross-encoder 优先、LLM 兜底）、打包清单补 `skills/`；v1.0.0
+当前最新：**v1.8.1**（正式版）—— 新增 cross-encoder 本地重排（llama.cpp `--rerank` / Cohere / Jina 兼容）、重排通道二选一（cross-encoder 优先、LLM 兜底）、打包清单补 `skills/`；v1.0.0
 v0.82.0 图增强（类型边权 + 社区限流）；v0.81.0 召回 TextRank 摘要；v0.80.0 词法 PRF；
 v0.79.0 记录卡长作用域 UI 修复。
 
