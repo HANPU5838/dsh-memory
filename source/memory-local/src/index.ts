@@ -106,6 +106,7 @@ import {
 import { resolveConflict, applyConflictResolution } from './cognitive/resolve.ts'
 import { scanMemoryContent, quarantineRecord, clearQuarantine } from './cognitive/guard.ts'
 import { MERGE_THRESHOLD, planNearDuplicateMerge } from './cognitive/merge.ts'
+import { decideWrite, type ArbiterNeighbor, type ArbiterResult } from './cognitive/arbiter.ts'
 import { assessConflicts, applyConflictMarker, hasCriticalDetailConflict } from './cognitive/conflict.ts'
 import { isRecordVisible, revive, tombstone, purgeTombstones, markDormant, restore as restoreTombstoned, snapshot as writeSnapshot, restoreSnapshot as readSnapshotFile } from './cognitive/lifecycle.ts'
 import { createEmbeddingProvider, type EmbeddingProvider, type EmbeddingProviderKind } from './embedding-providers.ts'
@@ -407,6 +408,17 @@ export interface MemoryLocalConfig {
       /** 0.88.0：词法 Jaccard 阈值（默认 0.8）。 */
       lexicalThreshold?: number
     }
+    /** 写入裁决（1.2.0）：查重后决定 ADD / UPDATE / NOOP。 */
+    arbiter?: {
+      enabled?: boolean
+      /** true = 只记录裁决、不改变写入行为（灰度用）。 */
+      shadow?: boolean
+      noopThreshold?: number
+      updateThreshold?: number
+      noveltyFloor?: number
+      sameKindOnly?: boolean
+      maxCandidates?: number
+    }
   }
   /** Secret handling (design §11). Default: refuse obvious credentials. */
   secrets?: { mode?: 'refuse' | 'redact'; enabled?: boolean }
@@ -552,6 +564,13 @@ export interface ResolvedConfig {
     consolidationMaxClusters: number
     consolidationLexicalFallback: boolean
     consolidationLexicalThreshold: number
+    arbiterEnabled: boolean
+    arbiterShadow: boolean
+    arbiterNoopThreshold: number
+    arbiterUpdateThreshold: number
+    arbiterNoveltyFloor: number
+    arbiterSameKindOnly: boolean
+    arbiterMaxCandidates: number
   }
 }
 
@@ -1109,6 +1128,15 @@ export function resolveConfig(config: MemoryLocalConfig = {}): ResolvedConfig {
       consolidationMaxClusters: config.cognitive?.consolidation?.maxClusters ?? 2,
       consolidationLexicalFallback: config.cognitive?.consolidation?.lexicalFallback ?? true,
       consolidationLexicalThreshold: config.cognitive?.consolidation?.lexicalThreshold ?? 0.8,
+      // 写入裁决默认关闭：词法启发式在"同模板不同条目"（ph0/ph1、deploy0/deploy1）上
+      // 会把标号差异误判成事实修正。开启前建议先用 shadow 观察一段时间。
+      arbiterEnabled: config.cognitive?.arbiter?.enabled ?? false,
+      arbiterShadow: config.cognitive?.arbiter?.shadow ?? false,
+      arbiterNoopThreshold: config.cognitive?.arbiter?.noopThreshold ?? 0.92,
+      arbiterUpdateThreshold: config.cognitive?.arbiter?.updateThreshold ?? 0.75,
+      arbiterNoveltyFloor: config.cognitive?.arbiter?.noveltyFloor ?? 0.15,
+      arbiterSameKindOnly: config.cognitive?.arbiter?.sameKindOnly ?? true,
+      arbiterMaxCandidates: config.cognitive?.arbiter?.maxCandidates ?? 200,
     },
   }
 }
@@ -4707,6 +4735,24 @@ export class LocalMemoryService implements MemoryServiceApi {
     }
   }
 
+  /** 写入裁决的近邻候选：同作用域、当前可见的记录。 */
+  private arbiterNeighbors(scope: MemoryScope): ArbiterNeighbor[] {
+    const store = this.store.peek(scope)
+    if (store === undefined) return []
+    const now = Date.now()
+    const neighbors: ArbiterNeighbor[] = []
+    for (const record of store.records.values()) {
+      if (!isRecordVisible(record, { now })) continue
+      neighbors.push({
+        id: record.id,
+        content: record.content,
+        kind: record.kind,
+        importance: record.importance,
+      })
+    }
+    return neighbors
+  }
+
   async save(input: MemorySaveInput): Promise<MemoryRecord> {
     // 省略 scope 时按当前会话落点 —— 会话上下文必须**从调用方带进来**
     // (工具 handler 拿得到 exec.agent,provider 自己看不到)。
@@ -4767,7 +4813,7 @@ export class LocalMemoryService implements MemoryServiceApi {
     const expiresAt = explicitExpiresAt
       ?? (explicitTtl !== undefined ? Date.now() + explicitTtl
         : stateTtl !== undefined ? Date.now() + stateTtl : undefined)
-    const saveInput = expiresAt !== undefined ? { ...input, expiredAt: expiresAt } : input
+    let saveInput = expiresAt !== undefined ? { ...input, expiredAt: expiresAt } : input
     // design §11: keep credentials out of the plaintext store and the embedder
     // 0.108.0：扫描覆盖 content + tags + scopeRule + scopeDescription —— 此前只有 content，
     // 明文密钥可以经标签 / 规则正文 / 作用域用途绕过 refuse 模式（审计 P2）。
@@ -4858,6 +4904,37 @@ export class LocalMemoryService implements MemoryServiceApi {
           `记忆未保存：钩子「${veto.hook.name}」判定不符合要求 —— ${why}${ruleLine}\n`
           + '按提示改好 content 后重新调用 memory_save（这不是权限问题，不需要审批）。',
         )
+      }
+    }
+
+    // 写入裁决：同一作用域内的重复/修正写入在这里被拦截或转成 supersedes 链。
+    if (this.cfg.cognitive.arbiterEnabled) {
+      try {
+        const decision = decideWrite({
+          content,
+          kind: String(input.kind ?? 'note'),
+          neighbors: this.arbiterNeighbors(scope),
+          ...(input.supersedes !== undefined ? { supersedes: input.supersedes } : {}),
+          noopThreshold: this.cfg.cognitive.arbiterNoopThreshold,
+          updateThreshold: this.cfg.cognitive.arbiterUpdateThreshold,
+          noveltyFloor: this.cfg.cognitive.arbiterNoveltyFloor,
+          sameKindOnly: this.cfg.cognitive.arbiterSameKindOnly,
+          maxCandidates: this.cfg.cognitive.arbiterMaxCandidates,
+        })
+        if (!this.cfg.cognitive.arbiterShadow) {
+          if (decision.action === 'NOOP' && decision.targetId !== undefined) {
+            const existing = this.findById(decision.targetId)
+            if (existing !== undefined) {
+              this.events.saved({ scope, id: existing.id, kind: existing.kind, chars: existing.content.length, deduped: true })
+              return existing
+            }
+          }
+          if (decision.action === 'UPDATE' && decision.targetId !== undefined && saveInput.supersedes === undefined) {
+            saveInput = { ...saveInput, supersedes: decision.targetId }
+          }
+        }
+      } catch {
+        // 裁决异常一律退化成普通写入：不能因为查重逻辑丢数据。
       }
     }
 
