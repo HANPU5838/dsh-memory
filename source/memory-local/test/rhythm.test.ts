@@ -18,7 +18,8 @@ test('目标提案：近期高重要度且带线索的记忆入选', () => {
     { id: 'a'.repeat(36), kind: 'decision', content: '下一步要把联想预热做了', importance: 0.8, updatedAt: now - DAY },
     { id: 'b'.repeat(36), kind: 'fact', content: '需要但类型不对', importance: 0.9, updatedAt: now - DAY },
     { id: 'c'.repeat(36), kind: 'state', content: '已完成的旧状态', importance: 0.2, updatedAt: now - DAY },
-    { id: 'd'.repeat(36), kind: 'procedure', content: '计划每周自省一次', importance: 0.7, updatedAt: now - 30 * DAY },
+    { id: 'd'.repeat(36), kind: 'procedure', content: '计划每周自省一次', importance: 0.8, updatedAt: now - DAY },
+    { id: 'e'.repeat(36), kind: 'decision', content: '自省报告提到候选目标需要再确认', importance: 0.9, updatedAt: now - DAY },
   ]
   const candidates = inferGoalCandidates(records, { now })
   assert.equal(candidates.length, 1)

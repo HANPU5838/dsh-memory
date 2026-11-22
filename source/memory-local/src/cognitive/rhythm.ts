@@ -47,8 +47,13 @@ type GoalRecord = {
   updatedAt: number
 }
 
-/** 目标线索：用户近期说过的、带“下一步/待办/需要/计划/准备”的决策或状态记忆。 */
-const GOAL_HINTS = ['下一步', '待办', '需要', '计划', '准备', '接下来', '还没', '未完成', 'TODO']
+/**
+ * 目标线索只认“指向未来”的措辞。像“需要 / 必须”这种在规则、操作说明里到处都是，
+ * 用来提目标会把“部署记录 / 使用规范”误报成目标（实测过）。
+ */
+const GOAL_HINTS = ['下一步', '待办', '计划', '准备', '接下来', '未完成', 'TODO', '之后要', '还需要']
+/** 自省/提案产物本身不能再次成为目标素材，否则会自我循环。 */
+const SELF_REFERENTIAL = ['候选目标', '自省报告', '节律自省']
 
 export function inferGoalCandidates(records: readonly GoalRecord[], options: RhythmOptions = {}): GoalCandidate[] {
   const now = options.now ?? Date.now()
@@ -56,8 +61,10 @@ export function inferGoalCandidates(records: readonly GoalRecord[], options: Rhy
   const candidates: GoalCandidate[] = []
   for (const record of records) {
     if (record.updatedAt < since) continue
-    if (record.kind !== 'decision' && record.kind !== 'state' && record.kind !== 'procedure') continue
-    if (record.importance < 0.6) continue
+    // 只从「决策 / 状态」里提目标；procedure 是做事方法，不是目标。
+    if (record.kind !== 'decision' && record.kind !== 'state') continue
+    if (record.importance < 0.7) continue
+    if (SELF_REFERENTIAL.some((marker) => record.content.includes(marker))) continue
     const hits = GOAL_HINTS.filter((hint) => record.content.includes(hint))
     if (hits.length === 0) continue
     candidates.push({
