@@ -2,6 +2,18 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 1.6.0 — 反思候选 + 跨平台进程治理（2026-11-22）
+
+- **反思候选 `kind=reflection`**：候选元数据存 `reflection` 字段（status / conclusion /
+  evidence / preconditions / notApplicable / confidence / kindHint / scopeHint）；
+  `memory_save` 增加 `reflection` 参数（JSON 字符串），kind 枚举加入 `reflection`。
+  反思先落候选，确认后才进主库。
+- **非 Linux 孤儿回收**：macOS/Windows 不再直接跳过清理；按 pid 记录 + `kill(pid,0)`
+  + 端口归属校验回收上一轮残留，查不到归属一律不杀并记录原因。
+- **跨平台 pid 身份**：pid 文件记录 `{pid, port, startedAt}`；非 Linux 用端口监听者
+  校验身份，SIGKILL 升级只在确认 `ours` 时发生，PID 复用不再误杀。
+- **测试**：新增 13 例（反思 4 + 平台 9）；全仓 1389 例 / 1388 pass / 1 skip / 0 fail。
+
 ## 1.5.0 — 默认全开 + 面板赞赏入口（2026-11-22）
 
 - **默认值改为开箱可用**：`turnEnd`（轮末沉淀提醒）、`sidebar`（侧栏记忆面板）、

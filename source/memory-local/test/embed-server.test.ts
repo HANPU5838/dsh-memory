@@ -11,10 +11,12 @@
  *  - port busy before spawn → fail fast with PORT_IN_USE (no child started)
  *  - unexpected child exit → self-heal 1s/5s/30s, max 3, never after stop()
  *  - Linux: a pid is only trusted/killed when /proc/<pid>/cmdline is
- *    llama-server (PID reuse protection); other platforms keep old behaviour
+ *    llama-server (PID reuse protection); macOS/Windows use the port recorded
+ *    in the pid file instead (adopt / orphan reclaim / SIGKILL escalation).
  *
- * System calls (spawn/probe/kill/sleep/exists/ELF read/net connect//proc read)
- * are injected, so the lifecycle is testable without a server or real /proc.
+ * System calls (spawn/probe/kill/sleep/exists/ELF read/net connect//proc read/
+ * port-owner lookup) are injected, so the lifecycle is testable without a
+ * server, real /proc, or shelling out to lsof/netstat.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -46,6 +48,8 @@ interface MakeDepsOptions {
   readElfInterp?: (exe: string) => string | null
   fileExists?: (path: string) => boolean
   readProcCmdline?: (pid: number) => string | null
+  /** 端口归属探测(非 Linux 孤儿回收 / pid 身份校验用);null = 无法确认。 */
+  portOwnerPid?: (host: string, port: number) => number | null
   sleep?: (ms: number) => Promise<void>
   /** 覆盖健康探测(动态用例:启动中不健康,过一会儿健康)。 */
   probe?: () => Promise<boolean>
@@ -59,6 +63,7 @@ function makeDeps(opts: MakeDepsOptions) {
     logs: [] as string[],
     slept: [] as number[],
     portChecks: [] as Array<{ host: string; port: number }>,
+    portOwnerChecks: [] as Array<{ host: string; port: number }>,
   }
   const children: FakeChild[] = []
   const deps: Partial<EmbedServerDeps> = {
@@ -90,6 +95,11 @@ function makeDeps(opts: MakeDepsOptions) {
     },
     // 默认当作「是本机的 llama-server」:既有用例(adopt/kill)依赖这个前提。
     readProcCmdline: opts.readProcCmdline ?? (() => 'llama-server --host 127.0.0.1'),
+    // 默认「端口归属无法确认」:非 Linux 用例不显式注入时绝不杀进程。
+    portOwnerPid: (host: string, port: number) => {
+      calls.portOwnerChecks.push({ host, port })
+      return opts.portOwnerPid ? opts.portOwnerPid(host, port) : null
+    },
     readElfInterp: opts.readElfInterp ?? (() => null),
     fileExists: opts.fileExists ?? (() => false),
     platform: opts.platform ?? 'linux',
@@ -102,6 +112,15 @@ function makeDeps(opts: MakeDepsOptions) {
 async function flush(): Promise<void> {
   await new Promise<void>((resolve) => setImmediate(resolve))
   await new Promise<void>((resolve) => setImmediate(resolve))
+}
+
+/** 按当前(新)格式写 pid 文件:pid + 端口 + 启动时刻。 */
+function writePidRecord(file: string, record: { pid: number; port: number | null; startedAt?: string }): void {
+  writeFileSync(file, JSON.stringify({ pid: record.pid, port: record.port, startedAt: record.startedAt ?? '2026-11-22T00:00:00.000Z' }), 'utf8')
+}
+
+function readPidRecord(file: string): { pid: number; port: number | null; startedAt: string | null } {
+  return JSON.parse(readFileSync(file, 'utf8')) as { pid: number; port: number | null; startedAt: string | null }
 }
 
 const EXE = 'D:/stack/llamacpp/llama-server.exe'
@@ -148,7 +167,10 @@ test('spawns the server with the embedding flags, writes a PID file, and stops i
     // PID file lets a later run recognise the leftover instance as ours
     const pidFile = `${logFile}.pid`
     assert.ok(existsSync(pidFile), 'pid file written')
-    assert.equal(readFileSync(pidFile, 'utf8').trim(), '5150')
+    const recorded = readPidRecord(pidFile)
+    assert.equal(recorded.pid, 5150)
+    assert.equal(recorded.port, 8078, '端口落盘:非 Linux 靠它校验归属')
+    assert.ok(recorded.startedAt, '启动时刻落盘')
 
     mgr.stop()
     assert.deepEqual(calls.killed, [5150], 'owned child is killed')
@@ -743,7 +765,7 @@ test('SIGTERM 无效时升级 SIGKILL', async () => {
   }
 })
 
-test('非 Linux：不做孤儿清理（保持旧行为）', async () => {
+test('非 Linux 旧格式 pid 文件（只有 pid）：退回当前配置端口查归属，查不到仍不杀', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-embed-orphan-win-'))
   const logFile = join(dir, 'llama-server.log')
   try {
@@ -752,7 +774,197 @@ test('非 Linux：不做孤儿清理（保持旧行为）', async () => {
     const mgr = new EmbedServerManager({ enabled: true, exe: EXE, model: MODEL, cwd: dir, logFile }, deps)
 
     await mgr.ensureRunning()
-    assert.deepEqual(calls.killed, [], '非 Linux 不清理')
+    assert.deepEqual(calls.killed, [], '归属查不到 → 不杀')
+    assert.deepEqual(calls.portOwnerChecks, [{ host: '127.0.0.1', port: 8078 }], '旧格式没有端口 → 退回当前配置端口')
+    assert.match(calls.logs.join('\n'), /无法确认.*不清理/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('非 Linux 旧格式 pid 文件（升级前留下的孤儿）：按配置端口确认归属后回收', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-embed-orphan-legacy-'))
+  const logFile = join(dir, 'llama-server.log')
+  try {
+    writeFileSync(`${logFile}.pid`, String(process.pid), 'utf8') // 旧版本写的是纯 pid
+    const { deps, calls } = makeDeps({
+      healthy: false,
+      platform: 'darwin',
+      portOwnerPid: () => process.pid,
+    })
+    const mgr = new EmbedServerManager({ enabled: true, exe: EXE, model: MODEL, cwd: dir, logFile }, deps)
+
+    assert.equal(await mgr.ensureRunning(), 'spawned')
+    assert.deepEqual(calls.portOwnerChecks[0], { host: '127.0.0.1', port: 8078 })
+    assert.equal(calls.killed[0], process.pid)
+    assert.ok(calls.killedSignals.includes('SIGKILL'), '旧记录也能走完 SIGTERM → SIGKILL')
+    assert.equal(calls.spawn.length, 1, '回收后照常启动')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+// ─── 5. 跨平台孤儿回收 / PID 复用（macOS、Windows 没有 /proc） ───
+
+test('非 Linux 孤儿回收：存活 + 端口归属确认是它 → SIGTERM（必要时 SIGKILL）后重新启动', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-embed-orphan-darwin-'))
+  const logFile = join(dir, 'llama-server.log')
+  try {
+    writePidRecord(`${logFile}.pid`, { pid: process.pid, port: 8078 })
+    const { deps, calls } = makeDeps({
+      healthy: false,
+      platform: 'darwin',
+      portOwnerPid: () => process.pid,
+    })
+    const mgr = new EmbedServerManager({ enabled: true, exe: EXE, model: MODEL, cwd: dir, logFile }, deps)
+
+    assert.equal(await mgr.ensureRunning(), 'spawned')
+    assert.deepEqual(calls.portOwnerChecks[0], { host: '127.0.0.1', port: 8078 }, '按 pid 文件里记的端口查归属')
+    assert.equal(calls.killed[0], process.pid, '确认归属后才杀')
+    assert.equal(calls.killedSignals[0], 'SIGTERM', '先温柔终止')
+    assert.ok(calls.killedSignals.includes('SIGKILL'), 'SIGTERM 无效时升级 SIGKILL')
+    assert.ok(calls.logs.some((m) => m.includes('清理孤儿')), '要有清理日志')
+    assert.equal(calls.spawn.length, 1, '清理后照常启动新实例')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('非 Linux 归属无法确认（端口探测查不到）：不杀，只把原因记进 lastErrorText', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-embed-orphan-unknown-'))
+  const logFile = join(dir, 'llama-server.log')
+  try {
+    writePidRecord(`${logFile}.pid`, { pid: process.pid, port: 8078 })
+    const { deps, calls } = makeDeps({
+      healthy: false,
+      portInUse: true, // 端口确实还被占着 → 新实例起不来,原因必须说清楚
+      platform: 'win32',
+      portOwnerPid: () => null,
+    })
+    const mgr = new EmbedServerManager({ enabled: true, exe: EXE, model: MODEL, cwd: dir, logFile }, deps)
+
+    assert.equal(await mgr.ensureRunning(), 'failed')
+    assert.deepEqual(calls.killed, [], '归属不明 → 绝不杀,连 SIGTERM 都不发')
+    assert.deepEqual(calls.portOwnerChecks, [{ host: '127.0.0.1', port: 8078 }], '按 pid 文件里的端口查了一次归属')
+    assert.equal(calls.spawn.length, 0, '端口被占时不 spawn')
+    assert.match(mgr.lastError ?? '', /PORT_IN_USE/)
+    assert.match(mgr.lastError ?? '', /无法确认/, 'lastErrorText 里带上「不敢杀」的原因')
+    assert.match(calls.logs.join('\n'), /不清理（归属无法确认的进程一律不杀）/)
+    assert.ok(existsSync(`${logFile}.pid`), '归属不明时保留 pid 文件，下一轮再试')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('非 Linux 端口归属属于别的 pid：不杀并清理陈旧 pid 文件', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-embed-orphan-foreign-'))
+  const logFile = join(dir, 'llama-server.log')
+  try {
+    writePidRecord(`${logFile}.pid`, { pid: process.pid, port: 8078 })
+    const { deps, calls } = makeDeps({
+      healthy: false,
+      portInUse: true,
+      platform: 'win32',
+      portOwnerPid: () => 9999, // 端口现在归另一个进程
+    })
+    const mgr = new EmbedServerManager({ enabled: true, exe: EXE, model: MODEL, cwd: dir, logFile }, deps)
+
+    assert.equal(await mgr.ensureRunning(), 'failed')
+    assert.deepEqual(calls.killed, [], '不是我们的进程，绝不杀')
+    assert.match(calls.logs.join('\n'), /监听者是 pid=9999/)
+    assert.equal(existsSync(`${logFile}.pid`), false, '归属明确不属于它 → 陈旧记录被清理')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('非 Linux adopt 前按端口校验身份：PID 已被复用则不接管、不发 kill', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-embed-pid-reuse-win-'))
+  const logFile = join(dir, 'llama-server.log')
+  try {
+    writePidRecord(`${logFile}.pid`, { pid: process.pid, port: 8078 })
+    const { deps, calls } = makeDeps({
+      healthy: true,
+      platform: 'win32',
+      portOwnerPid: () => 9999,
+    })
+    const mgr = new EmbedServerManager({ enabled: true, exe: EXE, model: MODEL, logFile }, deps)
+
+    assert.equal(await mgr.ensureRunning(), 'external', '不接管、也不杀')
+    assert.equal(mgr.isOwned, false)
+    assert.equal(calls.spawn.length, 0)
+    assert.equal(existsSync(`${logFile}.pid`), false, '陈旧 pid 文件被清理')
+    assert.match(calls.logs.join('\n'), /身份校验不通过/)
+    assert.equal(mgr.stop(), false)
+    assert.deepEqual(calls.killed, [], 'PID 复用时不发 kill')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('非 Linux 身份确认是本实例：stop 正常杀掉', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-embed-stop-ours-win-'))
+  try {
+    const { deps, calls } = makeDeps({
+      healthy: false,
+      spawnPid: 6100,
+      platform: 'win32',
+      portOwnerPid: () => 6100,
+    })
+    const mgr = new EmbedServerManager({ enabled: true, exe: EXE, model: MODEL, cwd: dir, logFile: join(dir, 'log') }, deps)
+
+    assert.equal(await mgr.ensureRunning(), 'spawned')
+    assert.equal(mgr.stop(), true)
+    assert.deepEqual(calls.killed, [6100])
+    assert.deepEqual(calls.portOwnerChecks[0], { host: '127.0.0.1', port: 8078 }, '用 spawn 时记录的端口校验')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('非 Linux stop 前按端口校验：PID 被系统复用则不误杀', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-embed-kill-guard-win-'))
+  try {
+    // 端口归属可变:spawn 时归 6000,之后模拟被系统复用给 7777
+    let owner = 6000
+    const { deps, calls } = makeDeps({
+      healthy: false,
+      spawnPid: 6000,
+      platform: 'darwin',
+      portOwnerPid: () => owner,
+    })
+    const mgr = new EmbedServerManager({ enabled: true, exe: EXE, model: MODEL, cwd: dir, logFile: join(dir, 'log') }, deps)
+
+    assert.equal(await mgr.ensureRunning(), 'spawned')
+    owner = 7777
+    assert.equal(mgr.stop(), false, '没有进程被信号')
+    assert.deepEqual(calls.killed, [], '不误杀无关进程')
+    assert.match(calls.logs.join('\n'), /PID 已复用/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('非 Linux 孤儿清理升级前复核身份：等待期间归属变了就不 SIGKILL', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-embed-orphan-escalate-'))
+  const logFile = join(dir, 'llama-server.log')
+  try {
+    writePidRecord(`${logFile}.pid`, { pid: process.pid, port: 8078 })
+    let probes = 0
+    const { deps, calls } = makeDeps({
+      healthy: false,
+      platform: 'darwin',
+      // 第一次:确认是本实例并 SIGTERM;之后:端口已易主(PID 被复用)
+      portOwnerPid: () => {
+        probes += 1
+        return probes === 1 ? process.pid : 9999
+      },
+    })
+    const mgr = new EmbedServerManager({ enabled: true, exe: EXE, model: MODEL, cwd: dir, logFile }, deps)
+
+    await mgr.ensureRunning()
+    assert.deepEqual(calls.killedSignals, ['SIGTERM'], '只发了 SIGTERM，没有升级 SIGKILL')
+    assert.match(calls.logs.join('\n'), /不升级 SIGKILL/)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

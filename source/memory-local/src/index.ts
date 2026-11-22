@@ -108,6 +108,7 @@ import { scanMemoryContent, quarantineRecord, clearQuarantine } from './cognitiv
 import { MERGE_THRESHOLD, planNearDuplicateMerge } from './cognitive/merge.ts'
 import { decideWrite, type ArbiterNeighbor, type ArbiterResult } from './cognitive/arbiter.ts'
 import { parseProfileField } from './profile.ts'
+import { parseReflectionField } from './reflection.ts'
 import {
   CORE_SLOTS,
   CoreMemoryStore,
@@ -4953,6 +4954,12 @@ export class LocalMemoryService implements MemoryServiceApi {
           + '按提示改好 content 后重新调用 memory_save（这不是权限问题，不需要审批）。',
         )
       }
+    }
+
+    // 反思字段：kind=reflection 时可带候选元数据（工具层以 JSON 字符串传入）。
+    const reflectionRaw = (input as MemorySaveInput & { reflection?: unknown }).reflection
+    if (reflectionRaw !== undefined) {
+      saveInput = { ...saveInput, reflection: parseReflectionField(reflectionRaw) }
     }
 
     // 画像字段：kind=profile 时可带结构化元数据（工具层以 JSON 字符串传入）。

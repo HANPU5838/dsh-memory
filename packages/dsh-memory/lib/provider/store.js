@@ -1267,6 +1267,10 @@ export class MemoryStore {
       ...(Array.isArray((input                                            ).triggers)
         ? { triggers: ((input                                            ).triggers             ).map(String) }
         : {}),
+      // 反思候选元数据（kind=reflection 时由 provider 校验后带进来）。
+      ...((input                                              ).reflection !== undefined
+        ? { reflection: (input                                              ).reflection }
+        : {}),
       // 用户画像元数据（kind=profile 时由 provider 校验后带进来）。
       ...((input                                           ).profile !== undefined
         ? { profile: (input                                           ).profile }

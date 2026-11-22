@@ -17,13 +17,23 @@
  *    Auto-wrap the launch through Termux's glibc loader (see `glibcWrap`).
  *  - a child that dies without us asking for it is restarted (1s/5s/30s, max 3)
  *    so a transient crash does not silently degrade retrieval to lexical-only.
- *  - Linux: a PID from the pid file is only trusted (for adopt/kill) when
- *    /proc/<pid>/cmdline still looks like llama-server (PID reuse protection).
+ *  - PID reuse protection before adopt/kill: the pid file records
+ *    pid + port + startedAt (older pid files with a bare pid are still read and
+ *    fall back to the configured port). Linux/Android verify
+ *    /proc/<pid>/cmdline still looks like llama-server; macOS/Windows verify
+ *    the recorded port is still owned (listening) by that same pid. A pid whose
+ *    identity check fails is treated as 'foreign' and is never signalled — not
+ *    even by the SIGKILL escalation 3s after SIGTERM.
+ *  - orphans from a previous run (pid file present, process alive, health
+ *    endpoint down) are reclaimed on every platform: Linux via /proc cmdline,
+ *    others via `kill(pid, 0)` liveness + port ownership. When ownership cannot
+ *    be proven we do NOT kill; the reason is surfaced through lastErrorText.
  *
- * Dependency-injected (spawn/probe/fs/elf/netproc/kill) so the whole lifecycle
- * is testable without starting a real model server or touching real /proc.
+ * Dependency-injected (spawn/probe/fs/elf/netproc/kill/port-owner) so the whole
+ * lifecycle is testable without starting a real model server, real /proc, or
+ * shelling out to lsof/netstat.
  */
-import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
+import { spawn as nodeSpawn, spawnSync, type ChildProcess, type SpawnOptions } from 'node:child_process'
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createConnection } from 'node:net'
 import { basename, dirname, join } from 'node:path'
@@ -102,6 +112,13 @@ export interface EmbedServerDeps {
   portInUse: (host: string, port: number, timeoutMs: number) => Promise<boolean>
   /** 读 `/proc/<pid>/cmdline`;读不到(非 Linux、hidepid、进程已死)→ null。 */
   readProcCmdline: (pid: number) => string | null
+  /**
+   * `host:port` 当前的监听者 pid;查不到 / 平台工具不可用 → null。
+   * 非 Linux 上用它证明「pid 文件里的 pid 确实还是占着这个端口的本实例」
+   * (macOS 走 lsof、Windows 走 netstat)。null 一律当作「归属无法确认」,
+   * 调用方据此**不杀**进程。
+   */
+  portOwnerPid?: (host: string, port: number) => number | null
   /** 宿主平台(默认 process.platform),用于 glibc 包装与 /proc 校验的开关。 */
   platform: NodeJS.Platform
   /** Termux 前缀(默认 $PREFIX),glibc loader 与库目录都在其下。 */
@@ -110,6 +127,23 @@ export interface EmbedServerDeps {
 
 /** 孤儿进程 SIGTERM 后最多等多久再升级 SIGKILL。 */
 const ORPHAN_GRACE_MS = 3_000
+
+/** 端口归属探测(lsof/netstat)的超时:查不到就当「无法确认」(绝不据此杀进程)。 */
+const PORT_OWNER_PROBE_TIMEOUT_MS = 1_500
+
+/**
+ * pid 文件里记录的实例身份。
+ *  - 旧版本写的是纯 pid(一行数字),读到时 port/startedAt 为 null ——
+ *    身份未知,按旧行为只按存活判断,不判 foreign。
+ *  - 新格式是单行 JSON:`{"pid":5150,"port":8078,"startedAt":"…"}`。
+ */
+interface PidRecord {
+  pid: number
+  /** 记录时实例监听的端口;非 Linux 上用它校验 pid 是否仍然拥有这个端口。 */
+  port: number | null
+  /** 记录时刻(ISO);用于人工排查与日志,不参与安全判定。 */
+  startedAt: string | null
+}
 
 const DEFAULTS = {
   host: '127.0.0.1',
@@ -172,6 +206,55 @@ function defaultReadProcCmdline(pid: number): string | null {
   }
 }
 
+/** 跑一个只读的端口探测命令;命令不存在 / 非 0 退出 / 超时 / 抛错 → null。 */
+function runPortProbe(command: string, args: string[], timeoutMs: number): string | null {
+  try {
+    const result = spawnSync(command, args, { timeout: timeoutMs, windowsHide: true, encoding: 'utf8' })
+    if (result.error || result.status !== 0) return null
+    return typeof result.stdout === 'string' ? result.stdout : null
+  } catch {
+    return null
+  }
+}
+
+/** `lsof -t` 的输出:每行一个 pid,取第一个有效值。 */
+function firstPidFromLines(text: string): number | null {
+  for (const line of text.split('\n')) {
+    const pid = Number.parseInt(line.trim(), 10)
+    if (Number.isInteger(pid) && pid > 0) return pid
+  }
+  return null
+}
+
+/** 从 `netstat -ano` 的 LISTENING 行里取 `:<port>` 的 pid(末列)。 */
+function pidListeningOnPortFromNetstat(text: string, port: number): number | null {
+  for (const line of text.split('\n')) {
+    const cols = line.trim().split(/\s+/)
+    if (cols.length < 5) continue
+    const [proto, local, , state, pidText] = cols
+    if (!/^tcp$/i.test(proto ?? '')) continue
+    if (!/^listen(ing)?$/i.test(state ?? '')) continue
+    if (!(local ?? '').endsWith(`:${port}`)) continue
+    const pid = Number.parseInt(pidText ?? '', 10)
+    if (Number.isInteger(pid) && pid > 0) return pid
+  }
+  return null
+}
+
+/**
+ * 默认的端口归属探测:谁在监听 host:port。
+ * macOS/BSD → `lsof -nP -iTCP:<port> -sTCP:LISTEN -t`;Windows → `netstat -ano`。
+ * 两个工具都不保证存在,所以任何异常都返回 null(= 归属无法确认,调用方不杀)。
+ */
+function defaultPortOwnerPid(_host: string, port: number): number | null {
+  if (process.platform === 'win32') {
+    const out = runPortProbe('netstat', ['-ano', '-p', 'tcp'], PORT_OWNER_PROBE_TIMEOUT_MS)
+    return out === null ? null : pidListeningOnPortFromNetstat(out, port)
+  }
+  const out = runPortProbe('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], PORT_OWNER_PROBE_TIMEOUT_MS)
+  return out === null ? null : firstPidFromLines(out)
+}
+
 /** ELF PT_INTERP 解析已收敛到 platform.ts；这里 re-export 保持既有导入路径不变。 */
 export { readElfInterpFromFile }
 
@@ -205,6 +288,7 @@ export const defaultEmbedServerDeps: EmbedServerDeps = {
   readElfInterp: readElfInterpFromFile,
   portInUse: defaultPortInUse,
   readProcCmdline: defaultReadProcCmdline,
+  portOwnerPid: defaultPortOwnerPid,
   platform: process.platform,
   prefix: process.env.PREFIX || DEFAULT_TERMUX_PREFIX,
 }
@@ -229,6 +313,8 @@ export class EmbedServerManager {
   private stopping = false
   /** PID recorded by a previous run that we adopted. */
   private adoptedPid: number | null = null
+  /** 当前跟踪的 pid 的身份记录(自己 spawn 的或接管来的),用于跨平台 PID 复用校验。 */
+  private pidRecord: PidRecord | null = null
   /** spawn/启动失败的原因（ENOENT/EACCES/端口占用/loader 缺失…）。 */
   private lastErrorText: string | null = null
   /** 已执行的自愈重拉次数(手动 start/stop 归零)。 */
@@ -324,19 +410,20 @@ export class EmbedServerManager {
     this.lastErrorText = null
     try {
       if (await this.deps.probe(`${this.baseUrl}/health`, 1500)) {
-        const recorded = this.readPidFile()
-        if (recorded !== null && this.isAlive(recorded)) {
+        const recorded = this.readPidRecord()
+        if (recorded !== null && this.isAlive(recorded.pid, recorded)) {
           // leftover from a previous run (or a crash) → adopt and own it
-          this.adoptedPid = recorded
-          this.pid = recorded
+          this.adoptedPid = recorded.pid
+          this.pid = recorded.pid
+          this.pidRecord = recorded
           this.owned = true
-          this.deps.log(`embed server: 复用上轮实例 pid=${recorded}（${this.baseUrl}）,退出时一并关闭`)
+          this.deps.log(`embed server: 复用上轮实例 pid=${recorded.pid}（${this.baseUrl}）,退出时一并关闭`)
           return 'adopted-managed'
         }
         if (recorded !== null) {
-          // pid 文件还在,但那个 pid 已经不是 llama-server(崩溃后 PID 被复用)
-          // 或已经退出 —— 不接管、更不能杀,顺手清掉陈旧记录。
-          this.deps.log(`embed server: pid 文件里的 ${recorded} 不是本机的 llama-server(PID 复用或已退出),不接管,清理陈旧 pid 文件`)
+          // pid 文件还在,但那个 pid 已经不是本实例(PID 被复用)或已经退出
+          // —— 不接管、更不能杀,顺手清掉陈旧记录。
+          this.deps.log(`embed server: pid 文件里的 ${recorded.pid} 身份校验不通过(PID 复用或已退出),不接管,清理陈旧 pid 文件`)
           this.removePidFile()
         }
         this.deps.log(`embed server: 复用外部实例(${this.baseUrl}),不接管生命周期`)
@@ -344,8 +431,15 @@ export class EmbedServerManager {
       }
       // 健康检查失败：先处理「上一轮被 SIGKILL/LMK 强杀后残留的孤儿 llama-server」。
       // 它会继续占着 RSS 与端口，还会让新实例 bind 失败 —— 清理干净再启动。
-      await this.cleanupOrphan()
-      return await this.spawnServer()
+      const orphanNote = await this.cleanupOrphan()
+      const state = await this.spawnServer()
+      // 孤儿归属无法确认时我们没杀它:启动若因此失败(PORT_IN_USE),把原因
+      // 一并写进 lastErrorText,否则用户只会看到一句「端口被占」而不知道
+      // 是上一轮的实例还没死、且我们不敢乱杀。
+      if (state === 'failed' && orphanNote !== null) {
+        this.lastErrorText = this.lastErrorText === null ? orphanNote : `${this.lastErrorText}；${orphanNote}`
+      }
+      return state
     } catch (error) {
       this.deps.log(`embed server: 启动失败(已忽略): ${(error as Error)?.message ?? String(error)}`)
       return 'failed'
@@ -354,25 +448,52 @@ export class EmbedServerManager {
 
   /**
    * 清理上一轮留下的孤儿 llama-server（pid 文件里有记录、进程还活着、
-   * cmdline 确实是 llama-server，但 /health 不通）。
+   * 但 /health 不通）。
    *
-   * 安全边界：非 Linux / 读不到 /proc / cmdline 不符 → 一律不动（旧行为），
-   * 也绝不清理自己正在托管的子进程。
+   * 归属校验分平台:
+   *  - Linux/Android:`/proc/<pid>/cmdline` 含 llama-server;
+   *  - macOS/Windows:pid 文件里记的端口,当前监听者必须还是这个 pid
+   *    (非 Linux 没有 /proc 可看;端口归属是那里唯一可靠的「是不是它」证据)。
+   *    旧版本留下的纯 pid 文件没有端口,退回「当前配置端口」再校验一次。
+   *
+   * 安全边界:**无法确认归属就不杀**,只把原因返回给调用方记进 lastErrorText;
+   * SIGKILL 升级前还要再复核一次身份(防等待期间 PID 被复用);绝不清理自己
+   * 正在托管的子进程。
+   *
+   * @returns 放弃清理的可读原因(供 lastErrorText 使用);清理完成/无事可做 → null
    */
-  private async cleanupOrphan(): Promise<void> {
-    if (!isLinuxLike(this.deps.platform)) return
-    const pid = this.readPidFile()
-    if (pid === null) return
-    if (!this.isAlive(pid)) {
+  private async cleanupOrphan(): Promise<string | null> {
+    const record = this.readPidRecord()
+    if (record === null) return null
+    const pid = record.pid
+    if (!this.isProcessAlive(pid)) {
       this.removePidFile()
-      return
+      return null
     }
-    if (this.owned && this.pid === pid) return // 自己的子进程,交给 stop()/自愈逻辑
-    const cmdline = this.deps.readProcCmdline(pid)
-    if (cmdline === null || !cmdline.includes('llama-server')) {
-      this.deps.log(`embed server: pid=${pid} 存活但不是 llama-server（PID 复用），跳过清理`)
-      this.removePidFile()
-      return
+    if (this.owned && this.pid === pid) return null // 自己的子进程,交给 stop()/自愈逻辑
+    if (isLinuxLike(this.deps.platform)) {
+      const cmdline = this.readCmdlineSafe(pid)
+      if (cmdline === null || !cmdline.includes('llama-server')) {
+        this.deps.log(`embed server: pid=${pid} 存活但不是 llama-server（PID 复用），跳过清理`)
+        this.removePidFile()
+        return null
+      }
+    } else {
+      // 非 Linux:pid 文件里的端口 + 存活探测 + 端口归属校验。
+      const owner = this.portOwnerOf(record)
+      const probePort = record.port ?? (this.cfg.port ?? DEFAULTS.port)
+      const portLabel = record.port === null
+        ? `端口 ${probePort}(旧格式 pid 文件,按当前配置端口校验)`
+        : `端口 ${probePort}`
+      if (owner !== pid) {
+        const note = owner === null
+          ? `上一轮实例 pid=${pid} 仍存活,但无法确认它占用${portLabel},不清理（归属无法确认的进程一律不杀）`
+          : `上一轮实例 pid=${pid} 仍存活,但${portLabel}的监听者是 pid=${owner}（PID 已复用或已换实例）,不清理`
+        this.deps.log(`embed server: ${note}`)
+        // 端口归属明确不属于它 → 记录已陈旧,清掉;完全查不到 → 保留,下次再试。
+        if (owner !== null) this.removePidFile()
+        return note
+      }
     }
     this.deps.log(`embed server: 清理孤儿 llama-server pid=${pid}（上轮被强杀后残留,健康检查不通）`)
     try { this.deps.kill(pid, 'SIGTERM') } catch { /* already gone */ }
@@ -380,13 +501,19 @@ export class EmbedServerManager {
     // 不用真实时钟（否则测试会忙等 3 秒）。
     for (let waited = 0; waited < ORPHAN_GRACE_MS / 200; waited += 1) {
       await this.deps.sleep(200)
-      if (!this.isAlive(pid)) break
+      if (!this.isProcessAlive(pid)) break
     }
-    if (this.isAlive(pid)) {
-      this.deps.log(`embed server: pid=${pid} 未响应 SIGTERM，升级 SIGKILL`)
-      try { this.deps.kill(pid, 'SIGKILL') } catch { /* already gone */ }
+    if (this.isProcessAlive(pid)) {
+      // 升级前复核身份:PID 已被复用 / 归属已变 → 宁可不杀。
+      if (this.pidIdentity(pid, record) === 'ours') {
+        this.deps.log(`embed server: pid=${pid} 未响应 SIGTERM，升级 SIGKILL`)
+        try { this.deps.kill(pid, 'SIGKILL') } catch { /* already gone */ }
+      } else {
+        this.deps.log(`embed server: pid=${pid} 的身份已无法确认为本实例，不升级 SIGKILL`)
+      }
     }
     this.removePidFile()
+    return null
   }
 
   /** Poll until the health endpoint answers or the budget runs out. */
@@ -429,12 +556,13 @@ export class EmbedServerManager {
     this.stopping = true
     this.lastErrorText = null
     const pid = this.pid ?? this.adoptedPid
+    const record = this.pidRecord
     let killed = false
     if (pid !== null) {
-      if (this.pidIdentity(pid) === 'foreign') {
-        // /proc/<pid>/cmdline 已不是 llama-server → 崩溃后 PID 被别的进程复用。
-        // 杀下去就是误杀无关进程,宁可不杀。
-        this.deps.log(`embed server: pid=${pid} 的 cmdline 不含 llama-server（PID 已复用）,不杀`)
+      if (this.pidIdentity(pid, record) === 'foreign') {
+        // 身份校验不通过(Linux: cmdline 已不含 llama-server;非 Linux: 端口已
+        // 不归它)→ 崩溃后 PID 被别的进程复用。杀下去就是误杀无关进程。
+        this.deps.log(`embed server: pid=${pid} 身份校验不通过（已不是本实例，PID 已复用）,不杀`)
       } else {
         this.deps.kill(pid)
         killed = true
@@ -443,10 +571,16 @@ export class EmbedServerManager {
         // 8078，下一轮启动直接 PORT_IN_USE（Termux 上进程被 LMK 打断很常见）。
         // 3s 后复核 pid 身份再升级 SIGKILL，避免 PID 复用误杀无关进程。
         const target = pid
+        const targetRecord = record
         const escalation = setTimeout(() => {
           try {
-            if (!this.isAlive(target)) return
-            if (this.pidIdentity(target) === 'foreign') return
+            if (!this.isProcessAlive(target)) return
+            // 只有**确认**它还是本实例才升级:非 Linux 上端口已不归它、
+            // 或查不到端口归属(unknown)时,宁可不杀。
+            if (this.pidIdentity(target, targetRecord) !== 'ours') {
+              this.deps.log(`embed server: pid=${target} 的身份无法确认为本实例，不升级 SIGKILL`)
+              return
+            }
             this.deps.log(`embed server: pid=${target} 未响应 SIGTERM，升级 SIGKILL`)
             this.deps.kill(target, 'SIGKILL')
           } catch { /* best effort */ }
@@ -457,6 +591,7 @@ export class EmbedServerManager {
     this.child = null
     this.pid = null
     this.adoptedPid = null
+    this.pidRecord = null
     this.owned = false
     this.removePidFile()
     return killed
@@ -550,7 +685,13 @@ export class EmbedServerManager {
     this.child = child
     this.owned = true
     this.pid = child.pid ?? null
-    if (this.pid !== null) this.writePidFile(this.pid)
+    if (this.pid !== null) {
+      // pid 文件带上端口与启动时刻:非 Linux 上没有 /proc,只能靠「这个 pid 是否
+      // 还占着这个端口」来识别它是不是本实例(PID 复用保护)。
+      const record: PidRecord = { pid: this.pid, port, startedAt: new Date().toISOString() }
+      this.pidRecord = record
+      this.writePidFile(record)
+    }
     if (logFile) {
       appendLogLine(logFile, `\n=== ${new Date().toISOString()} llama-server 由 DSH 启动 pid=${child.pid ?? '?'}${launch.wrapped ? '（glibc 包装）' : ''} cmd=${launch.file} ${launch.args.join(' ')}`)
     }
@@ -559,6 +700,7 @@ export class EmbedServerManager {
       const aliveMs = Date.now() - startedAt
       this.child = null
       this.owned = false
+      this.pidRecord = null
       this.removePidFile()
       // 主动 stop() 触发的退出:不重拉、只安静收尾(stopping 由下一次手动 start 复位)。
       if (this.stopping) return
@@ -582,6 +724,7 @@ export class EmbedServerManager {
       this.deps.log(`embed server: 进程错误(已忽略): ${error.message}`)
       this.child = null
       this.owned = false
+      this.pidRecord = null
       this.removePidFile()
     })
     this.deps.log(`embed server: 已后台启动 pid=${child.pid ?? '?'}（${this.baseUrl}）`)
@@ -711,21 +854,36 @@ export class EmbedServerManager {
     return env
   }
 
-  private readPidFile(): number | null {
+  private readPidRecord(): PidRecord | null {
     const file = this.pidFile
     if (!file || !existsSync(file)) return null
     try {
-      const pid = Number.parseInt(readFileSync(file, 'utf8').trim(), 10)
-      return Number.isFinite(pid) && pid > 0 ? pid : null
+      const text = readFileSync(file, 'utf8').trim()
+      if (text === '') return null
+      if (text.startsWith('{')) {
+        const raw = JSON.parse(text) as { pid?: unknown; port?: unknown; startedAt?: unknown }
+        const pid = Number(raw.pid)
+        if (!Number.isInteger(pid) || pid <= 0) return null
+        const port = Number(raw.port)
+        return {
+          pid,
+          port: Number.isInteger(port) && port > 0 && port < 65536 ? port : null,
+          startedAt: typeof raw.startedAt === 'string' && raw.startedAt !== '' ? raw.startedAt : null,
+        }
+      }
+      // 旧格式:一行纯 pid。没有端口/时刻 → 身份未知,按旧行为只按存活判断。
+      const pid = Number.parseInt(text, 10)
+      return Number.isFinite(pid) && pid > 0 ? { pid, port: null, startedAt: null } : null
     } catch {
       return null
     }
   }
 
-  private writePidFile(pid: number): void {
+  private writePidFile(record: PidRecord): void {
     const file = this.pidFile
     if (!file) return
-    try { writeFileSync(file, String(pid), 'utf8') } catch { /* best effort */ }
+    const payload = JSON.stringify({ pid: record.pid, port: record.port, startedAt: record.startedAt })
+    try { writeFileSync(file, payload, 'utf8') } catch { /* best effort */ }
   }
 
   private removePidFile(): void {
@@ -734,31 +892,68 @@ export class EmbedServerManager {
     try { rmSync(file, { force: true }) } catch { /* best effort */ }
   }
 
-  private isAlive(pid: number): boolean {
+  /** 存活探测:`kill(pid, 0)`;失败(ESRCH/EPERM)一律按「不存活」处理。 */
+  private isProcessAlive(pid: number): boolean {
     try {
       process.kill(pid, 0)
+      return true
     } catch {
       return false
     }
-    // Linux 上还要看它到底是不是 llama-server:崩溃后 pid 可能被别的进程复用。
-    return this.pidIdentity(pid) !== 'foreign'
+  }
+
+  private readCmdlineSafe(pid: number): string | null {
+    try {
+      return this.deps.readProcCmdline(pid)
+    } catch {
+      return null
+    }
   }
 
   /**
-   * pid 身份:Linux 上 /proc/<pid>/cmdline 含 "llama-server" 才认作自家实例。
-   * 非 Linux 或读不到 /proc(hidepid、进程刚死)时返回 'unknown' —— 按旧行为
-   * 当作「是」,避免在拿不到证据时把服务弄丢。
+   * 端口归属:pid 文件里记的端口现在归谁监听。
+   * 旧格式 pid 文件没有端口(升级前写的是纯 pid)时退回「当前配置的端口」:
+   * 那份 pid 文件就是本插件自己写在本插件日志旁的,它若还占着本插件的端口,
+   * 归属就确认了 —— 这正是「从旧版本升级、旧孤儿还占着端口」能自救的关键。
+   * 没注入探测 / 探测抛错 → null(= 无法确认,调用方不杀)。
    */
-  private pidIdentity(pid: number): 'ours' | 'foreign' | 'unknown' {
-    if (!isLinuxLike(this.deps.platform)) return 'unknown'
-    let cmdline: string | null
+  private portOwnerOf(record: PidRecord | null): number | null {
+    if (record === null) return null
+    const probe = this.deps.portOwnerPid
+    if (probe === undefined) return null
+    const port = record.port ?? (this.cfg.port ?? DEFAULTS.port)
     try {
-      cmdline = this.deps.readProcCmdline(pid)
+      const owner = probe(this.cfg.host ?? DEFAULTS.host, port)
+      return typeof owner === 'number' && Number.isInteger(owner) && owner > 0 ? owner : null
     } catch {
-      cmdline = null
+      return null
     }
-    if (cmdline === null) return 'unknown'
-    return cmdline.includes('llama-server') ? 'ours' : 'foreign'
+  }
+
+  /** 进程是否「还活着且不是别人的进程」(kill 0 + 身份校验)。 */
+  private isAlive(pid: number, record: PidRecord | null = null): boolean {
+    if (!this.isProcessAlive(pid)) return false
+    // 身份校验:崩溃后 pid 可能被别的进程复用。
+    return this.pidIdentity(pid, record) !== 'foreign'
+  }
+
+  /**
+   * pid 身份:
+   *  - Linux/Android:`/proc/<pid>/cmdline` 含 "llama-server" 才认作自家实例;
+   *    读不到(hidepid、进程刚死)→ 'unknown'(按旧行为当作「是」,不弄丢服务)。
+   *  - 非 Linux:pid 文件里记的端口,当前监听者还是这个 pid → 'ours';
+   *    监听者是别的 pid → 'foreign'(PID 被复用);查不到 → 'unknown'。
+   * 只有 'foreign' 是「有证据表明它不是本实例」,调用方据此**不杀、不升级 SIGKILL**。
+   */
+  private pidIdentity(pid: number, record: PidRecord | null = null): 'ours' | 'foreign' | 'unknown' {
+    if (isLinuxLike(this.deps.platform)) {
+      const cmdline = this.readCmdlineSafe(pid)
+      if (cmdline === null) return 'unknown'
+      return cmdline.includes('llama-server') ? 'ours' : 'foreign'
+    }
+    const owner = this.portOwnerOf(record)
+    if (owner === null) return 'unknown'
+    return owner === pid ? 'ours' : 'foreign'
   }
 }
 
