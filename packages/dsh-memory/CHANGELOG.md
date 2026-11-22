@@ -2,6 +2,12 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 1.7.7 — 维护接口显式转发（2026-11-22）
+
+- `memory_maintain` 在真实 profile 里报“provider 不支持”：包装层依赖 Proxy 动态委托，
+  而宿主对服务实例的访问路径不会走动态查找。给 `runHousekeeping` 补显式转发。
+- 全仓 1398 例 / 1397 pass / 1 skip / 0 fail。
+
 ## 1.7.6 — 新增 memory_maintain（2026-11-22）
 
 - 维护能力此前只有每小时定时器触发，面板没有入口；新增 `memory_maintain` 工具，

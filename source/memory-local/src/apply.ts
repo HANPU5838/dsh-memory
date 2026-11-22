@@ -466,6 +466,11 @@ export class CordisMemoryService extends Service {
     return this.impl.injectSettings()
   }
 
+  /** 手动维护（memory_maintain 工具）：立即跑一次整理。 */
+  runHousekeeping(options: Parameters<LocalMemoryService['runHousekeeping']>[0] = {}): ReturnType<LocalMemoryService['runHousekeeping']> {
+    return this.impl.runHousekeeping(options)
+  }
+
   /** 面板「服务」页：切换向量提供方。包装层漏转发会让该路由直接 TypeError。 */
   setEmbeddingProvider(provider: Parameters<LocalMemoryService['setEmbeddingProvider']>[0]): ReturnType<LocalMemoryService['setEmbeddingProvider']> {
     return this.impl.setEmbeddingProvider(provider)
