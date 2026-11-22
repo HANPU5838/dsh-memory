@@ -8,11 +8,19 @@
 [![license](https://img.shields.io/badge/license-MIT-3DA639.svg)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A522.13-3C873A.svg)](package.json)
 
-**[安装](#快速开始) · [能力](#它为什么是真正的记忆系统) · [配置](#配置参考) · [评测](#评测与验收) · [更新日志](CHANGELOG.md)**
+**[安装](#快速开始) · [能力](#它为什么是真正的记忆系统) · [配置](#配置参考) · [评测](#评测与验收) · [支持](#支持这个项目) · [更新日志](CHANGELOG.md)**
 
 </div>
 
 **当前版本：v1.1.0（正式版）** · [Release](https://github.com/HANPU5838/dsh-memory/releases) · [更新日志](CHANGELOG.md)
+
+<div align="center">
+
+<a href="#支持这个项目"><img src="https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/preview/sponsor-qr.png" width="168" alt="赞赏码 · 感谢支持"></a>
+
+**如果它替你把「上次好像记过」变成了一次真正的命中，欢迎请作者喝杯咖啡。**
+
+</div>
 
 ---
 
@@ -374,6 +382,30 @@ npm run probe:flake -- 10   # 怀疑偶发失败时：同一套测试连跑 N �
 当前最新：**v1.1.0**（正式版）—— 新增 cross-encoder 本地重排（llama.cpp `--rerank` / Cohere / Jina 兼容）、重排通道二选一（cross-encoder 优先、LLM 兜底）、打包清单补 `skills/`；v1.0.0
 v0.82.0 图增强（类型边权 + 社区限流）；v0.81.0 召回 TextRank 摘要；v0.80.0 词法 PRF；
 v0.79.0 记录卡长作用域 UI 修复。
+
+## 支持这个项目
+
+<div align="center">
+
+<img src="https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/preview/sponsor-qr.png" width="240" alt="赞赏码 · 感谢支持">
+
+<br>
+
+**不扫，也完全没关系。**
+
+</div>
+
+DSH 记忆系统是免费的、本地的、没有付费墙的。写它的人没打算靠它赚钱，
+只是希望「换个会话就忘光」这件事，能少发生几次。
+
+如果你用它的时候，真的少翻了一次旧对话、少解释了一遍约定、少踩了一个
+「上次明明记过」的坑——那可以扫上面的码，请作者喝杯咖啡。这笔钱不换任何功能，
+只会换来一句「谢谢，我收到了」。
+
+更轻的支持一样算数：点个 **Star**、把仓库转给同样在用 DSH 的人、
+遇到问题时提一个能复现的 **Issue**。这些有时候比一杯咖啡更有用。
+
+---
 
 ## 致谢与许可
 
