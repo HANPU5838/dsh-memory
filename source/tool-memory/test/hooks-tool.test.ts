@@ -257,6 +257,6 @@ test('memoryTools:七个工具都在，含 memory_hooks', () => {
   const names = Object.keys(memoryTools({ getService: () => undefined })).sort()
   assert.deepEqual(names, [
     'memory_block', 'memory_core', 'memory_forget', 'memory_get', 'memory_hooks',
-    'memory_list', 'memory_save', 'memory_scopes', 'memory_search',
+    'memory_list', 'memory_maintain', 'memory_save', 'memory_scopes', 'memory_search',
   ])
 })

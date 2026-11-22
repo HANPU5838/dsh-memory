@@ -219,6 +219,16 @@ export interface MemoryToolService {
   search(input: unknown): Promise<Array<{ record: { id: string; scope: string; kind: string; updatedAt: number; content: string; tags?: string[]; importance?: number }; score: number }>>
   forget(input: unknown): Promise<{ removed: number; ids: string[] }>
   list(input?: unknown): Promise<Array<{ id: string; scope: string; kind: string; updatedAt: number; content: string; tags?: string[]; importance?: number; createdAt?: number; expiresAt?: number }>>
+  /** 立即执行一次维护（过期清理 / 墓碑清除 / 巩固 / 健康度）。 */
+  runHousekeeping?(options?: { forcePurgeTombstones?: boolean }): {
+    purged: string[]
+    evicted: string[]
+    dormant: string[]
+    tombstones: string[]
+    consolidated: string[]
+    prunedScopes: string[]
+    health?: { score: number; conflictRate: number; duplicateRate: number; quarantined: number; pending: number }
+  }
   /** 核心记忆块：身份 / 画像 / 当前目标（1.3.0）。 */
   coreBlocks?(): Partial<Record<'identity' | 'profile' | 'goal', { content: string; version: number }>>
   coreSet?(input: { slot: string; content: string; expectedVersion?: number; agent?: unknown }): { content: string; version: number; updatedAt: number; updatedBy: string }
@@ -2821,10 +2831,37 @@ export function memoryCoreTool(opts: MemoryToolsOptions): ToolSpec<Record<string
   }
 }
 
+export function memoryMaintainTool(opts: MemoryToolsOptions): ToolSpec<Record<string, unknown>, Record<string, unknown>> {
+  return {
+    name: 'memory_maintain',
+    description: 'Run the memory maintenance pass now instead of waiting for the hourly timer: purge expired records, evict over-capacity ones, mark dormant records, consolidate clusters, prune empty session scopes and return the current health report. purgeTombstones=true also physically removes soft-deleted records before their retention window ends (irreversible — only use when the user asks for a clean-up).',
+    parameters: {
+      purgeTombstones: { type: 'boolean', description: 'true = 立即物理清除软删（墓碑）记录，不等保留期；不可恢复' },
+    },
+    async execute(args) {
+      const service = svc(opts)
+      if (typeof service.runHousekeeping !== 'function') {
+        throw toolError(new MemoryToolError('UNSUPPORTED', '当前 provider 不支持维护接口（请升级 @restregular/dsh-memory）'))
+      }
+      const result = service.runHousekeeping({ forcePurgeTombstones: args.purgeTombstones === true })
+      return {
+        purged: result.purged.length,
+        evicted: result.evicted.length,
+        dormant: result.dormant.length,
+        tombstones: result.tombstones.length,
+        consolidated: result.consolidated.length,
+        prunedScopes: result.prunedScopes.length,
+        ...(result.health !== undefined ? { health: result.health } : {}),
+      }
+    },
+  }
+}
+
 export function memoryTools(opts: MemoryToolsOptions) {
   return {
     memory_save: memorySaveTool(opts),
     memory_core: memoryCoreTool(opts),
+    memory_maintain: memoryMaintainTool(opts),
     memory_search: memorySearchTool(opts),
     memory_forget: memoryForgetTool(opts),
     memory_list: memoryListTool(opts),

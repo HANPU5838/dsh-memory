@@ -193,6 +193,18 @@ export function apply(ctx: any, config: ToolMemoryConfig = {}) {
     return renderBlockResult(value, (scope) => renderScope(scope, agent))
   })
 
+  register(tools.memory_maintain, (value) => {
+    const data = value as { purged?: number; evicted?: number; dormant?: number; tombstones?: number; consolidated?: number; prunedScopes?: number; health?: { score?: number } }
+    const parts: string[] = []
+    if (data.purged) parts.push(`清理过期 ${data.purged}`)
+    if (data.tombstones) parts.push(`清除墓碑 ${data.tombstones}`)
+    if (data.dormant) parts.push(`转休眠 ${data.dormant}`)
+    if (data.consolidated) parts.push(`巩固 ${data.consolidated}`)
+    if (data.prunedScopes) parts.push(`回收空作用域 ${data.prunedScopes}`)
+    const head = parts.length > 0 ? `维护完成：${parts.join('，')}` : '维护完成：没有需要清理的内容'
+    return data.health?.score !== undefined ? `${head}；健康分 ${data.health.score}/100` : head
+  })
+
   register(tools.memory_core, (value) => {
     const data = value as { blocks?: Record<string, { content?: string; version?: number }>; slot?: string; state?: { version?: number }; restoredFrom?: number; versions?: unknown[] }
     if (Array.isArray(data.versions)) return `核心块 ${data.slot ?? ''} 共 ${data.versions.length} 个历史版本。`

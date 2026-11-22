@@ -3182,7 +3182,7 @@ export class LocalMemoryService implements MemoryServiceApi {
     }
   }
 
-  runHousekeeping(): { purged: string[]; evicted: string[]; dormant: string[]; tombstones: string[]; consolidated: string[]; prunedScopes: string[]; health?: { score: number; conflictRate: number; duplicateRate: number; quarantined: number; pending: number } } {
+  runHousekeeping(options: { forcePurgeTombstones?: boolean } = {}): { purged: string[]; evicted: string[]; dormant: string[]; tombstones: string[]; consolidated: string[]; prunedScopes: string[]; health?: { score: number; conflictRate: number; duplicateRate: number; quarantined: number; pending: number } } {
     // 0.41.1：维护任务必须覆盖**磁盘上所有作用域**，不能只扫本进程已加载的。
     //（懒加载机制下，没被本会话碰过的旧 scope 不会被加载，否则休眠/墓碑清理/
     // 巩固/健康度都会漏掉它们。）
@@ -3200,7 +3200,11 @@ export class LocalMemoryService implements MemoryServiceApi {
           scopes: liveScopes,
         }).marked
       : []
-    const tombstones = purgeTombstones(this.store, { now: Date.now(), ...(liveScopes.length > 0 ? { scopes: liveScopes } : {}) })
+    const tombstones = purgeTombstones(this.store, {
+      now: Date.now(),
+      ...(liveScopes.length > 0 ? { scopes: liveScopes } : {}),
+      ...(options.forcePurgeTombstones === true ? { force: true } : {}),
+    })
     // 0.33.0：周期巩固（把同簇 episodic 记忆合并成一条 semantic 摘要）。
     const consolidated = this.consolidateNow().created
     // 0.62.5：回收"从没用过"的历史会话作用域（元数据只增不减会越攒越多）。

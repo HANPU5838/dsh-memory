@@ -219,6 +219,16 @@ import { canonicalWorkspacePath, defaultScopeDescription, isAbsoluteWorkspacePat
                                                                                                                                                                                           
                                                                      
                                                                                                                                                                                                       
+                                          
+                                                                   
+                    
+                     
+                     
+                        
+                          
+                          
+                                                                                                                 
+   
                                      
                                                                                                        
                                                                                                                                                                            
@@ -2821,10 +2831,37 @@ export function memoryCoreTool(opts                    )                        
   }
 }
 
+export function memoryMaintainTool(opts                    )                                                             {
+  return {
+    name: 'memory_maintain',
+    description: 'Run the memory maintenance pass now instead of waiting for the hourly timer: purge expired records, evict over-capacity ones, mark dormant records, consolidate clusters, prune empty session scopes and return the current health report. purgeTombstones=true also physically removes soft-deleted records before their retention window ends (irreversible — only use when the user asks for a clean-up).',
+    parameters: {
+      purgeTombstones: { type: 'boolean', description: 'true = 立即物理清除软删（墓碑）记录，不等保留期；不可恢复' },
+    },
+    async execute(args) {
+      const service = svc(opts)
+      if (typeof service.runHousekeeping !== 'function') {
+        throw toolError(new MemoryToolError('UNSUPPORTED', '当前 provider 不支持维护接口（请升级 @restregular/dsh-memory）'))
+      }
+      const result = service.runHousekeeping({ forcePurgeTombstones: args.purgeTombstones === true })
+      return {
+        purged: result.purged.length,
+        evicted: result.evicted.length,
+        dormant: result.dormant.length,
+        tombstones: result.tombstones.length,
+        consolidated: result.consolidated.length,
+        prunedScopes: result.prunedScopes.length,
+        ...(result.health !== undefined ? { health: result.health } : {}),
+      }
+    },
+  }
+}
+
 export function memoryTools(opts                    ) {
   return {
     memory_save: memorySaveTool(opts),
     memory_core: memoryCoreTool(opts),
+    memory_maintain: memoryMaintainTool(opts),
     memory_search: memorySearchTool(opts),
     memory_forget: memoryForgetTool(opts),
     memory_list: memoryListTool(opts),

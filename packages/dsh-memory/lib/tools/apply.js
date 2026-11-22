@@ -193,6 +193,18 @@ export function apply(ctx     , config                   = {}) {
     return renderBlockResult(value, (scope) => renderScope(scope, agent))
   })
 
+  register(tools.memory_maintain, (value) => {
+    const data = value                                                                                                                                                           
+    const parts           = []
+    if (data.purged) parts.push(`清理过期 ${data.purged}`)
+    if (data.tombstones) parts.push(`清除墓碑 ${data.tombstones}`)
+    if (data.dormant) parts.push(`转休眠 ${data.dormant}`)
+    if (data.consolidated) parts.push(`巩固 ${data.consolidated}`)
+    if (data.prunedScopes) parts.push(`回收空作用域 ${data.prunedScopes}`)
+    const head = parts.length > 0 ? `维护完成：${parts.join('，')}` : '维护完成：没有需要清理的内容'
+    return data.health?.score !== undefined ? `${head}；健康分 ${data.health.score}/100` : head
+  })
+
   register(tools.memory_core, (value) => {
     const data = value                                                                                                                                                                 
     if (Array.isArray(data.versions)) return `核心块 ${data.slot ?? ''} 共 ${data.versions.length} 个历史版本。`
