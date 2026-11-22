@@ -86,3 +86,13 @@ test('CordisMemoryService 转发核心记忆块方法', () => {
     assert.equal(typeof proto[name], 'function', `ctx.get('memory').${name} 必须存在，否则 memory_core 不可用`)
   }
 })
+
+
+test('CordisMemoryService 转发面板调用的 provider 方法', () => {
+  // 面板 /services 路由直接调用 setEmbeddingProvider；漏转发 = 切换提供方时报
+  // "is not a function"。selfCheck 漏转发则健康检查静默降级为 null。
+  const proto = CordisMemoryService.prototype as unknown as Record<string, unknown>
+  for (const name of ['setEmbeddingProvider', 'selfCheck']) {
+    assert.equal(typeof proto[name], 'function', `ctx.get('memory').${name} 必须存在`)
+  }
+})

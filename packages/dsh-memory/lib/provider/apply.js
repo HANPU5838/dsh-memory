@@ -455,6 +455,16 @@ export class CordisMemoryService extends Service {
     return this.impl.injectSettings()
   }
 
+  /** 面板「服务」页：切换向量提供方。包装层漏转发会让该路由直接 TypeError。 */
+  setEmbeddingProvider(provider                                                           )                                                         {
+    return this.impl.setEmbeddingProvider(provider)
+  }
+
+  /** 面板健康检查：环境自检报告。 */
+  selfCheck()                                              {
+    return this.impl.selfCheck()
+  }
+
   // ---------------------------------------------------------------- 核心记忆块（1.6.0）
   /**
    * 面板与工具通过 `ctx.get('memory')` 拿到的是包装实例，不是 LocalMemoryService。

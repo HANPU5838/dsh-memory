@@ -2,6 +2,12 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 1.6.4 — 面板方法转发（2026-11-22）
+
+- **同类漏转发**：`setEmbeddingProvider`（面板切换向量提供方，缺了直接 TypeError）、
+  `selfCheck`（面板健康检查，缺了静默降级为 null）。包装层补齐转发。
+- 新增回归测试（包装原型必须暴露这两个方法）；全仓 1395 例 / 1394 pass / 1 skip / 0 fail。
+
 ## 1.6.3 — memory_core 输出修复（2026-11-22）
 
 - `memory_core` 的 `get` 在空槽位时返回了 `undefined` 值，工具结果不是合法 JSON
