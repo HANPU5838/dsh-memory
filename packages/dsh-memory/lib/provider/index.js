@@ -107,6 +107,18 @@ import { resolveConflict, applyConflictResolution } from './cognitive/resolve.js
 import { scanMemoryContent, quarantineRecord, clearQuarantine } from './cognitive/guard.js'
 import { MERGE_THRESHOLD, planNearDuplicateMerge } from './cognitive/merge.js'
 import { decideWrite,                                          } from './cognitive/arbiter.js'
+import {
+  CORE_SLOTS,
+  CoreMemoryStore,
+  CoreVersionConflict,
+  CoreContentInvalid,
+  isCoreSlot,
+  sanitizeCoreContent,
+  validateCoreContent,
+                
+                     
+                  
+} from './core.js'
 import { assessConflicts, applyConflictMarker, hasCriticalDetailConflict } from './cognitive/conflict.js'
 import { isRecordVisible, revive, tombstone, purgeTombstones, markDormant, restore as restoreTombstoned, snapshot as writeSnapshot, restoreSnapshot as readSnapshotFile } from './cognitive/lifecycle.js'
 import { createEmbeddingProvider,                                                    } from './embedding-providers.js'
@@ -1492,6 +1504,7 @@ export class LocalMemoryService                             {
                    grants                    
   /** 屏蔽（0.32.0）：Agent 主动藏起无关记忆；会话级 + 工作区级两层。 */
                    blocks                   
+                   core                 
   /** 项目作用域归档（0.32.0）：绑定工作区，工作区删除/重加自动归档/恢复。 */
                    archive                   
   /** 权限申请 / 授权生命周期审计（approvals.jsonl，不含正文）。 */
@@ -1550,6 +1563,7 @@ export class LocalMemoryService                             {
     this.bindings = new WorkspaceBindingsStore({ root: this.cfg.storeDir })
     this.grants = new SessionGrantsStore({ root: this.cfg.storeDir })
     this.blocks = new MemoryBlocksStore({ root: this.cfg.storeDir })
+    this.core = new CoreMemoryStore(this.cfg.storeDir)
     this.archive = new ScopeArchiveStore({ root: this.cfg.storeDir })
     this.approvalAudit = new ApprovalAuditStore({ root: this.cfg.storeDir })
     this.hooks = new HookStore({
@@ -1597,6 +1611,39 @@ export class LocalMemoryService                             {
   /** 读设置文本并剥掉 UTF-8 BOM（Windows 记事本另存会带），否则 JSON.parse 必失败。 */
           readSettingsText()         {
     return readFileSync(this.settingsPath, 'utf8').replace(/^\uFEFF/, '')
+  }
+
+  /** 核心记忆块：身份 / 画像 / 当前目标（常驻注入，不进检索）。 */
+  coreBlocks()                                                        {
+    return this.core.blocks()
+  }
+
+  coreGet(slot          )                            {
+    return this.core.get(slot)
+  }
+
+  coreHistory(slot          , limit         )                               {
+    return this.core.history(slot, limit)
+  }
+
+  /** 写入一个核心块版本；空内容 = 清空（历史保留）。 */
+  coreSet(input   
+                           
+                            
+                                     
+                            
+   )                {
+    if (!isCoreSlot(input.slot)) throw new Error(`未知核心块槽位：${String(input.slot)}`)
+    const content = sanitizeCoreContent(input.content)
+    validateCoreContent(input.slot, content)
+    const writer             = input.agent === undefined ? 'user' : 'agent'
+    const state = this.core.set(input.slot, content, writer, input.expectedVersion)
+    try { this.ledger.append('save', `core:${input.slot}`, 'global') } catch { /* 账本旁路，失败不影响写入 */ }
+    return state
+  }
+
+  coreClear(slot          , agent          )                {
+    return this.coreSet({ slot, content: '', ...(agent !== undefined ? { agent } : {}) })
   }
 
   /** 读取注入设置(归一化后的快照)。 */

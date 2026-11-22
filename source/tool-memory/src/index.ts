@@ -219,6 +219,10 @@ export interface MemoryToolService {
   search(input: unknown): Promise<Array<{ record: { id: string; scope: string; kind: string; updatedAt: number; content: string; tags?: string[]; importance?: number }; score: number }>>
   forget(input: unknown): Promise<{ removed: number; ids: string[] }>
   list(input?: unknown): Promise<Array<{ id: string; scope: string; kind: string; updatedAt: number; content: string; tags?: string[]; importance?: number; createdAt?: number; expiresAt?: number }>>
+  /** 核心记忆块：身份 / 画像 / 当前目标（1.3.0）。 */
+  coreBlocks?(): Partial<Record<'identity' | 'profile' | 'goal', { content: string; version: number }>>
+  coreSet?(input: { slot: string; content: string; expectedVersion?: number; agent?: unknown }): { content: string; version: number; updatedAt: number; updatedBy: string }
+  coreHistory?(slot: string, limit?: number): ReadonlyArray<{ content: string; version: number; updatedAt: number; updatedBy: string }>
   /** 读 "all" 前把所有磁盘上的 scope 发现出来。 */
   discoverScopes?(): MemoryScope[]
   /** 作用域清单(scope + 记录数),用于 memory_list 的尾部摘要与错误提示。 */
@@ -2762,9 +2766,56 @@ function approvalNote(outcome: string): string {
   }
 }
 
+export function memoryCoreTool(opts: MemoryToolsOptions): ToolSpec<Record<string, unknown>, Record<string, unknown>> {
+  return {
+    name: 'memory_core',
+    description: 'Read or update the three always-in-context core memory blocks: identity (who this agent is), profile (stable facts about the user), goal (what the current work is about). These blocks are injected into every turn and are NOT searchable records — use memory_save for ordinary memories. action="get" shows the current blocks; action="set" writes a new version (empty content clears it); action="history" lists recent versions; action="restore" brings back a version by number.',
+    parameters: {
+      action: { type: 'string', enum: ['get', 'set', 'history', 'restore'], description: 'get（默认）/ set / history / restore' },
+      slot: { type: 'string', enum: ['identity', 'profile', 'goal'], description: '要操作的槽位' },
+      content: { type: 'string', description: 'set 时的正文；传空串表示清空该槽位' },
+      version: { type: 'number', description: 'restore 时要恢复的版本号' },
+      expectedVersion: { type: 'number', description: 'set 时的乐观并发校验：版本不匹配则拒绝' },
+    },
+    async execute(args, exec) {
+      const service = svc(opts)
+      const agent = agentOf(exec)
+      const action = typeof args.action === 'string' ? args.action : 'get'
+      if (typeof service.coreSet !== 'function') {
+        throw toolError(new MemoryToolError('UNSUPPORTED', '当前 provider 不支持核心记忆块（请升级 @restregular/dsh-memory）'))
+      }
+      if (action === 'get') {
+        return { blocks: service.coreBlocks?.() ?? {} }
+      }
+      const slot = String(args.slot ?? '')
+      if (slot !== 'identity' && slot !== 'profile' && slot !== 'goal') {
+        throw toolError(new MemoryToolError('CORE_SLOT_INVALID', 'slot 只能是 identity / profile / goal'))
+      }
+      if (action === 'history') {
+        return { slot, versions: service.coreHistory?.(slot) ?? [] }
+      }
+      if (action === 'restore') {
+        const version = Number(args.version)
+        const versions = service.coreHistory?.(slot) ?? []
+        const target = versions.find((item) => item.version === version)
+        if (target === undefined) {
+          throw toolError(new MemoryToolError('CORE_VERSION_UNKNOWN', `没有找到 ${slot} 的 v${version}`))
+        }
+        const state = service.coreSet({ slot, content: target.content, agent })
+        return { slot, restoredFrom: version, state }
+      }
+      const content = typeof args.content === 'string' ? args.content : ''
+      const expectedVersion = typeof args.expectedVersion === 'number' ? args.expectedVersion : undefined
+      const state = service.coreSet({ slot, content, agent, ...(expectedVersion !== undefined ? { expectedVersion } : {}) })
+      return { slot, state }
+    },
+  }
+}
+
 export function memoryTools(opts: MemoryToolsOptions) {
   return {
     memory_save: memorySaveTool(opts),
+    memory_core: memoryCoreTool(opts),
     memory_search: memorySearchTool(opts),
     memory_forget: memoryForgetTool(opts),
     memory_list: memoryListTool(opts),

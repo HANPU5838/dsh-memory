@@ -5,6 +5,12 @@
 > 以下为自维护以来的完整改进清单（每一项都有源码改动 + 回归测试，不是临时补丁），
 > 安装、发布、更新**只以本仓库为准**。
 
+## 1.3.0
+
+- 核心记忆块（identity / profile / goal）：独立 core.json、版本链、token 上限、常驻注入段 `memory:core`。
+- 新工具 `memory_core`（get / set / history / restore）。
+- 新增 8 例测试；全仓 1372 例 / 1371 pass / 1 skip / 0 fail。
+
 ## 1.2.0
 
 - **写入裁决**（`source/memory-local/src/cognitive/arbiter.ts`）：ADD / UPDATE / NOOP 三态；

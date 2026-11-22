@@ -2,6 +2,16 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 1.3.0 — 核心记忆块（2026-11-22）
+
+- **核心记忆块**（`source/memory-local/src/core.ts`）：identity / profile / goal 三个常驻槽位，
+  单独存 `<storeDir>/core.json`，不进检索、不参与合并；写入走版本链，可回滚。
+- **槽位约束**：identity ≤ 55 token、profile ≤ 150、goal ≤ 40（CJK 感知估算），超限拒绝写入；
+  写入时清洗控制字符、零宽字符与模板定界符。
+- **常驻注入**：`memory:core` 段（order 640）在每个系统提示里渲染非空槽位。
+- **新工具** `memory_core`：get / set / history / restore，支持 `expectedVersion` 乐观并发。
+- **测试**：新增 8 例核心块用例；全仓 1372 例 / 1371 pass / 1 skip / 0 fail。
+
 ## 1.2.0 — 写入裁决 + 跨平台加固（2026-11-22）
 
 - **新增写入裁决**：`source/memory-local/src/cognitive/arbiter.ts`。同一作用域内对候选做

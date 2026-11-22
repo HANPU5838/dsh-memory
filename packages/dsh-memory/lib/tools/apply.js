@@ -193,6 +193,19 @@ export function apply(ctx     , config                   = {}) {
     return renderBlockResult(value, (scope) => renderScope(scope, agent))
   })
 
+  register(tools.memory_core, (value) => {
+    const data = value                                                                                                                                                                 
+    if (Array.isArray(data.versions)) return `核心块 ${data.slot ?? ''} 共 ${data.versions.length} 个历史版本。`
+    if (typeof data.restoredFrom === 'number') return `核心块 ${data.slot ?? ''} 已恢复到 v${data.restoredFrom}。`
+    if (data.state !== undefined) return `核心块 ${data.slot ?? ''} 已更新为 v${data.state.version ?? '?'}。`
+    const lines           = []
+    for (const [slot, block] of Object.entries(data.blocks ?? {})) {
+      const text = block?.content?.trim() ?? ''
+      if (text !== '') lines.push(`${slot} (v${block?.version ?? 1}): ${text}`)
+    }
+    return lines.length > 0 ? lines.join('\n') : '核心记忆块为空。'
+  })
+
   register(tools.memory_hooks, (value, _args, exec) => {
     const agent = (exec                                   )?.agent
     return renderHooksResult(value, (scope) => renderScope(scope, agent))

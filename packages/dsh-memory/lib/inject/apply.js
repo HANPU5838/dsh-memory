@@ -887,6 +887,32 @@ export function apply(ctx         , config                     = {}) {
     if (!systemPrompt?.section) return
     try {
       systemPrompt.section({
+        name: 'memory:core',
+        order: 640,
+        text: () => {
+          if (!enabled) return ''
+          const memory = ctx.get('memory')     
+                                                                                                                     
+                       
+          const blocks = memory?.coreBlocks?.()
+          if (blocks === undefined) return ''
+          const labels                                                   = [
+            ['identity', '身份'],
+            ['profile', '用户'],
+            ['goal', '当前目标'],
+          ]
+          const lines           = []
+          for (const [slot, label] of labels) {
+            const block = blocks[slot]
+            const text = block?.content.trim() ?? ''
+            if (text === '') continue
+            lines.push(`${label}（v${block?.version ?? 1}）：${text.replace(/\s+/g, ' ')}`)
+          }
+          if (lines.length === 0) return ''
+          return ['## 核心记忆块（每步常驻；用 memory_core 维护）', ...lines].join('\n')
+        },
+      })
+      systemPrompt.section({
         name: 'memory:policy',
         order: 650,
         text: () => (enabled && settingsOf().policy.enabled ? POLICY_TEXT : ''),
