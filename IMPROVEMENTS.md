@@ -5,6 +5,15 @@
 > 以下为自维护以来的完整改进清单（每一项都有源码改动 + 回归测试，不是临时补丁），
 > 安装、发布、更新**只以本仓库为准**。
 
+## 1.2.0
+
+- **写入裁决**（`source/memory-local/src/cognitive/arbiter.ts`）：ADD / UPDATE / NOOP 三态；
+  余弦优先、词法 Dice 兜底；事实冲突只认数字、路径、否定极性；Windows 路径与中文否定假朋友已处理。
+- **接入 save()**：`cognitive.arbiter.enabled`（默认关闭）/ `shadow` / 阈值可配；异常退化为普通写入。
+- **跨平台加固**：自愈循环异常兜底、日志 fd 释放、JSONL fsync（含父目录）、settings BOM 容错、
+  `path.delimiter`、`statfs` 0 视为未知。
+- **测试**：新增 21 例；memory-local 991 例 / 990 pass / 1 skip / 0 fail。
+
 ## 1.1.0（cross-encoder 重排 + 打包修复）
 
 - **cross-encoder 重排**（`rerank-http.ts`）：本地 llama.cpp `--rerank` / Cohere / Jina

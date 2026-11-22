@@ -2,6 +2,19 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 1.2.0 — 写入裁决 + 跨平台加固（2026-11-22）
+
+- **新增写入裁决**：`source/memory-local/src/cognitive/arbiter.ts`。同一作用域内对候选做
+  ADD / UPDATE / NOOP 三态裁决；有向量用余弦，无向量用词法 Dice 兜底（完全离线）。
+  事实冲突只认数字、路径、否定极性三类硬信号；路径同时识别 `/` 与 `\\`（Windows），
+  中文否定词做假朋友过滤（不一样/不错/不仅/不同 不算否定）。
+- **接入 save()**：`cognitive.arbiter.enabled`（默认关闭）、`shadow`（只观察不生效）、
+  阈值可配；裁决异常一律退化为普通写入，绝不因查重丢数据。
+- **跨平台加固**：embed-server 自愈循环补异常兜底；spawn 后关闭日志 fd（Windows 释放句柄）；
+  JSONL 落盘先 fsync 文件再 rename，并 fsync 父目录；settings 读取容忍 UTF-8 BOM；
+  PATH 拼接改用 `path.delimiter`；`statfs` 返回 0 视为未知而非"没空间"。
+- **测试**：新增 21 例（裁决内核 16 + 集成 5）；memory-local 991 例 / 990 pass / 1 skip / 0 fail。
+
 ## 1.1.0 — cross-encoder 重排 + 打包修复（2026-11-21）
 
 - **新增 cross-encoder 重排通道（HTTP）**：`source/memory-local/src/rerank-http.ts`。
