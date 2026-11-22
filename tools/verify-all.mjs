@@ -88,6 +88,22 @@ function stepBuild() {
   return ok
 }
 
+// ───────────────── 2.5 打包产物安装验证 ─────────────────
+/**
+ * 只看仓库源码会漏掉「装进去以后才暴露」的问题：图标超宿主上限、files 白名单
+ * 少文件、exports 指向没打包的文件。1.7.0–1.7.5 的 6 个补丁全是这一类。
+ */
+function stepInstall() {
+  const result = run(['tools/verify-packed-install.mjs', '--package', OUT], { timeoutMs: 300_000 })
+  const output = `${result.stdout ?? ''}\n${result.stderr ?? ''}`
+  const ok = result.status === 0
+  const failed = output.split('\n').filter((line) => line.startsWith('✗'))
+  report('install', '打包产物安装验证', ok ? 'PASS' : 'FAIL', ok
+    ? output.trim().split('\n').slice(-1)[0] ?? '安装形态可加载'
+    : failed[0] ?? output.trim().split('\n').slice(-3).join(' / '))
+  return ok
+}
+
 // ───────────────────── 3. 面板 API 冒烟 ─────────────────────
 async function stepPanelSmoke() {
   const lib = join(OUT, 'lib')
@@ -192,6 +208,7 @@ async function main() {
   const buildOk = stepBuild()
   let ok = testOk && buildOk
   if (buildOk) {
+    ok = stepInstall() && ok
     const panelOk = await stepPanelSmoke()
     ok = panelOk && ok
   } else {

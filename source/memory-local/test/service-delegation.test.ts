@@ -27,6 +27,7 @@ registerHooks({
 })
 
 const { CordisMemoryService } = await import('../src/apply.ts')
+const { LocalMemoryService } = await import('../src/index.ts')
 
 test('CordisMemoryService 暴露面板所需的审计方法', () => {
   for (const name of ['attachInjectAudit', 'detachInjectAudit', 'injectAudit', 'injectAuditPage', 'injectAuditStats']) {
@@ -115,4 +116,31 @@ test('包装实例自动委托未显式转发的方法（从根上消灭漏转�
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test('契约：工具 / 面板调用的服务方法必须在包装层显式转发', async () => {
+  // Proxy 只兜住「方法调用」，兜不住宿主对服务实例的访问路径（1.7.7 实测）。
+  // 所以新增 provider 方法后，凡是工具 / 面板会直接调用的，包装层必须有显式转发。
+  const { readFileSync } = await import('node:fs')
+  const { join } = await import('node:path')
+  const root = join(import.meta.dirname, '..', '..', '..')
+  const sources = [
+    'source/tool-memory/src/index.ts',
+    'source/memory-panel/lib/index.js',
+    'source/memory-inject/src/apply.ts',
+  ]
+  const called = new Set<string>()
+  for (const file of sources) {
+    let text = ''
+    try { text = readFileSync(join(root, file), 'utf8') } catch { continue }
+    for (const match of text.matchAll(/(?:service|memory)\.([a-zA-Z][a-zA-Z0-9_]*)\s*\(/g)) called.add(match[1]!)
+  }
+  const provider = LocalMemoryService.prototype as unknown as Record<string, unknown>
+  const wrapper = CordisMemoryService.prototype as unknown as Record<string, unknown>
+  const missing: string[] = []
+  for (const name of called) {
+    if (typeof provider[name] !== 'function') continue
+    if (typeof wrapper[name] !== 'function') missing.push(name)
+  }
+  assert.deepEqual(missing, [], `以下服务方法被工具/面板调用，但包装层没有显式转发：${missing.join(', ')}`)
 })
