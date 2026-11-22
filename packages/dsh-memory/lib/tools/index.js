@@ -2789,7 +2789,12 @@ export function memoryCoreTool(opts                    )                        
         throw toolError(new MemoryToolError('UNSUPPORTED', '当前 provider 不支持核心记忆块（请升级 @restregular/dsh-memory）'))
       }
       if (action === 'get') {
-        return { blocks: service.coreBlocks?.() ?? {} }
+        // 空槽位是 undefined，直接返回会让工具结果不是合法 JSON（"not lossless JSON"）。
+        const blocks                                                       = {}
+        for (const [slot, block] of Object.entries(service.coreBlocks?.() ?? {})) {
+          if (block !== undefined) blocks[slot] = block
+        }
+        return { blocks }
       }
       const slot = String(args.slot ?? '')
       if (slot !== 'identity' && slot !== 'profile' && slot !== 'goal') {

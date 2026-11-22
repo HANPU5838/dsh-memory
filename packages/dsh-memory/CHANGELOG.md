@@ -2,6 +2,12 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 1.6.3 — memory_core 输出修复（2026-11-22）
+
+- `memory_core` 的 `get` 在空槽位时返回了 `undefined` 值，工具结果不是合法 JSON
+  （宿主报 `value is not lossless JSON`）。改为只返回有内容的槽位。
+- 新增 2 例工具层回归测试；全仓 1394 例 / 1393 pass / 1 skip / 0 fail。
+
 ## 1.6.2 — 核心块服务转发修复（2026-11-22）
 
 - **根因**：provider 注册的是 `CordisMemoryService` 包装实例，1.6.0/1.6.1 只把
