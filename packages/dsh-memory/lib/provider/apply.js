@@ -95,6 +95,17 @@ export class CordisMemoryService extends Service {
     }
     ctx.effect(() => () => this.impl.flushSync())
     this.attachRerank(ctx, config)
+    // 架构性兜底：显式转发过的方法优先，其余一律委托给 impl。
+    // 新增 provider 方法不再需要“记得补一行转发”，从根上消灭
+    // “实现了但 ctx.get('memory') 上看不到”的整类缺陷。
+    return new Proxy(this, {
+      get(target, prop, receiver) {
+        if (prop in target) return Reflect.get(target, prop, receiver)
+        const impl = (target                       ).impl                                           
+        const value = impl[prop]
+        return typeof value === 'function' ? (value                                   ).bind(impl) : value
+      },
+    })        
   }
 
   /**

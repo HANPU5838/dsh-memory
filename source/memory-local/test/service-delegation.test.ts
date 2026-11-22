@@ -9,6 +9,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { registerHooks } from 'node:module'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 const CORDIS_STUB = 'data:text/javascript,' + encodeURIComponent(`
 export class Service {
@@ -94,5 +97,22 @@ test('CordisMemoryService 转发面板调用的 provider 方法', () => {
   const proto = CordisMemoryService.prototype as unknown as Record<string, unknown>
   for (const name of ['setEmbeddingProvider', 'selfCheck']) {
     assert.equal(typeof proto[name], 'function', `ctx.get('memory').${name} 必须存在`)
+  }
+})
+
+
+test('包装实例自动委托未显式转发的方法（从根上消灭漏转发）', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-delegation-proxy-'))
+  const ctx = { effect() {}, get() { return undefined }, inject() {}, on() {} }
+  const svc = new CordisMemoryService(ctx as never, { storeDir: dir, scopes: { global: true }, retrieval: { vector: { enabled: false } } })
+  try {
+    const view = svc as unknown as Record<string, unknown>
+    // supersededIds 没有手写转发，靠代理兜底
+    assert.equal(typeof view.supersededIds, 'function', '未显式转发的方法必须自动委托')
+    assert.equal(typeof view.coreSet, 'function')
+    view.coreSet({ slot: 'goal', content: '委托测试' })
+    assert.equal((view.coreGet as (slot: string) => { content?: string } | undefined)('goal')?.content, '委托测试')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
   }
 })
