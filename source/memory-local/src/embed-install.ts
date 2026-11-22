@@ -1149,7 +1149,8 @@ export function freeDiskBytes(dir: string): number | null {
   try {
     const stat = statfsSync(dir)
     const bytes = Number(stat.bavail) * Number(stat.bsize)
-    return Number.isFinite(bytes) && bytes >= 0 ? bytes : null
+    // statfs 返回 0 表示「读不到」（Android 共享存储常见），不能当成「没空间」
+    return Number.isFinite(bytes) && bytes > 0 ? bytes : null
   } catch {
     return null
   }

@@ -124,7 +124,7 @@ import { MemoryEventBus } from './events.ts'
 import { spawn } from 'node:child_process'
 import { createConnection } from 'node:net'
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { basename, delimiter, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import {
   DEFAULT_MODEL_ID,
@@ -1566,6 +1566,11 @@ export class LocalMemoryService implements MemoryServiceApi {
     return join(this.cfg.storeDir, 'settings.json')
   }
 
+  /** 读设置文本并剥掉 UTF-8 BOM（Windows 记事本另存会带），否则 JSON.parse 必失败。 */
+  private readSettingsText(): string {
+    return readFileSync(this.settingsPath, 'utf8').replace(/^\uFEFF/, '')
+  }
+
   /** 读取注入设置(归一化后的快照)。 */
   injectSettings(): InjectSettings {
     return normalizeInjectSettings(this.inject, this.inject)
@@ -1584,7 +1589,7 @@ export class LocalMemoryService implements MemoryServiceApi {
     try {
       mkdirSync(this.cfg.storeDir, { recursive: true })
       const current = existsSync(this.settingsPath)
-        ? JSON.parse(readFileSync(this.settingsPath, 'utf8')) as Record<string, unknown>
+        ? JSON.parse(this.readSettingsText()) as Record<string, unknown>
         : {}
       current.hooks = this.hookCfg
       writeFileSync(this.settingsPath, `${JSON.stringify(current, null, 2)}\n`, 'utf8')
@@ -1880,7 +1885,7 @@ export class LocalMemoryService implements MemoryServiceApi {
     this.hookCfg = resolveHookSettings(hooksFromConfig)
     try {
       if (existsSync(this.settingsPath)) {
-        const parsed = JSON.parse(readFileSync(this.settingsPath, 'utf8')) as unknown
+        const parsed = JSON.parse(this.readSettingsText()) as unknown
         const digest = (parsed as { digest?: Record<string, unknown> } | null)?.digest
         // 0.9.5 及以前的默认 digest 预算是 400,且没有 hintBudget 字段。
         // 升级到 0.9.6 时把"旧默认值"迁到新默认 800;显式写过 hintBudget 的配置不动。
@@ -2791,7 +2796,7 @@ export class LocalMemoryService implements MemoryServiceApi {
       let child: ReturnType<typeof spawn>
       try {
         child = spawn(pkg, ['install', '-y', 'llama-cpp'], {
-          env: { ...process.env, PATH: `${join(prefix, 'bin')}:${process.env.PATH ?? ''}` },
+          env: { ...process.env, PATH: `${join(prefix, 'bin')}${delimiter}${process.env.PATH ?? ''}` },
           stdio: 'ignore',
           windowsHide: true,
         })
