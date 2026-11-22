@@ -132,7 +132,7 @@ test('memory_block：旧 provider 没有 requestBlock 时明确提示升级', as
 test('memoryTools 注册 7 个工具，含 memory_block', () => {
   const { service } = fakeService()
   assert.deepEqual(Object.keys(memoryTools({ getService: () => service })).sort(), [
-    'memory_block', 'memory_core', 'memory_forget', 'memory_get', 'memory_hooks', 'memory_list', 'memory_maintain', 'memory_save', 'memory_scopes', 'memory_search',
+    'memory_block', 'memory_core', 'memory_forget', 'memory_get', 'memory_hooks', 'memory_insight', 'memory_list', 'memory_maintain', 'memory_save', 'memory_scopes', 'memory_search',
   ])
 })
 

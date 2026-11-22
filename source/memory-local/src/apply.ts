@@ -466,6 +466,11 @@ export class CordisMemoryService extends Service {
     return this.impl.injectSettings()
   }
 
+  /** 元认知自省（memory_insight 工具）：只读报告。 */
+  insightReport(): ReturnType<LocalMemoryService['insightReport']> {
+    return this.impl.insightReport()
+  }
+
   /** 手动维护（memory_maintain 工具）：立即跑一次整理。 */
   runHousekeeping(options: Parameters<LocalMemoryService['runHousekeeping']>[0] = {}): ReturnType<LocalMemoryService['runHousekeeping']> {
     return this.impl.runHousekeeping(options)

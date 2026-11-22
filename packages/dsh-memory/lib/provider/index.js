@@ -109,6 +109,7 @@ import { MERGE_THRESHOLD, planNearDuplicateMerge } from './cognitive/merge.js'
 import { decideWrite,                                          } from './cognitive/arbiter.js'
 import { parseProfileField } from './profile.js'
 import { parseReflectionField } from './reflection.js'
+import { buildInsight } from './insight.js'
 import {
   CORE_SLOTS,
   CoreMemoryStore,
@@ -6660,6 +6661,25 @@ export class LocalMemoryService                             {
       for (const [id, vec] of scopeStore.vectors) vectors.set(id, vec)
     }
     return computeHealth(records, { vectors, now: Date.now(), excludeFromDuplicates: retired })
+  }
+
+  /**
+   * 元认知自省（1.9.0）：把运行信号汇总成可读报告；不写库、不改记忆。
+   * 反思候选由工具层决定是否落库（人工确认后才进主库）。
+   */
+  insightReport()                                       {
+    this.discoverScopes()
+    const records                 = []
+    for (const scopeStore of this.store.allScopes()) {
+      for (const record of scopeStore.records.values()) records.push(record)
+    }
+    const conflicts = this.listConflicts().length
+    let healthScore                    
+    try { healthScore = this.healthReport().score } catch { healthScore = undefined }
+    return buildInsight(records, {
+      conflicts,
+      ...(healthScore !== undefined ? { healthScore } : {}),
+    })
   }
 
   /** 0.40.0（P1）：冲突中心 —— 列出带冲突标记的活记录（按置信度降序）。 */

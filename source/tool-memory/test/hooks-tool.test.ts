@@ -256,7 +256,7 @@ test('memory_hooks:provider 不支持时给升级提示，不静默失败', asyn
 test('memoryTools:七个工具都在，含 memory_hooks', () => {
   const names = Object.keys(memoryTools({ getService: () => undefined })).sort()
   assert.deepEqual(names, [
-    'memory_block', 'memory_core', 'memory_forget', 'memory_get', 'memory_hooks',
+    'memory_block', 'memory_core', 'memory_forget', 'memory_get', 'memory_hooks', 'memory_insight',
     'memory_list', 'memory_maintain', 'memory_save', 'memory_scopes', 'memory_search',
   ])
 })

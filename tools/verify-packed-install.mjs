@@ -96,8 +96,8 @@ try {
 
   const toolsModule = await import(new URL(`file://${join(dir, 'lib', 'tools', 'index.js')}`))
   const names = Object.keys(toolsModule.memoryTools({ getService: () => ({}) })).sort()
-  if (names.length === 10) ok('工具注册', names.join(','))
-  else bad('工具数量', `期望 10 个，实际 ${names.length}：${names.join(',')}`)
+  if (names.length === 11) ok('工具注册', names.join(','))
+  else bad('工具数量', `期望 11 个，实际 ${names.length}：${names.join(',')}`)
 
   // ── 4. 客户端 bundle 必须注册自己的包名 ──
   const client = readFileSync(join(dir, 'lib', 'client.js'), 'utf8')

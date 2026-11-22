@@ -193,6 +193,16 @@ export function apply(ctx     , config                   = {}) {
     return renderBlockResult(value, (scope) => renderScope(scope, agent))
   })
 
+  register(tools.memory_insight, (value) => {
+    const data = value                                                                                                                                                             
+    const active = (data.signals ?? []).filter((signal) => signal.severity !== 'ok')
+    const head = `自省：${data.totals?.records ?? 0} 条记忆，${active.length} 项需要关注`
+    const lines = active.map((signal) => `- ${signal.label ?? ''}：${signal.detail ?? ''}`)
+    if (data.reflectionId !== undefined) lines.push(`已写反思候选 ${data.reflectionId}`)
+    else if (Array.isArray(data.suggestions) && data.suggestions.length > 0) lines.push(`建议：${data.suggestions.join(' ')}`)
+    return [head, ...lines].join('\n')
+  })
+
   register(tools.memory_maintain, (value) => {
     const data = value                                                                                                                                                           
     const parts           = []

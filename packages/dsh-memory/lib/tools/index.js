@@ -219,6 +219,13 @@ import { canonicalWorkspacePath, defaultScopeDescription, isAbsoluteWorkspacePat
                                                                                                                                                                                           
                                                                      
                                                                                                                                                                                                       
+                        
+                     
+                       
+                                                   
+                                                                                                                  
+                         
+   
                                           
                                                                    
                     
@@ -2857,10 +2864,53 @@ export function memoryMaintainTool(opts                    )                    
   }
 }
 
+export function memoryInsightTool(opts                    )                                                             {
+  return {
+    name: 'memory_insight',
+    description: 'Metacognitive self-audit: read the memory system\'s own runtime signals (recent corrections, unresolved conflicts, low-utility records, stale rules, never-retrieved memories, hook veto rate, health score) and suggest what to review. action="report" only reads; action="reflect" also saves the findings as a kind=reflection candidate (status=candidate) so it can be reviewed before adoption. Nothing is changed automatically.',
+    parameters: {
+      action: { type: 'string', enum: ['report', 'reflect'], description: 'report（默认，只读）/ reflect（额外写一条反思候选）' },
+      scope: { type: 'string', description: 'reflect 时反思候选保存到哪个作用域（默认当前项目）' },
+    },
+    async execute(args, exec) {
+      const service = svc(opts)
+      if (typeof service.insightReport !== 'function') {
+        throw toolError(new MemoryToolError('UNSUPPORTED', '当前 provider 不支持自省报告（请升级 @restregular/dsh-memory）'))
+      }
+      const report = service.insightReport()
+      const action = typeof args.action === 'string' ? args.action : 'report'
+      if (action !== 'reflect') return { ...report }
+      const active = report.signals.filter((signal) => signal.severity !== 'ok')
+      const lines = [
+        `自省报告（${new Date(report.generatedAt).toISOString().slice(0, 10)}）：共 ${report.totals.records} 条记忆。`,
+        ...active.map((signal) => `- ${signal.label}：${signal.detail}`),
+        ...(report.suggestions.length > 0 ? [`建议：${report.suggestions.join(' ')}`] : []),
+      ]
+      const scope = typeof args.scope === 'string' && args.scope.trim() !== '' ? args.scope.trim() : 'project'
+      const saved = await service.save({
+        scope,
+        kind: 'reflection',
+        content: lines.join('\n'),
+        importance: 0.5,
+        reflection: JSON.stringify({
+          status: 'candidate',
+          conclusion: report.suggestions[0] ?? '本次自省未发现需要立即处理的问题',
+          evidence: active.map((signal) => `${signal.label}：${signal.detail}`),
+          confidence: 0.6,
+          kindHint: 'note',
+          scopeHint: scope,
+        }),
+      })
+      return { ...report, reflectionId: saved.id, scope: saved.scope }
+    },
+  }
+}
+
 export function memoryTools(opts                    ) {
   return {
     memory_save: memorySaveTool(opts),
     memory_core: memoryCoreTool(opts),
+    memory_insight: memoryInsightTool(opts),
     memory_maintain: memoryMaintainTool(opts),
     memory_search: memorySearchTool(opts),
     memory_forget: memoryForgetTool(opts),

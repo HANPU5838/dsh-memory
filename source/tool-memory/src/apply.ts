@@ -193,6 +193,16 @@ export function apply(ctx: any, config: ToolMemoryConfig = {}) {
     return renderBlockResult(value, (scope) => renderScope(scope, agent))
   })
 
+  register(tools.memory_insight, (value) => {
+    const data = value as { totals?: { records?: number }; signals?: Array<{ label?: string; severity?: string; detail?: string }>; suggestions?: string[]; reflectionId?: string }
+    const active = (data.signals ?? []).filter((signal) => signal.severity !== 'ok')
+    const head = `自省：${data.totals?.records ?? 0} 条记忆，${active.length} 项需要关注`
+    const lines = active.map((signal) => `- ${signal.label ?? ''}：${signal.detail ?? ''}`)
+    if (data.reflectionId !== undefined) lines.push(`已写反思候选 ${data.reflectionId}`)
+    else if (Array.isArray(data.suggestions) && data.suggestions.length > 0) lines.push(`建议：${data.suggestions.join(' ')}`)
+    return [head, ...lines].join('\n')
+  })
+
   register(tools.memory_maintain, (value) => {
     const data = value as { purged?: number; evicted?: number; dormant?: number; tombstones?: number; consolidated?: number; prunedScopes?: number; health?: { score?: number } }
     const parts: string[] = []
