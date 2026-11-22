@@ -466,6 +466,11 @@ export class CordisMemoryService extends Service {
     return this.impl.injectSettings()
   }
 
+  /** 自发联想（memory_insight action=associate）。 */
+  associativeRecall(input?: Parameters<LocalMemoryService['associativeRecall']>[0]): ReturnType<LocalMemoryService['associativeRecall']> {
+    return this.impl.associativeRecall(input ?? {})
+  }
+
   /** 认知节律（memory_insight action=tick）。 */
   proactiveTick(options?: Parameters<LocalMemoryService['proactiveTick']>[0]): ReturnType<LocalMemoryService['proactiveTick']> {
     return this.impl.proactiveTick(options ?? {})

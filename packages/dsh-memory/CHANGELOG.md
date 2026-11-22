@@ -2,6 +2,13 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 1.11.0 — 自发联想（2026-11-22）
+
+- 新增 `associativeRecall()`：不用查询，以「goal + profile + identity」核心块为种子，
+  复用完整检索管线（词法 + 向量 + 图）找人可能没想到但相关的记忆。
+- `memory_insight` 新增 `action="associate"`；转发契约测试覆盖新方法。
+- 全仓 1415 例 / 1414 pass / 1 skip / 0 fail。
+
 ## 1.10.3 — 自省候选去重（2026-11-22）
 
 - 节律每次自省都会写一条内容相近的候选，重复项把健康分拉到 90。新增 `hasRecentCandidate`：

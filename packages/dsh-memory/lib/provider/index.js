@@ -6665,6 +6665,34 @@ export class LocalMemoryService                             {
   }
 
   /**
+   * 自发联想（1.11.0）：不用查询，用「当前目标 + 用户画像 + 身份」做种子召回，
+   * 回答“没被问的时候会想起什么”。复用完整检索管线（词法 + 向量 + 图）。
+   */
+  async associativeRecall(input                                    = {})                 
+              
+                 
+                
+                   
+                 
+      {
+    const blocks = this.coreBlocks()
+    const parts = [blocks.goal?.content, blocks.profile?.content, blocks.identity?.content]
+      .map((part) => (part ?? '').trim())
+      .filter((part) => part !== '')
+    const seed = (input.seed ?? parts.join(' ')).trim()
+    if (seed === '') return []
+    const limit = Math.max(1, Math.min(10, Math.floor(input.limit ?? 3)))
+    const hits = await this.search({ text: seed, topK: limit, touch: false }         )
+    return hits.map((hit) => ({
+      id: hit.record.id,
+      scope: hit.record.scope,
+      kind: hit.record.kind,
+      content: hit.record.content.length > 120 ? `${hit.record.content.slice(0, 120)}…` : hit.record.content,
+      score: hit.score,
+    }))
+  }
+
+  /**
    * 认知节律（1.10.0）：按自己的时间尺度执行自省与目标提案。
    *  - 自省：到点就跑维护 + 自省，有需要关注项就落一条反思候选；
    *  - 目标提案：从近期 decision/state/procedure 里找目标线索，落成 reflection(kindHint=goal) 候选。

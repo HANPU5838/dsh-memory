@@ -59,3 +59,16 @@ test('memory_insight tick 报告字段在顶层（渲染器读得到）', async 
   assert.equal(out.reflectionId, 'r1')
   assert.deepEqual(out.proposalIds, ['p1'])
 })
+
+
+test('memory_insight associate 返回种子联想结果', async () => {
+  const tool = memoryInsightTool({
+    getService: () => ({
+      insightReport: () => report,
+      associativeRecall: async () => [{ id: 'r1', scope: 'global', kind: 'fact', content: '联想的记忆', score: 0.7 }],
+    }),
+  } as never)
+  const out = (await tool.execute({ action: 'associate' }, {} as never)) as { items: Array<{ id: string }> }
+  assert.equal(out.items.length, 1)
+  assert.equal(out.items[0]!.id, 'r1')
+})
