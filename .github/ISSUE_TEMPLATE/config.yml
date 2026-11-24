@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 💬 使用问题与讨论
+    url: https://github.com/HANPU5838/dsh-memory/discussions
+    about: 安装、配置、用法类问题优先放 Discussions，方便别人检索
+  - name: 📚 文档
+    url: https://github.com/HANPU5838/dsh-memory/blob/main/docs/architecture.md
+    about: 架构、基准、横向对比与验收标准
+  - name: 🔒 安全漏洞
+    url: https://github.com/HANPU5838/dsh-memory/blob/main/SECURITY.md
+    about: 请走私密漏洞报告，不要开公开 Issue

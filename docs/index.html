@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DSH Memory · 给 DeepSeek Harness 的本地长期记忆</title>
+<meta name="description" content="给 DeepSeek Harness 的本地长期记忆：11 个工具、4 路召回、FSRS 衰减与巩固、核心块与自省、7 页面板。JSONL 存储，数据不出版机，零配置可用。">
+<meta property="og:title" content="DSH Memory · 本地长期记忆">
+<meta property="og:description" content="11 个工具 · 4 路召回 · 会衰减会巩固 · 数据不出版机">
+<meta property="og:image" content="https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/preview/memory-records.png">
+<meta property="og:type" content="website">
+<link rel="icon" href="https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/icon.png">
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1a1d21; --muted: #5b6570; --line: #e6e9ee;
+    --card: #f7f9fb; --accent: #2f6fd0; --accent-2: #0e9f6e; --code-bg: #0f1720; --code-fg: #d7e2ee;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117; --fg: #e6edf3; --muted: #9aa7b4; --line: #21262d;
+      --card: #161b22; --accent: #6ea8fe; --accent-2: #3fb950; --code-bg: #010409; --code-fg: #c9d1d9;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.7 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 20px; }
+  header.nav {
+    position: sticky; top: 0; z-index: 10; backdrop-filter: blur(10px);
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    border-bottom: 1px solid var(--line);
+  }
+  header.nav .wrap { display: flex; align-items: center; gap: 14px; height: 58px; }
+  .brand { display: flex; align-items: center; gap: 9px; font-weight: 700; color: var(--fg); }
+  .brand img { width: 24px; height: 24px; border-radius: 6px; }
+  nav.links { margin-left: auto; display: flex; gap: 18px; font-size: 14px; flex-wrap: wrap; }
+  nav.links a { color: var(--muted); }
+  nav.links a:hover { color: var(--fg); text-decoration: none; }
+  .hero { padding: 64px 0 40px; text-align: center; }
+  .hero h1 { font-size: clamp(30px, 5vw, 46px); line-height: 1.2; margin: 0 0 14px; letter-spacing: -0.02em; }
+  .hero .lead { font-size: clamp(16px, 2.2vw, 20px); color: var(--muted); margin: 0 auto 26px; max-width: 720px; }
+  .pills { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin-bottom: 26px; }
+  .pill {
+    font-size: 13px; padding: 4px 11px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--card); color: var(--muted);
+  }
+  .install {
+    display: flex; align-items: center; gap: 10px; max-width: 640px; margin: 0 auto;
+    background: var(--code-bg); color: var(--code-fg); border-radius: 10px; padding: 12px 14px;
+    font: 13.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; text-align: left;
+    overflow-x: auto;
+  }
+  .install code { white-space: nowrap; }
+  .install button {
+    margin-left: auto; flex: none; cursor: pointer; font-size: 12px; padding: 5px 10px;
+    border-radius: 6px; border: 1px solid #30363d; background: #21262d; color: #c9d1d9;
+  }
+  .install button:hover { background: #30363d; }
+  .cta { margin-top: 22px; display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; }
+  .btn {
+    display: inline-block; padding: 9px 18px; border-radius: 8px; font-size: 14px; font-weight: 600;
+    border: 1px solid var(--line); color: var(--fg); background: var(--card);
+  }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { text-decoration: none; opacity: .92; }
+  section { padding: 44px 0; border-top: 1px solid var(--line); }
+  h2 { font-size: clamp(22px, 3vw, 28px); margin: 0 0 8px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+  .stat { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; text-align: center; }
+  .stat b { display: block; font-size: 26px; line-height: 1.2; }
+  .stat span { font-size: 13px; color: var(--muted); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 14px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px; }
+  .card h3 { margin: 0 0 8px; font-size: 16px; }
+  .card p { margin: 0; font-size: 14px; color: var(--muted); }
+  figure { margin: 0; }
+  figure img { width: 100%; border-radius: 12px; border: 1px solid var(--line); display: block; }
+  figcaption { font-size: 13px; color: var(--muted); margin-top: 8px; text-align: center; }
+  .shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
+  pre.flow {
+    background: var(--code-bg); color: var(--code-fg); padding: 18px; border-radius: 12px;
+    overflow-x: auto; font: 13px/1.75 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  footer { padding: 34px 0 48px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; text-align: center; }
+  .end { display: none; }
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap">
+    <a class="brand" href="#top">
+      <img src="https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/icon.png" alt="">
+      DSH Memory
+    </a>
+    <nav class="links">
+      <a href="#features">能力</a>
+      <a href="#screens">界面</a>
+      <a href="#quickstart">安装</a>
+      <a href="https://github.com/HANPU5838/dsh-memory/blob/main/docs/comparison.md">对比</a>
+      <a href="https://github.com/HANPU5838/dsh-memory">GitHub</a>
+      <a href="https://github.com/HANPU5838/dsh-memory/releases">Release</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+  <div class="wrap hero">
+    <h1>给 Agent 一个不会忘的本地记忆库</h1>
+    <p class="lead">
+      DeepSeek Harness 插件：11 个模型工具、4 路召回、记忆会衰减也会巩固。
+      数据全部留在本机，零配置即可用。
+    </p>
+    <div class="pills">
+      <span class="pill">11 个工具</span>
+      <span class="pill">4 路召回 + RRF</span>
+      <span class="pill">FSRS 衰减</span>
+      <span class="pill">语义合并 / 冲突裁决</span>
+      <span class="pill">7 页面板</span>
+      <span class="pill">离线可用</span>
+      <span class="pill">MIT</span>
+    </div>
+    <div class="install">
+      <code id="cmd">dsh plugin --profile web add "github:HANPU5838/dsh-memory#main"</code>
+      <button id="copy" type="button">复制</button>
+    </div>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/HANPU5838/dsh-memory">查看仓库</a>
+      <a class="btn" href="https://github.com/HANPU5838/dsh-memory/releases">下载 / Release</a>
+      <a class="btn" href="https://github.com/HANPU5838/dsh-memory/blob/main/README.en.md">English</a>
+    </div>
+  </div>
+
+  <section id="stats">
+    <div class="wrap">
+      <div class="stats">
+        <div class="stat"><b>11</b><span>模型工具</span></div>
+        <div class="stat"><b>4</b><span>路召回通道</span></div>
+        <div class="stat"><b>1413</b><span>例测试 0 失败</span></div>
+        <div class="stat"><b>0</b><span>网络请求（不配向量后端时）</span></div>
+        <div class="stat"><b>9</b><span>种记忆类型</span></div>
+        <div class="stat"><b>7</b><span>个面板页</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="features">
+    <div class="wrap">
+      <h2>它解决的是「记过，但想不起来」</h2>
+      <p class="sub">不是把文本塞进向量库就完事。写入、检索、注入、生命周期四层互相约束。</p>
+      <div class="grid">
+        <div class="card"><h3>多路召回</h3><p>BM25 词法 + bge-m3 向量 + PPR 图增强多跳 + PRF 查询扩展，RRF 融合；字面搜不到也能靠共享实体桥接，结果标「联想」。</p></div>
+        <div class="card"><h3>有强度、会衰减</h3><p>FSRS 式排序：相关度 × 保持度 × 效用 × 重要度 × 退役惩罚。长期不用的记忆休眠，软删 30 天内可恢复。</p></div>
+        <div class="card"><h3>自动整理</h3><p>近重复自动合并（0.92），冲突自动打标并裁决（0.75 起），周期巩固把同簇记忆压成一条带证据的产物。</p></div>
+        <div class="card"><h3>上下文友好</h3><p>500 token 动态预算 + TextRank 抽取式摘要 + 注入前冲突消解，长记忆不靠截断，只抽原文不编造。</p></div>
+        <div class="card"><h3>可解释</h3><p>每次注入的触发原因、候选、过滤、省略、预算都能在「审计」页看到；工具输出带来源标记。</p></div>
+        <div class="card"><h3>数据不出机</h3><p>JSONL + 本地向量缓存，可读可 diff 可迁移；凭据命中拒绝写入；不配向量后端时零网络请求。</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="screens">
+    <div class="wrap">
+      <h2>七个面板页，全部本地</h2>
+      <p class="sub">服务 / 记录 / 知识树 / 关系分析 / 规则代码 / 设置 / 审计。</p>
+      <div class="shots">
+        <figure>
+          <img src="https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/preview/memory-records.png" alt="记忆记录页">
+          <figcaption>记录页：浏览、检索、编辑、导入导出</figcaption>
+        </figure>
+        <figure>
+          <img src="https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/preview/memory-tree.png" alt="记忆知识树">
+          <figcaption>知识树：作用域 → 类型 → 记录，含修正关系</figcaption>
+        </figure>
+        <figure>
+          <img src="https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/preview/memory-settings.png" alt="记忆设置页">
+          <figcaption>设置页：召回 / 摘要 / 注入 / 图增强逐项开关</figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <section id="architecture">
+    <div class="wrap">
+      <h2>四层结构</h2>
+      <p class="sub">每一层都能单独关掉或调参，面板与配置文件同一套开关。</p>
+<pre class="flow">写入层   scope / kind / importance / tags / TTL / 密钥脱敏
+   ↓
+检索层   BM25 + bge-m3 向量 + PPR 图增强 + PRF → RRF 融合 → cross-encoder 重排
+   ↓
+上下文层 动态 token 预算 → TextRank 摘要 → 冲突消解 → 注入
+   ↓
+生命周期 FSRS 强度 → 语义合并 → 冲突裁决 → 周期巩固 → 休眠 / 软删</pre>
+    </div>
+  </section>
+
+  <section id="quickstart">
+    <div class="wrap">
+      <h2>30 秒安装</h2>
+      <p class="sub">要求 DSH + Node ≥ 22.13。装完重启一次 <code>dsh web</code>。</p>
+      <div class="install" style="margin:0 0 18px;max-width:none">
+        <code>dsh plugin --profile web add "github:HANPU5838/dsh-memory#main"</code>
+      </div>
+      <table>
+        <thead><tr><th>你想要的</th><th>怎么做</th></tr></thead>
+        <tbody>
+          <tr><td>零配置先跑起来</td><td>装完即用，没有向量后端时自动退化为纯词法检索，不联网</td></tr>
+          <tr><td>开语义检索</td><td>面板「服务 → 向量服务」一键安装（Termux：<code>pkg install llama-cpp</code> + 自动下载 bge-m3）</td></tr>
+          <tr><td>只想用词法</td><td>不装后端即可；检索仍走 BM25 + PRF + 图增强</td></tr>
+          <tr><td>换机器 / 备份</td><td>复制整个 <code>~/.dsh-memory</code>，或在面板导出</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="links">
+    <div class="wrap">
+      <h2>继续阅读</h2>
+      <div class="grid">
+        <div class="card"><h3><a href="https://github.com/HANPU5838/dsh-memory/blob/main/docs/architecture.md">架构说明</a></h3><p>存储、检索、注入、认知层怎么划分，以及为什么这样切。</p></div>
+        <div class="card"><h3><a href="https://github.com/HANPU5838/dsh-memory/blob/main/docs/benchmark.md">检索基准</a></h3><p>94 条合成记忆 / 48 条查询上，各开关对 recall 与 nDCG 的实际影响。</p></div>
+        <div class="card"><h3><a href="https://github.com/HANPU5838/dsh-memory/blob/main/docs/comparison.md">横向对比</a></h3><p>与 Mem0 / Zep / Letta / Hindsight 等逐项对照，也写明本项目的短板。</p></div>
+        <div class="card"><h3><a href="https://github.com/HANPU5838/dsh-memory/blob/main/CONTRIBUTING.md">参与贡献</a></h3><p>目录结构、提交前自检、发版流程；英文文档翻译长期欢迎。</p></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>MIT License © RestRegular（原始作者）与 HANPU5838（本仓库维护）</p>
+    <p>
+      <a href="https://github.com/HANPU5838/dsh-memory">GitHub</a> ·
+      <a href="https://github.com/HANPU5838/dsh-memory/releases">Release</a> ·
+      <a href="https://github.com/HANPU5838/dsh-memory/discussions">Discussions</a> ·
+      <a href="https://github.com/HANPU5838/dsh-memory/issues">Issues</a>
+    </p>
+  </div>
+</footer>
+
+<script>
+  const btn = document.getElementById('copy');
+  if (btn) {
+    btn.addEventListener('click', async () => {
+      const text = document.getElementById('cmd').textContent;
+      try {
+        await navigator.clipboard.writeText(text);
+        btn.textContent = '已复制';
+      } catch {
+        btn.textContent = '请手动复制';
+      }
+      setTimeout(() => btn.textContent = '复制', 1600);
+    });
+  }
+</script>
+</body>
+</html>

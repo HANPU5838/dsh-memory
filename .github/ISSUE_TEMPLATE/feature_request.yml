@@ -1,0 +1,56 @@
+name: ✨ 功能建议
+description: 提出一个新功能或行为改进
+title: 'feat: '
+labels: ['enhancement']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        这个项目刻意保持「单进程、零运行时依赖、完全离线」的定位。
+        与这个定位冲突的建议也可能有价值，但请在「取舍」里说明你希望的边界。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 你遇到的场景 / 问题
+      description: 先讲问题，不要直接讲方案
+      placeholder: 例如：同一个仓库里多个子项目共用 project 作用域，记忆会互相干扰
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 你希望的方案
+      description: 如果它需要新的工具、配置项或存储字段，请写出来
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 你考虑过的替代方案
+      description: 包括现在的配置能不能绕过、面板里有没有等价功能
+
+  - type: textarea
+    id: tradeoffs
+    attributes:
+      label: 取舍与影响面
+      description: 会不会引入依赖、网络请求、存储迁移或性能开销？对离线/隐私定位有无影响？
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 涉及区域
+      multiple: true
+      options:
+        - 检索 / 排序
+        - 注入 / 上下文
+        - 存储 / 作用域
+        - 面板 UI
+        - 工具接口
+        - 安装 / 跨平台
+        - 文档
+        - 其他
+    validations:
+      required: true

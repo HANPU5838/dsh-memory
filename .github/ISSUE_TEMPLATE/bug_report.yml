@@ -1,0 +1,110 @@
+name: 🐞 Bug 报告
+description: 报告一个可复现的问题
+title: 'fix: '
+labels: ['bug']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。**请先升级到最新 Release** 再复现；旧版本的问题可能已经修复。
+        安全漏洞请不要用这个模板，见 [SECURITY.md](https://github.com/HANPU5838/dsh-memory/blob/main/SECURITY.md)。
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 发生了什么
+      description: 一句话说清现象
+      placeholder: 例如：面板「记录」页搜索返回空，但 memory_search 能命中
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 越具体越好，包含触发它的原话或工具调用
+      placeholder: |
+        1. 在 Termux 安装 v1.12.2
+        2. 打开面板 → 记录 → 搜索「部署」
+        3. 结果为空
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望结果 vs 实际结果
+    validations:
+      required: true
+
+  - type: input
+    id: dsh-version
+    attributes:
+      label: DSH 版本
+      description: '`dsh --version` 的输出'
+      placeholder: 0.2.2-rc.5
+    validations:
+      required: true
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: 记忆系统版本
+      description: 面板「服务」页或 `package.json` 里的版本
+      placeholder: v1.12.2
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: 运行环境
+      options:
+        - Termux / Android
+        - Linux
+        - macOS
+        - Windows
+        - 其他（在补充信息里说明）
+    validations:
+      required: true
+
+  - type: input
+    id: node
+    attributes:
+      label: Node 版本
+      placeholder: v22.14.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: vector
+    attributes:
+      label: 向量后端
+      description: 面板「服务」页显示的向量服务状态
+      options:
+        - 本地 llama-server（bge-m3）
+        - OpenAI / 兼容端点
+        - Ollama
+        - 未启用（纯词法）
+        - 不确定
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志或报错
+      description: 粘贴相关日志；请先删除 token、密钥、真实记忆正文
+      render: shell
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已升级到最新 Release 并重新复现
+          required: true
+        - label: 我搜索过已有 Issue，没有重复
+          required: true
+        - label: 日志里没有包含凭据或私密记忆内容
+          required: true

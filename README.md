@@ -5,14 +5,30 @@
 **给 DeepSeek Harness 的本地长期记忆：11 个工具 · 4 路召回 · 会衰减会巩固 · 数据不出版机**
 
 [![version](https://img.shields.io/badge/version-v1.12.2-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![ci](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml)
+[![stars](https://img.shields.io/github/stars/HANPU5838/dsh-memory?style=flat&color=DAA520)](https://github.com/HANPU5838/dsh-memory/stargazers)
+[![issues](https://img.shields.io/github/issues/HANPU5838/dsh-memory)](https://github.com/HANPU5838/dsh-memory/issues)
 [![license](https://img.shields.io/badge/license-MIT-3DA639.svg)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A522.13-3C873A.svg)](package.json)
 
-**[安装](#快速开始) · [能力](#它为什么是真正的记忆系统) · [配置](#配置参考) · [评测](#评测与验收) · [支持](#支持这个项目) · [更新日志](CHANGELOG.md)**
+**[安装](#快速开始) · [能力](#它为什么是真正的记忆系统) · [配置](#配置参考) · [评测](#评测与验收) · [横向对比](docs/comparison.md) · [支持](#支持这个项目) · [更新日志](CHANGELOG.md)**
+
+**中文** · [English](README.en.md) · [官网](https://hanpu5838.github.io/dsh-memory/)
 
 </div>
 
 **当前版本：v1.12.2（正式版）** · [Release](https://github.com/HANPU5838/dsh-memory/releases) · [更新日志](CHANGELOG.md)
+
+## 30 秒安装
+
+```bash
+dsh plugin --profile web add "github:HANPU5838/dsh-memory#main"
+```
+
+装完重启一次 `dsh web` 即生效。**零配置可用**（没有向量后端时自动退化为纯词法检索，不联网）；
+要语义检索，在面板「服务 → 向量服务」点一次一键安装即可（Termux 走 `pkg install llama-cpp` + 自动下载 bge-m3）。
+
+<img src="preview/memory-records.png" width="880" alt="DSH 记忆系统面板 · 记录页">
 
 <div align="center">
 
