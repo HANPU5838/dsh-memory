@@ -1,8 +1,8 @@
-# @restregular/dsh-memory bundle patch: 单包单入口 —— provider + 模型工具 + 召回注入 + 面板(服务端与客户端同包)。
+# @hanpu5838/dsh-memory bundle patch: 单包单入口 —— provider + 模型工具 + 召回注入 + 面板(服务端与客户端同包)。
 #
 # 只有一行,而且必须是包名:宿主的 client-modules 只为「能解析到包名的活 entry」
 # 提供 client bundle(见 dsh-client-modules reconcilePackage)。纯 insert、不带
 # config,是为了让这一行可被宿主热挂载(带 config 只能重启生效)。
 - insert:
     - id: dsh-memory
-      name: '@restregular/dsh-memory'
+      name: '@hanpu5838/dsh-memory'

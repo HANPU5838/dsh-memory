@@ -2,8 +2,8 @@
  * dsh-memory — 客户端半边(设置页「记忆系统」区块)。
  *
  * 合并后本 bundle 与 provider / 工具 / 注入同属一个 npm 包
- * `@restregular/dsh-memory`:一个包名、一条 Loader entry、两侧都在。
- * 拆成两个包时这里曾是 '@restregular/dsh-memory-panel'。
+ * `@hanpu5838/dsh-memory`:一个包名、一条 Loader entry、两侧都在。
+ * 拆成两个包时这里曾是 '@hanpu5838/dsh-memory-panel'。
  *
  * 与 dsh-meme / dshmarket 客户端同款形态:
  *   - window.__ModuleLoader__.load({id, factory(require)}):**id 必须等于包名**
@@ -17,7 +17,7 @@
  *   - 颜色全走宿主 --dsw-alias-* 主题 token,深浅色自适应,零硬编码色值。
  */
 window.__ModuleLoader__.load({
-  id: '@restregular/dsh-memory',
+  id: '@hanpu5838/dsh-memory',
   factory: (require) => {
     var module = { exports: {} }
     var exports = module.exports
@@ -5752,7 +5752,7 @@ window.__ModuleLoader__.load({
         dataView === 'scopes' ? null : searchNoteNode,
         dataView === 'scopes'
           ? (scopeDescriptionMissing
-            ? h('div', { className: 'hint' }, '当前 provider 没有返回作用域用途（升级 @restregular/dsh-memory 后即可显示）。')
+            ? h('div', { className: 'hint' }, '当前 provider 没有返回作用域用途（升级 @hanpu5838/dsh-memory 后即可显示）。')
             : null)
           : createForm,
         error ? h('div', { className: 'err' }, error) : null,

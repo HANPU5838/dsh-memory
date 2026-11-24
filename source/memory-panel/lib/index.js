@@ -446,7 +446,7 @@ function auditPage(memory, query) {  if (memory === undefined || memory === null
       }
     }
     if (typeof memory.injectAudit === 'function') return legacyAuditPage(memory, query)
-    throw new ApiError(503, 'AUDIT_UNAVAILABLE', 'provider 未提供注入审计接口（请升级 @restregular/dsh-memory）')
+    throw new ApiError(503, 'AUDIT_UNAVAILABLE', 'provider 未提供注入审计接口（请升级 @hanpu5838/dsh-memory）')
   } catch (error) {
     if (error instanceof ApiError) throw error
     if (error && typeof error.code === 'string' && error.code.startsWith('AUDIT_')) {
@@ -697,7 +697,7 @@ function analysisInputError(field, message) {
 function analysisMethod(memory, name) {
   const fn = memory?.[name]
   if (typeof fn !== 'function') {
-    throw new ApiError(501, 'NOT_SUPPORTED', `provider 未提供智能关系分析接口（${name}，请升级 @restregular/dsh-memory）`)
+    throw new ApiError(501, 'NOT_SUPPORTED', `provider 未提供智能关系分析接口（${name}，请升级 @hanpu5838/dsh-memory）`)
   }
   return fn
 }
@@ -854,7 +854,7 @@ async function handle(ctx, routePath, req, res) {
     // 会话级「记忆可见范围」:输入框旁的按钮读写这一对接口。
     if (method === 'GET' && path === '/visibility') {
       if (typeof memory.sessionVisibility !== 'function') {
-        throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供会话可见范围接口（请升级 @restregular/dsh-memory）')
+        throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供会话可见范围接口（请升级 @hanpu5838/dsh-memory）')
       }
       const sessionId = (url.searchParams.get('session') ?? '').trim()
       if (sessionId === '') throw new ApiError(400, 'SESSION_REQUIRED', 'session 参数不能为空')
@@ -863,7 +863,7 @@ async function handle(ctx, routePath, req, res) {
     }
     if (method === 'POST' && path === '/visibility') {
       if (typeof memory.setSessionVisibility !== 'function') {
-        throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供会话可见范围接口（请升级 @restregular/dsh-memory）')
+        throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供会话可见范围接口（请升级 @hanpu5838/dsh-memory）')
       }
       const body = await readJsonBody(req)
       const sessionId = typeof body?.session === 'string' ? body.session.trim() : ''
@@ -909,7 +909,7 @@ async function handle(ctx, routePath, req, res) {
       // 绑定失败时回滚可见范围，避免半份状态（审计 P2）。
       const rawBindings = body?.bindings
       if (rawBindings !== undefined && typeof memory.setWorkspaceBindings !== 'function') {
-        throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供工作区绑定接口（请升级 @restregular/dsh-memory）')
+        throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供工作区绑定接口（请升级 @hanpu5838/dsh-memory）')
       }
       const before = typeof memory.sessionVisibility === 'function' ? memory.sessionVisibility(sessionId) : null
       memory.setSessionVisibility(sessionId, next)
@@ -933,7 +933,7 @@ async function handle(ctx, routePath, req, res) {
     // 所以点一下立即落盘,不需要用户再点「保存」;也不注入上下文提示。
     if (method === 'POST' && path === '/bindings') {
       if (typeof memory.setWorkspaceBindings !== 'function') {
-        throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供工作区绑定接口（请升级 @restregular/dsh-memory）')
+        throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供工作区绑定接口（请升级 @hanpu5838/dsh-memory）')
       }
       const body = await readJsonBody(req)
       const sessionId = typeof body?.session === 'string' ? body.session.trim() : ''
@@ -954,7 +954,7 @@ async function handle(ctx, routePath, req, res) {
     // 不带条目正文,避免全局 1.5s 轮询把审批内容一遍遍传一遍。
     if (method === 'GET' && path === '/approvals') {
       if (typeof memory.pendingVisibilityApprovals !== 'function') {
-        throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供可见域审批接口（请升级 @restregular/dsh-memory）')
+        throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供可见域审批接口（请升级 @hanpu5838/dsh-memory）')
       }
       const sessionId = (url.searchParams.get('session') ?? '').trim()
       const summary = url.searchParams.get('summary') === '1'
@@ -966,7 +966,7 @@ async function handle(ctx, routePath, req, res) {
     }
     if (method === 'POST' && path === '/approvals') {
       if (typeof memory.answerVisibilityApproval !== 'function') {
-        throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供可见域审批接口（请升级 @restregular/dsh-memory）')
+        throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供可见域审批接口（请升级 @hanpu5838/dsh-memory）')
       }
       const body = await readJsonBody(req)
       const id = typeof body?.id === 'string' ? body.id.trim() : ''
@@ -989,7 +989,7 @@ async function handle(ctx, routePath, req, res) {
     // 面板「记忆权限」：Agent 申请到的会话授权 + 撤销（0.25.0）。
     if (method === 'GET' && path === '/grants') {
       if (typeof memory.sessionGrants !== 'function') {
-        throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供会话授权接口（请升级 @restregular/dsh-memory）')
+        throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供会话授权接口（请升级 @hanpu5838/dsh-memory）')
       }
       const sessionId = (url.searchParams.get('session') ?? '').trim()
       if (sessionId === '') throw new ApiError(400, 'SESSION_REQUIRED', 'session 参数不能为空')
@@ -998,7 +998,7 @@ async function handle(ctx, routePath, req, res) {
     }
     if (method === 'POST' && path === '/grants') {
       if (typeof memory.revokeGrant !== 'function') {
-        throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供授权撤销接口（请升级 @restregular/dsh-memory）')
+        throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供授权撤销接口（请升级 @hanpu5838/dsh-memory）')
       }
       const body = await readJsonBody(req)
       const sessionId = typeof body?.session === 'string' ? body.session.trim() : ''
@@ -1136,18 +1136,18 @@ async function handle(ctx, routePath, req, res) {
       if (scope === '') throw new ApiError(400, 'SCOPE_INVALID', 'scope 不能为空')
       const restore = body?.restore === true
       if (restore) {
-        if (typeof memory.restoreScope !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供归档解除接口（请升级 @restregular/dsh-memory）')
+        if (typeof memory.restoreScope !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供归档解除接口（请升级 @hanpu5838/dsh-memory）')
         writeJson(res, { ok: true, value: { scope, restored: memory.restoreScope(scope) } })
         return
       }
-      if (typeof memory.archiveScope !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供归档接口（请升级 @restregular/dsh-memory）')
+      if (typeof memory.archiveScope !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供归档接口（请升级 @hanpu5838/dsh-memory）')
       const entry = memory.archiveScope(scope, 'user', typeof body?.note === 'string' ? body.note : undefined)
       writeJson(res, { ok: true, value: { scope, entry } })
       return
     }
     if (method === 'GET' && path === '/blocks') {
       if (typeof memory.listBlocks !== 'function') {
-        throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供屏蔽接口（请升级 @restregular/dsh-memory）')
+        throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供屏蔽接口（请升级 @hanpu5838/dsh-memory）')
       }
       // 面板不带 agent：会话级 / 工作区级分别按 session / workspace 参数查，
       // 这样用户能看见「哪一层把这条藏起来了」，而不是只能看见合并后的结果。
@@ -1170,7 +1170,7 @@ async function handle(ctx, routePath, req, res) {
         throw new ApiError(400, 'SESSION_REQUIRED', level === 'session' ? 'session 不能为空' : 'workspace 不能为空')
       }
       if (body?.restore === true) {
-        if (typeof memory.unblock !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供解除屏蔽接口（请升级 @restregular/dsh-memory）')
+        if (typeof memory.unblock !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供解除屏蔽接口（请升级 @hanpu5838/dsh-memory）')
         // 面板解除时直接用存储层：按 id / scope 精确匹配，key 明确指定是哪一层。
         const match = {
           level,
@@ -1183,7 +1183,7 @@ async function handle(ctx, routePath, req, res) {
         writeJson(res, { ok: true, value: { removed } })
         return
       }
-      if (typeof memory.requestBlock !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供屏蔽接口（请升级 @restregular/dsh-memory）')
+      if (typeof memory.requestBlock !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供屏蔽接口（请升级 @hanpu5838/dsh-memory）')
       // 面板是用户本人操作：审批在 UI 里已经点过一次，这里带一个已允许的审批答复。
       const original = memory.requestOutOfScope
       memory.requestOutOfScope = async () => ({ outcome: 'allowed-once' })
@@ -1334,7 +1334,7 @@ async function handle(ctx, routePath, req, res) {
       // 用户编辑作用域的描述 / 别名（0.29.0）。面板是用户本人的操作，不带会话可见域；
       // 但只允许改**目录里看得见**的作用域,免得手滑把用途写到一条永远读不到的元数据上。
       if (typeof memory.describeScope !== 'function' && typeof memory.renameScope !== 'function') {
-        throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供作用域编辑接口（请升级 @restregular/dsh-memory）')
+        throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供作用域编辑接口（请升级 @hanpu5838/dsh-memory）')
       }
       const body = await readJsonBody(req)
       const scope = typeof body?.scope === 'string' ? body.scope.trim() : ''
@@ -1390,12 +1390,12 @@ async function handle(ctx, routePath, req, res) {
       return
     }
     if (method === 'GET' && path === '/settings') {
-      if (typeof memory.injectSettings !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供注入设置接口（请升级 @restregular/dsh-memory）')
+      if (typeof memory.injectSettings !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供注入设置接口（请升级 @hanpu5838/dsh-memory）')
       writeJson(res, { ok: true, value: memory.injectSettings() })
       return
     }
     if (method === 'POST' && path === '/settings') {
-      if (typeof memory.updateInjectSettings !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供注入设置接口（请升级 @restregular/dsh-memory）')
+      if (typeof memory.updateInjectSettings !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供注入设置接口（请升级 @hanpu5838/dsh-memory）')
       const body = await readJsonBody(req)
       writeJson(res, { ok: true, value: memory.updateInjectSettings(body) })
       return
@@ -1405,7 +1405,7 @@ async function handle(ctx, routePath, req, res) {
     // 工具那边只能让模型提交代码，而代码会在 DSH 进程里执行，用户必须能逐行审查。
     if (method === 'GET' && path === '/hooks') {
       if (typeof memory.listHooks !== 'function') {
-        throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供记忆钩子接口（请升级 @restregular/dsh-memory）')
+        throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供记忆钩子接口（请升级 @hanpu5838/dsh-memory）')
       }
       const pending = typeof memory.hookPendingApproval === 'function'
       writeJson(res, {
@@ -1437,7 +1437,7 @@ async function handle(ctx, routePath, req, res) {
 
       if (action === 'revoke-approval') {
         // 0.38.0：撤销批准 ≠ 停用 —— 代码保留、变回待批准；未批准不会运行。
-        if (typeof memory.revokeHookApproval !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供撤销批准接口（请升级 @restregular/dsh-memory）')
+        if (typeof memory.revokeHookApproval !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供撤销批准接口（请升级 @hanpu5838/dsh-memory）')
         const id = typeof body.id === 'string' ? body.id : ''
         if (id === '') throw new ApiError(400, 'HOOK_ID_REQUIRED', 'id 不能为空')
         writeJson(res, { ok: true, value: { revoked: memory.revokeHookApproval(id) } })
@@ -1453,7 +1453,7 @@ async function handle(ctx, routePath, req, res) {
       }
 
       if (action === 'run') {
-        if (typeof memory.runHookTrial !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供记忆钩子试跑接口（请升级 @restregular/dsh-memory）')
+        if (typeof memory.runHookTrial !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供记忆钩子试跑接口（请升级 @hanpu5838/dsh-memory）')
         const id = typeof body.id === 'string' ? body.id : ''
         const content = typeof body.content === 'string' ? body.content : ''
         if (content.trim() === '') throw new ApiError(400, 'HOOK_CONTENT_REQUIRED', 'content 不能为空（试跑要一段样例正文）')
@@ -1512,7 +1512,7 @@ async function handle(ctx, routePath, req, res) {
       return
     }
     if (method === 'POST' && path === '/create') {
-      if (typeof memory.createRecord !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供新建接口（请升级 @restregular/dsh-memory）')
+      if (typeof memory.createRecord !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供新建接口（请升级 @hanpu5838/dsh-memory）')
       const body = await readJsonBody(req)
       const record = await memory.createRecord({
         ...(typeof body.scope === 'string' ? { scope: body.scope } : {}),
@@ -1529,12 +1529,12 @@ async function handle(ctx, routePath, req, res) {
       return
     }
     if (method === 'GET' && path === '/export') {
-      if (typeof memory.exportAll !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供导出接口（请升级 @restregular/dsh-memory）')
+      if (typeof memory.exportAll !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供导出接口（请升级 @hanpu5838/dsh-memory）')
       writeJson(res, { ok: true, value: memory.exportAll() })
       return
     }
     if (method === 'POST' && path === '/import') {
-      if (typeof memory.importRecords !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供导入接口（请升级 @restregular/dsh-memory）')
+      if (typeof memory.importRecords !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供导入接口（请升级 @hanpu5838/dsh-memory）')
       const body = await readJsonBody(req)
       const result = await memory.importRecords(body)
       console.log(`[dsh-memory-panel] 导入完成: 新增 ${result.imported} / 跳过 ${result.skipped} / 失败 ${result.rejected}`)
@@ -1560,18 +1560,18 @@ async function handle(ctx, routePath, req, res) {
       return
     }
     if (method === 'GET' && path === '/embed/model') {
-      if (typeof memory.modelsReport !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供模型清单接口（请升级 @restregular/dsh-memory）')
+      if (typeof memory.modelsReport !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供模型清单接口（请升级 @hanpu5838/dsh-memory）')
       writeJson(res, { ok: true, value: await memory.modelsReport(false) })
       return
     }
     if (method === 'POST' && path === '/embed/model/refresh') {
-      if (typeof memory.modelsReport !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供模型清单接口（请升级 @restregular/dsh-memory）')
+      if (typeof memory.modelsReport !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供模型清单接口（请升级 @hanpu5838/dsh-memory）')
       // 强制重探硬件:用户点了「重新检测」,缓存必须让路。
       writeJson(res, { ok: true, value: await memory.modelsReport(true) })
       return
     }
     if (method === 'POST' && path === '/embed/install') {
-      if (typeof memory.installVectorBackend !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供自动安装接口（请升级 @restregular/dsh-memory）')
+      if (typeof memory.installVectorBackend !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供自动安装接口（请升级 @hanpu5838/dsh-memory）')
       // 面板可以带选择:预设 / 档位 / 风味,或者一个完全自定义的 GGUF。
       const body = await readJsonBody(req)
       const override = {}
@@ -1601,21 +1601,21 @@ async function handle(ctx, routePath, req, res) {
       return
     }
     if (method === 'POST' && path === '/embed/install/cancel') {
-      if (typeof memory.cancelVectorInstall !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供自动安装接口（请升级 @restregular/dsh-memory）')
+      if (typeof memory.cancelVectorInstall !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供自动安装接口（请升级 @hanpu5838/dsh-memory）')
       memory.cancelVectorInstall()
       console.log('[dsh-memory-panel] 取消下载本地向量服务')
       writeJson(res, { ok: true, value: { ...(await memory.embedServerStatus()) } })
       return
     }
     if (method === 'POST' && path === '/embed/uninstall') {
-      if (typeof memory.uninstallVectorBackend !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供卸载接口（请升级 @restregular/dsh-memory）')
+      if (typeof memory.uninstallVectorBackend !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供卸载接口（请升级 @hanpu5838/dsh-memory）')
       const out = memory.uninstallVectorBackend()
       console.log(`[dsh-memory-panel] 卸载向量服务 -> ${out.reason}，释放 ${(out.freedBytes / 1048576).toFixed(1)} MB`)
       writeJson(res, { ok: true, value: { ...out, ...(await memory.embedServerStatus()) } })
       return
     }
     if (method === 'POST' && path === '/embed/reindex') {
-      if (typeof memory.reindexAll !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供向量重建接口（请升级 @restregular/dsh-memory）')
+      if (typeof memory.reindexAll !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供向量重建接口（请升级 @hanpu5838/dsh-memory）')
       // 同步部分只作废旧向量 + 排队,真正的重嵌在后台跑,不阻塞请求;进度看 /status 的待嵌入计数。
       const result = memory.reindexAll() ?? {}
       const total = typeof result.total === 'number' ? result.total : 0
@@ -1624,7 +1624,7 @@ async function handle(ctx, routePath, req, res) {
       return
     }
     if (method === 'POST' && path === '/data/wipe') {
-      if (typeof memory.wipeAllRecords !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供数据清理接口（请升级 @restregular/dsh-memory）')
+      if (typeof memory.wipeAllRecords !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供数据清理接口（请升级 @hanpu5838/dsh-memory）')
       const body = await readJsonBody(req)
       // Deleting everything is irreversible: require the caller to say so out
       // loud, not just to click a button.
@@ -1635,17 +1635,17 @@ async function handle(ctx, routePath, req, res) {
       return
     }
     if (method === 'GET' && path === '/health') {
-      if (typeof memory.healthReport !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供健康度接口（请升级 @restregular/dsh-memory）')
+      if (typeof memory.healthReport !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供健康度接口（请升级 @hanpu5838/dsh-memory）')
       writeJson(res, { ok: true, value: memory.healthReport() })
       return
     }
     if (method === 'GET' && path === '/conflicts') {
-      if (typeof memory.listConflicts !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供冲突接口（请升级 @restregular/dsh-memory）')
+      if (typeof memory.listConflicts !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供冲突接口（请升级 @hanpu5838/dsh-memory）')
       writeJson(res, { ok: true, value: { conflicts: memory.listConflicts() } })
       return
     }
     if (method === 'POST' && path === '/conflicts/resolve') {
-      if (typeof memory.resolveConflictRecord !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供冲突解决接口（请升级 @restregular/dsh-memory）')
+      if (typeof memory.resolveConflictRecord !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供冲突解决接口（请升级 @hanpu5838/dsh-memory）')
       const body = await readJsonBody(req)
       const id = String(body.id ?? '')
       if (id === '') throw new ApiError(400, 'RECORD_NOT_FOUND', '缺少 id')
@@ -1655,7 +1655,7 @@ async function handle(ctx, routePath, req, res) {
       return
     }
     if (method === 'POST' && path === '/quarantine/release') {
-      if (typeof memory.releaseQuarantine !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供隔离接口（请升级 @restregular/dsh-memory）')
+      if (typeof memory.releaseQuarantine !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供隔离接口（请升级 @hanpu5838/dsh-memory）')
       const body = await readJsonBody(req)
       const id = String(body.id ?? '')
       if (id === '') throw new ApiError(400, 'RECORD_NOT_FOUND', '缺少 id')
@@ -1665,19 +1665,19 @@ async function handle(ctx, routePath, req, res) {
       return
     }
     if (method === 'GET' && path === '/backups') {
-      if (typeof memory.listBackups !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供备份接口（请升级 @restregular/dsh-memory）')
+      if (typeof memory.listBackups !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供备份接口（请升级 @hanpu5838/dsh-memory）')
       writeJson(res, { ok: true, value: { backups: memory.listBackups() } })
       return
     }
     if (method === 'POST' && path === '/backups') {
-      if (typeof memory.createBackup !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供备份接口（请升级 @restregular/dsh-memory）')
+      if (typeof memory.createBackup !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供备份接口（请升级 @hanpu5838/dsh-memory）')
       const result = memory.createBackup()
       console.log(`[dsh-memory-panel] 创建本地备份 ${result.name}（${result.records} 条 / ${(result.bytes / 1024).toFixed(1)} KB）`)
       writeJson(res, { ok: true, value: result })
       return
     }
     if (method === 'POST' && path === '/backups/restore') {
-      if (typeof memory.restoreBackup !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供备份接口（请升级 @restregular/dsh-memory）')
+      if (typeof memory.restoreBackup !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供备份接口（请升级 @hanpu5838/dsh-memory）')
       const body = await readJsonBody(req)
       const name = String(body.name ?? '')
       if (name === '') {
@@ -2042,7 +2042,7 @@ async function handle(ctx, routePath, req, res) {
       return
     }
     if (method === 'POST' && path === '/restore') {
-      if (typeof memory.restoreRecord !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供恢复接口（请升级 @restregular/dsh-memory）')
+      if (typeof memory.restoreRecord !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供恢复接口（请升级 @hanpu5838/dsh-memory）')
       const body = await readJsonBody(req)
       const id = String(body.id ?? '')
       if (id === '') throw new ApiError(400, 'RECORD_NOT_FOUND', '缺少 id')
@@ -2053,7 +2053,7 @@ async function handle(ctx, routePath, req, res) {
       return
     }
     if (method === 'POST' && path === '/consolidate') {
-      if (typeof memory.consolidateNow !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供巩固接口（请升级 @restregular/dsh-memory）')
+      if (typeof memory.consolidateNow !== 'function') throw new ApiError(501, 'NOT_SUPPORTED', 'provider 未提供巩固接口（请升级 @hanpu5838/dsh-memory）')
       const out = memory.consolidateNow()
       store.scheduleFlush()
       writeJson(res, { ok: true, value: out })

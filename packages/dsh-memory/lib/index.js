@@ -1,5 +1,5 @@
 /**
- * @restregular/dsh-memory —— 单入口插件(一个包,一条 Loader entry)。
+ * @hanpu5838/dsh-memory —— 单入口插件(一个包,一条 Loader entry)。
  *
  * 为什么必须是一条 entry:
  *   宿主的 dsh-client-modules 只为「有活 Loader entry、且那条 entry 能解析到包名」

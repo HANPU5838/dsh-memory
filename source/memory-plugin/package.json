@@ -1,5 +1,5 @@
 {
-  "name": "@restregular/dsh-memory",
+  "name": "@hanpu5838/dsh-memory",
   "version": "0.2.0",
   "type": "module",
   "description": "DSH 记忆系统插件(单包单入口):provider + 八个模型工具 + 自动召回注入 + 管理面板",

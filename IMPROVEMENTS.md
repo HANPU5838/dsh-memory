@@ -5,6 +5,10 @@
 > 以下为自维护以来的完整改进清单（每一项都有源码改动 + 回归测试，不是临时补丁），
 > 安装、发布、更新**只以本仓库为准**。
 
+## 1.12.3
+
+- 包名改为 `@hanpu5838/dsh-memory`，与上游条目区分，满足插件市场独立包名要求；功能与 1.12.2 一致。
+
 ## 1.12.2
 
 - 修复联想空态提示不触发：coreBlocks 固定返回三个键，按 key 数量判断恒为真；改为按值判断。
@@ -567,10 +571,10 @@ memory/record-forgotten{ scope, ids }
 
 ```bash
 git clone https://github.com/HANPU5838/dsh-memory
-node tools/build-single-package.mjs --scope @restregular --version 0.30.1 \
+node tools/build-single-package.mjs --scope @hanpu5838 --version 0.30.1 \
   --repo https://github.com/HANPU5838/dsh-memory
 # 把 packages/dsh-memory/ 覆盖进 DSH profile：
-#   <profile>/node_modules/@restregular/dsh-memory/
+#   <profile>/node_modules/@hanpu5838/dsh-memory/
 ```
 
 > DSH 实际加载的是 `packages/dsh-memory/lib/**`，只改 `source/` 不构建不生效。

@@ -1,7 +1,7 @@
 /**
  * 把四个源半边打成一个 npm 包:`@scope/dsh-memory`(单包单入口)。
  *
- *   node tools/build-single-package.mjs --scope @restregular [--version 0.2.0]
+ *   node tools/build-single-package.mjs --scope @hanpu5838 [--version 0.2.0]
  *        [--out .build/single] [--repo https://github.com/...] [--no-place]
  *        [--host-modules <dir>]     # 做真实加载验证用的宿主包目录(可选)
  *
@@ -175,7 +175,8 @@ const PATCH = `# ${NAME} bundle patch: 单包单入口 —— provider + 模型�
 
 const MIT_LICENSE = `MIT License
 
-Copyright (c) 2026 ${OWNER}
+Copyright (c) 2026 restregular (original author)
+Copyright (c) 2026 ${OWNER} (independent maintenance fork)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -316,7 +317,7 @@ if (meta.dsh?.client?.platform !== 'web') { console.error('PACKAGE FAIL: missing
 if (meta.exports?.['./client'] !== './lib/client.js') { console.error('PACKAGE FAIL: missing exports["./client"]'); bad++ }
 // 显示名 / 描述:宿主只读包内 locale/<lang>.json,而且必须能通过 exports 解析到
 // (Node ESM 解析)。缺任何一步都**静默**回退成包名 / package.json description ——
-// 插件列表里就还是 @restregular/dsh-memory 那一长串。
+// 插件列表里就还是 @hanpu5838/dsh-memory 那一长串。
 for (const lang of ['en', 'zh']) {
   const file = join(OUT, 'locale', `${lang}.json`)
   if (!existsSync(file)) { console.error(`LOCALE FAIL: missing locale/${lang}.json`); bad++; continue }

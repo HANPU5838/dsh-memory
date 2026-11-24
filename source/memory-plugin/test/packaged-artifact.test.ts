@@ -44,7 +44,7 @@ test('0.102.0：产物版本与根 package.json 版本一致', () => {
   const root = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
   const packed = JSON.parse(need('package.json'))
   assert.equal(packed.version, root.version, '产物版本落后于仓库版本——先跑 npm run build')
-  assert.equal(packed.name, '@restregular/dsh-memory')
+  assert.equal(packed.name, '@hanpu5838/dsh-memory')
 })
 
 test('单包声明:一个包同时带 host patch 与 client bundle', () => {

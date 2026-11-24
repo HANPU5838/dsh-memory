@@ -218,7 +218,7 @@ patch 里给 \`dsh-memory-local\` 传配置即可（默认值通常够用）：
 | **卸载向量服务** | 删掉插件下载的 llama.cpp 运行时 + 模型 + 日志（约 480 MB） | 只删 \`retrieval.vector.autoInstall.dir\`（默认 storeDir 上一级）里的东西；**绝不碰记忆数据目录**；若 \`spawn.exe\` 指向该根目录之外（也就是你自己装的 llama.cpp），直接拒绝并说明原因 |
 | **清空记忆数据** | 删除所有作用域的全部记录（走 store，JSONL 与 \`.vec\` 边车保持一致，不会删出半个库） | 两步确认，且接口要求显式 \`confirm: "delete"\`，缺了不执行 |
 
-**卸载插件本身**：在 DSH 的「插件 / 插件市场」里移除本包和 \`@restregular/dsh-memory-panel\`。
+**卸载插件本身**：在 DSH 的「插件 / 插件市场」里移除本包和 \`@hanpu5838/dsh-memory-panel\`。
 
 > ⚠️ DSH 卸载插件只是在 profile 里 \`pnpm remove\` 并去掉 bundles 条目：它**不会**给插件任何提问机会，也**不会**自动删除向量服务文件或记忆数据。所以"要不要留向量服务""要不要留记忆数据"这两件事要在卸载**之前**到面板「维护」区处理——插件卸载后那个面板也就没了。
 >

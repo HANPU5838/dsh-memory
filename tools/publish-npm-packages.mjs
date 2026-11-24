@@ -1,7 +1,7 @@
 /**
- * Publish @restregular/dsh-memory to npm.
+ * Publish @hanpu5838/dsh-memory to npm.
  *
- *   node tools/publish-npm-packages.mjs --scope @restregular [--version 0.5.0] [--dry-run]
+ *   node tools/publish-npm-packages.mjs --scope @hanpu5838 [--version 0.5.0] [--dry-run]
  *        [--credential npm-agent-use]     # devcred 凭据名(默认 npm-agent-use)
  *        [--token-file <npmrc-or-token-file>]
  *        [--skip-checks]

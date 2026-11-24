@@ -80,7 +80,7 @@ function stepTests() {
 // ───────────────────────── 2. 构建单包 ─────────────────────────
 function stepBuild() {
   rmSync(OUT, { recursive: true, force: true })
-  const result = run(['tools/build-single-package.mjs', '--scope', '@restregular', '--version', pkg.version, '--out', OUT, '--no-place'], { timeoutMs: 600_000 })
+  const result = run(['tools/build-single-package.mjs', '--scope', '@hanpu5838', '--version', pkg.version, '--out', OUT, '--no-place'], { timeoutMs: 600_000 })
   const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
   const ok = result.status === 0 && output.includes('BUILD OK')
   const line = /built ([^:]+): (\d+) files, ([^\n]+) ->/u.exec(output)

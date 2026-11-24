@@ -1,5 +1,5 @@
 {
-  "name": "@restregular/dsh-memory-panel",
+  "name": "@hanpu5838/dsh-memory-panel",
   "version": "0.2.0",
   "description": "DSH web plugin: memory panel — browse, search, edit and inspect local memory records from the settings page.",
   "icon": "./icon.svg",

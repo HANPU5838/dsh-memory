@@ -105,7 +105,7 @@ if (offline) {
 if (skipPlugin) {
   warn('本地插件版本', '--skip-plugin 已跳过')
 } else {
-  const installed = join(profile, 'node_modules', '@restregular', 'dsh-memory', 'package.json')
+  const installed = join(profile, 'node_modules', '@hanpu5838', 'dsh-memory', 'package.json')
   if (!existsSync(installed)) {
     warn('本地插件版本', `未安装到 ${profile}（发布后执行 remove_bundle + install_bundle）`)
   } else {

@@ -2,6 +2,13 @@
 
 本项目的版本记录。安装 id 与 npm 版本一一对应。
 
+## 1.12.3 — 独立包名（2026-11-24）
+
+- 包名从 `@restregular/dsh-memory` 改为 `@hanpu5838/dsh-memory`：与上游 `@restregular/dsh-memory`
+  条目区分，满足插件市场「独立包名」的收录要求。
+- 构建 scope、cordis entry、client 注册 id、README 安装命令与徽章同步更新。
+- 功能与 1.12.2 一致，无行为变更。
+
 ## 1.12.2 — 修复联想空态提示不触发（2026-11-22）
 
 - 1.12.1 的提示按 `Object.keys(coreBlocks()).length` 判断是否为空，而 provider 永远返回
@@ -1665,7 +1672,7 @@ provider 的 `getByIds()`，而 0.33.0 把取用反馈写在了 `getByIds()` 里
 
 ## 0.31.0 — 平台适配 · 插件化 · 可靠性（本仓库维护，2026-11-08）
 
-> 上游 `@restregular/dsh-memory` 的 npm 最新版仍是 0.30.1；本版本是本仓库在其之上的完整改进，
+> 上游 `@hanpu5838/dsh-memory` 的 npm 最新版仍是 0.30.1；本版本是本仓库在其之上的完整改进，
 > 详情见 [IMPROVEMENTS.md](IMPROVEMENTS.md) 与 [docs/architecture.md](docs/architecture.md)。
 
 **平台适配**：symbolic-link 安全的 tar 解压（llama.cpp 的 SONAME 链）、Termux glibc 自动包装
@@ -1704,7 +1711,7 @@ CPU/内存/磁盘/权限探测统一到 `platform.ts`。
 ## 2026-11-08 — 平台适配与健壮性改进（本仓库维护，上游尚未收录）
 
 > 这一批是本仓库对项目的**实质性完善**，不是临时补丁：安装器、服务生命周期、存储层、检索超时都有对应源码改动与回归测试。
-> 上游 npm 包 `@restregular/dsh-memory@0.30.1` 不含这些改动；清单与上游同步方法见 [IMPROVEMENTS.md](IMPROVEMENTS.md)。
+> 上游 npm 包 `@hanpu5838/dsh-memory@0.30.1` 不含这些改动；清单与上游同步方法见 [IMPROVEMENTS.md](IMPROVEMENTS.md)。
 
 **安装器（embed-install）**
 - tar.gz 符号链接/硬链接：两遍写盘 + 多轮重试（链接可能互相依赖），软链建不出来（FAT/exFAT、共享存储）自动退化为复制真实文件；越界链接目标直接拒绝。llama.cpp 的 Linux 包靠两级 SONAME 软链，缺了就 `cannot open shared object file`。
@@ -2575,7 +2582,7 @@ CPU/内存/磁盘/权限探测统一到 `platform.ts`。
   - 现在每个会话记住每条规则 id 在**上一轮开始时**的渲染行:新增 → 补;同一 id 的行变了(编辑)→ 补,即使系统提示已经刷新;没变 → 不补。编辑回旧文本也算"变了",会补一次。
   - 宿主重启 / 第一次见到某个会话时没有快照,用「系统提示 + 历史增量块」里已经出现的规则行做种子,所以不会整批重提醒。
 - **0.9.1** —— 插件列表只显示包名的问题:**加了显示名与图标**。
-  - 宿主 `readPluginMeta` 只读包内 `locale/<lang>.json` 的 `meta.title` / `meta.description`(且必须能通过 `exports` 解析),缺失就回退成包名 —— 所以插件列表里一直是 `@restregular/dsh-memory` + 一长串 `package.json` 描述。现在 `locale/zh.json` 显示「**长期记忆**」,`locale/en.json` 显示「Long-term Memory」,描述也压成一行。
+  - 宿主 `readPluginMeta` 只读包内 `locale/<lang>.json` 的 `meta.title` / `meta.description`(且必须能通过 `exports` 解析),缺失就回退成包名 —— 所以插件列表里一直是 `@hanpu5838/dsh-memory` + 一长串 `package.json` 描述。现在 `locale/zh.json` 显示「**长期记忆**」,`locale/en.json` 显示「Long-term Memory」,描述也压成一行。
   - 图标从蓝色芯片换成**年轮**:深咖 `#3B2D20 → #120E0A` 圆角瓦片 + 香槟金 `#F8E2B4 → #BF8230` 螺旋(记忆是时间累积出来的年轮)。刻意避开插件列表里扎堆的蓝/白底,30px 行高下仍是一条完整的线。
   - **升级后需要重启一次 DSH**:宿主的 Node 进程会缓存 `package.json` 的 `exports` 映射。如果宿主启动时解析过**没有 locale 导出**的旧版,原地更新后列表会暂时仍显示包名(图标/描述已经是新的 —— 它们直接读文件);重启一次桌面端就恢复,之后的版本更新不再需要。
   - 构建与产物测试补了护栏:`locale` 两个文件 + `exports` 放行 + `icon.svg` 体积/格式,任何一项缺失都会构建失败(否则只会静默显示成包名)。

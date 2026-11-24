@@ -1995,10 +1995,10 @@ export function memoryScopesTool(opts                    )                      
           throw new MemoryToolError('EDIT_NOTHING_TO_UPDATE', 'action="edit" 至少要给 scopeDescription 或 scopeName 之一（想清空用途传空串，想移除别名传空串）')
         }
         if (typeof service.describeScope !== 'function' && wantDescription) {
-          throw new MemoryToolError('SCOPES_UNAVAILABLE', '当前 provider 不支持编辑作用域用途（请升级 @restregular/dsh-memory）')
+          throw new MemoryToolError('SCOPES_UNAVAILABLE', '当前 provider 不支持编辑作用域用途（请升级 @hanpu5838/dsh-memory）')
         }
         if (typeof service.renameScope !== 'function' && wantName) {
-          throw new MemoryToolError('SCOPES_UNAVAILABLE', '当前 provider 不支持编辑作用域别名（请升级 @restregular/dsh-memory）')
+          throw new MemoryToolError('SCOPES_UNAVAILABLE', '当前 provider 不支持编辑作用域别名（请升级 @hanpu5838/dsh-memory）')
         }
         const resolved = resolveScope(opts, service, exec, rawScope, 'write')
         if (resolved.all === true) {
@@ -2045,7 +2045,7 @@ export function memoryScopesTool(opts                    )                      
 
       if (args.action === 'request') {
         if (typeof service.requestScopeGrants !== 'function') {
-          throw new MemoryToolError('SCOPES_UNAVAILABLE', '当前 provider 不支持作用域权限申请（请升级 @restregular/dsh-memory）')
+          throw new MemoryToolError('SCOPES_UNAVAILABLE', '当前 provider 不支持作用域权限申请（请升级 @hanpu5838/dsh-memory）')
         }
         const rawScopes = Array.isArray(args.scopes)
           ? args.scopes.map((scope) => String(scope).trim()).filter((scope) => scope !== '')
@@ -2097,7 +2097,7 @@ export function memoryScopesTool(opts                    )                      
       }
 
       if (typeof service.scopeCatalog !== 'function') {
-        throw new MemoryToolError('SCOPES_UNAVAILABLE', '当前 provider 不支持作用域目录（请升级 @restregular/dsh-memory）')
+        throw new MemoryToolError('SCOPES_UNAVAILABLE', '当前 provider 不支持作用域目录（请升级 @hanpu5838/dsh-memory）')
       }
       let all                         
       try {
@@ -2239,7 +2239,7 @@ export function memoryGetTool(opts                    )                         
         : []
       if (ids.length === 0) throw toolError(new Error('ids 不能为空'))
       if (typeof service.getByIds !== 'function') {
-        throw toolError(new Error('当前 provider 不支持 memory_get（请升级 @restregular/dsh-memory）'))
+        throw toolError(new Error('当前 provider 不支持 memory_get（请升级 @hanpu5838/dsh-memory）'))
       }
       const fields = resolveGetFields(args.fields)
       const chars = resolveSummaryChars(args.summaryChars)
@@ -2393,7 +2393,7 @@ export function memoryBlockTool(opts                    )                       
         return { action, outcome: 'listed', blocks }
       }
       if (typeof service.requestBlock !== 'function') {
-        throw toolError(new MemoryToolError('UNSUPPORTED', '当前 provider 不支持屏蔽（请升级 @restregular/dsh-memory 到 0.32.0+）'))
+        throw toolError(new MemoryToolError('UNSUPPORTED', '当前 provider 不支持屏蔽（请升级 @hanpu5838/dsh-memory 到 0.32.0+）'))
       }
       const level                          = args.level === 'workspace' ? 'workspace' : 'session'
       const scope = typeof args.scope === 'string' ? args.scope.trim() : ''
@@ -2403,7 +2403,7 @@ export function memoryBlockTool(opts                    )                       
           throw toolError(new MemoryToolError('TARGET_REQUIRED', 'unblock 需要 scope 或 id'))
         }
         if (typeof service.unblock !== 'function') {
-          throw toolError(new MemoryToolError('UNSUPPORTED', '当前 provider 不支持解除屏蔽（请升级 @restregular/dsh-memory 到 0.32.0+）'))
+          throw toolError(new MemoryToolError('UNSUPPORTED', '当前 provider 不支持解除屏蔽（请升级 @hanpu5838/dsh-memory 到 0.32.0+）'))
         }
         const results = service.unblock(agent, {
           ...(args.level !== undefined ? { level } : {}),
@@ -2513,7 +2513,7 @@ function findHook(service                   , raw        )                 {
   const needle = raw.trim()
   if (needle === '') throw new MemoryToolError('HOOK_ID_REQUIRED', '需要 id：先用 action="list" 看现有钩子')
   if (typeof service.listHooks !== 'function') {
-    throw new MemoryToolError('HOOKS_UNSUPPORTED', '当前 memory provider 不支持记忆钩子（请升级 @restregular/dsh-memory）')
+    throw new MemoryToolError('HOOKS_UNSUPPORTED', '当前 memory provider 不支持记忆钩子（请升级 @hanpu5838/dsh-memory）')
   }
   const all = service.listHooks()
   const exact = all.find((hook) => hook.id === needle)
@@ -2566,7 +2566,7 @@ export function memoryHooksTool(opts                    )                       
       const agent = agentOf(exec)
       requireDescription(service, agent, args.description)
       if (typeof service.listHooks !== 'function') {
-        throw new MemoryToolError('HOOKS_UNSUPPORTED', '当前 memory provider 不支持记忆钩子（请升级 @restregular/dsh-memory）')
+        throw new MemoryToolError('HOOKS_UNSUPPORTED', '当前 memory provider 不支持记忆钩子（请升级 @hanpu5838/dsh-memory）')
       }
       const action = args.action
       const settings = typeof service.hookSettings === 'function' ? service.hookSettings() : undefined
@@ -2592,7 +2592,7 @@ export function memoryHooksTool(opts                    )                       
         const code = typeof args.code === 'string' ? args.code : ''
         if (code.trim() === '') throw new MemoryToolError('HOOK_CODE_REQUIRED', 'save 需要 code（脚本源码）')
         if (typeof service.saveHook !== 'function') {
-          throw new MemoryToolError('HOOKS_UNSUPPORTED', '当前 memory provider 不支持记忆钩子（请升级 @restregular/dsh-memory）')
+          throw new MemoryToolError('HOOKS_UNSUPPORTED', '当前 memory provider 不支持记忆钩子（请升级 @hanpu5838/dsh-memory）')
         }
         // 更新时省略的字段沿用旧值：脚本改了但作用域不想动是最常见的情况。
         const existing = args.id !== undefined && args.id !== '' ? findHook(service, args.id) : undefined
@@ -2694,7 +2694,7 @@ export function memoryHooksTool(opts                    )                       
         // 0.38.0：撤销批准 = 代码保留、变回待批准；未批准不会运行。与"停用"彻底分开。
         const hook = findHook(service, args.id ?? '')
         if (typeof service.revokeHookApproval !== 'function') {
-          throw new MemoryToolError('HOOKS_UNSUPPORTED', '当前 memory provider 不支持撤销批准（请升级 @restregular/dsh-memory）')
+          throw new MemoryToolError('HOOKS_UNSUPPORTED', '当前 memory provider 不支持撤销批准（请升级 @hanpu5838/dsh-memory）')
         }
         const revoked = service.revokeHookApproval(hook.id)
         const fresh = typeof service.getHook === 'function' ? service.getHook(hook.id) : undefined
@@ -2712,7 +2712,7 @@ export function memoryHooksTool(opts                    )                       
         const hook = findHook(service, args.id ?? '')
         if (action === 'disable') {
           if (typeof service.revokeHookApproval !== 'function') {
-            throw new MemoryToolError('HOOKS_UNSUPPORTED', '当前 memory provider 不支持撤销批准（请升级 @restregular/dsh-memory）')
+            throw new MemoryToolError('HOOKS_UNSUPPORTED', '当前 memory provider 不支持撤销批准（请升级 @hanpu5838/dsh-memory）')
           }
           const revoked = service.revokeHookApproval(hook.id)
           const fresh = typeof service.getHook === 'function' ? service.getHook(hook.id) : undefined
@@ -2737,7 +2737,7 @@ export function memoryHooksTool(opts                    )                       
       // run：拿一段正文试跑，不写记忆。这是唯一能"先看效果再上线"的入口。
       const hook = findHook(service, args.id ?? '')
       if (typeof service.runHookTrial !== 'function') {
-        throw new MemoryToolError('HOOKS_UNSUPPORTED', '当前 memory provider 不支持记忆钩子试跑（请升级 @restregular/dsh-memory）')
+        throw new MemoryToolError('HOOKS_UNSUPPORTED', '当前 memory provider 不支持记忆钩子试跑（请升级 @hanpu5838/dsh-memory）')
       }
       const content = typeof args.content === 'string' && args.content.trim() !== ''
         ? args.content
@@ -2811,7 +2811,7 @@ export function memoryCoreTool(opts                    )                        
       const agent = agentOf(exec)
       const action = typeof args.action === 'string' ? args.action : 'get'
       if (typeof service.coreSet !== 'function') {
-        throw toolError(new MemoryToolError('UNSUPPORTED', '当前 provider 不支持核心记忆块（请升级 @restregular/dsh-memory）'))
+        throw toolError(new MemoryToolError('UNSUPPORTED', '当前 provider 不支持核心记忆块（请升级 @hanpu5838/dsh-memory）'))
       }
       if (action === 'get') {
         // 空槽位是 undefined，直接返回会让工具结果不是合法 JSON（"not lossless JSON"）。
@@ -2856,7 +2856,7 @@ export function memoryMaintainTool(opts                    )                    
     async execute(args) {
       const service = svc(opts)
       if (typeof service.runHousekeeping !== 'function') {
-        throw toolError(new MemoryToolError('UNSUPPORTED', '当前 provider 不支持维护接口（请升级 @restregular/dsh-memory）'))
+        throw toolError(new MemoryToolError('UNSUPPORTED', '当前 provider 不支持维护接口（请升级 @hanpu5838/dsh-memory）'))
       }
       const result = service.runHousekeeping({ forcePurgeTombstones: args.purgeTombstones === true })
       return {
@@ -2883,12 +2883,12 @@ export function memoryInsightTool(opts                    )                     
     async execute(args, exec) {
       const service = svc(opts)
       if (typeof service.insightReport !== 'function') {
-        throw toolError(new MemoryToolError('UNSUPPORTED', '当前 provider 不支持自省报告（请升级 @restregular/dsh-memory）'))
+        throw toolError(new MemoryToolError('UNSUPPORTED', '当前 provider 不支持自省报告（请升级 @hanpu5838/dsh-memory）'))
       }
       const action = typeof args.action === 'string' ? args.action : 'report'
       if (action === 'associate') {
         if (typeof service.associativeRecall !== 'function') {
-          throw toolError(new MemoryToolError('UNSUPPORTED', '当前 provider 不支持自发联想（请升级 @restregular/dsh-memory）'))
+          throw toolError(new MemoryToolError('UNSUPPORTED', '当前 provider 不支持自发联想（请升级 @hanpu5838/dsh-memory）'))
         }
         const items = await service.associativeRecall()
         // 1.12.1：联想只认核心块做种子；块为空时给出可操作的下一步，而不是一句“没有结果”。
@@ -2903,7 +2903,7 @@ export function memoryInsightTool(opts                    )                     
       }
       if (action === 'tick') {
         if (typeof service.proactiveTick !== 'function') {
-          throw toolError(new MemoryToolError('UNSUPPORTED', '当前 provider 不支持认知节律（请升级 @restregular/dsh-memory）'))
+          throw toolError(new MemoryToolError('UNSUPPORTED', '当前 provider 不支持认知节律（请升级 @hanpu5838/dsh-memory）'))
         }
         const tick = await service.proactiveTick()
         // 顶层直接展开报告字段：渲染器按 totals/signals 读取，嵌套会显示成 0 条。

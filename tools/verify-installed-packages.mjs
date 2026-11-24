@@ -1,7 +1,7 @@
 /**
  * Verify the PUBLISHED packages the way a user's install looks.
  *
- *   node tools/verify-installed-packages.mjs <node_modules-parent-dir> [--scope @restregular]
+ *   node tools/verify-installed-packages.mjs <node_modules-parent-dir> [--scope @hanpu5838]
  *
  * The dir must contain node_modules/@scope/dsh-memory and .../dsh-memory-panel
  * (i.e. the result of `npm install @scope/dsh-memory @scope/dsh-memory-panel`).
@@ -21,7 +21,7 @@ import { createRequire } from 'node:module'
 const require = createRequire(import.meta.url)
 const dir = resolve(process.argv[2] ?? '')
 const scopeArg = process.argv.indexOf('--scope')
-const SCOPE = scopeArg >= 0 ? process.argv[scopeArg + 1] : '@restregular'
+const SCOPE = scopeArg >= 0 ? process.argv[scopeArg + 1] : '@hanpu5838'
 const CORE = `${SCOPE}/dsh-memory`
 const PANEL = `${SCOPE}/dsh-memory-panel`
 if (!dir || !existsSync(join(dir, 'node_modules'))) {

@@ -3,7 +3,7 @@
 # 发布包里的 patch 是**纯 insert、不带 config**(为了可热挂载:宿主的 hot-mount 只支持
 # 纯 insert 行,带 config/表达式就只能重启生效)。这里这份是开发期的配置样例。
 - id: dsh-memory
-  name: '@restregular/dsh-memory'
+  name: '@hanpu5838/dsh-memory'
   config:
     storeDir: !!js process.env.DSH_MEMORY_DIR ?? '.dsh-memory'
     scopes:

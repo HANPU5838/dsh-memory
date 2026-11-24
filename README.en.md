@@ -4,7 +4,7 @@
 
 **Local long-term memory for DeepSeek Harness: 11 tools · 4 recall channels · decays, consolidates, self-audits · data never leaves your machine**
 
-[![version](https://img.shields.io/badge/version-v1.12.2-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
+[![version](https://img.shields.io/badge/version-v1.12.3-4B9CD3.svg)](https://github.com/HANPU5838/dsh-memory/releases)
 [![ci](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/HANPU5838/dsh-memory/actions/workflows/ci.yml)
 [![stars](https://img.shields.io/github/stars/HANPU5838/dsh-memory?style=flat&color=DAA520)](https://github.com/HANPU5838/dsh-memory/stargazers)
 [![license](https://img.shields.io/badge/license-MIT-3DA639.svg)](LICENSE)
@@ -15,10 +15,10 @@
 
 </div>
 
-**Current version: v1.12.2** · [Release](https://github.com/HANPU5838/dsh-memory/releases) · [Changelog](CHANGELOG.md)
+**Current version: v1.12.3** · [Release](https://github.com/HANPU5838/dsh-memory/releases) · [Changelog](CHANGELOG.md)
 
 > This is the independently maintained edition of DSH Memory — the only source for code, releases,
-> issues, installs and updates. The package name `@restregular/dsh-memory` exists only to satisfy the
+> issues, installs and updates. The package name `@hanpu5838/dsh-memory` exists to give this fork its own identity apart from the upstream `@restregular/dsh-memory`; it also satisfies the
 > DSH loader entry. The original author and the MIT license are preserved in full (see [LICENSE](LICENSE)).
 
 ## Install in 30 seconds
@@ -175,4 +175,4 @@ DSH ships no built-in index source: the market is made of community indexes you 
 | [GGigHub/dsh-plugin-index](https://github.com/GGigHub/dsh-plugin-index) | ✅ Covered | Live GitHub search on `topic:dsh-plugin` |
 | [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) | ⏳ In review · [PR #18415](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/18415) | Once merged, flows into awesome-dsh-plugin.com, `dshmarket` and the AAAMECHANIC mirror |
 | [dshopen.org](https://dshopen.org/zh/) | ⏳ In review · [issue #764](https://github.com/polang233/dsh-plugin-index/issues/764) | Searchable on the site once accepted |
-| npm registry | ❌ Not published | GitHub install only; the package name remains the upstream `@restregular/dsh-memory` |
+| npm registry | ❌ Not published | GitHub install only; the package name remains the upstream `@hanpu5838/dsh-memory` |
