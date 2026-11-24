@@ -30,21 +30,6 @@ dsh plugin --profile web add "github:HANPU5838/dsh-memory#main"
 
 <img src="preview/memory-records.png" width="880" alt="DSH 记忆系统面板 · 记录页">
 
-## 分发渠道
-
-DSH 官方「插件 → 发现」本身不内置任何索引源，市场由社区索引组成；本项目的收录状态如下（2026-11-24）：
-
-| 渠道 | 状态 | 说明 |
-| --- | --- | --- |
-| GitHub（唯一维护源） | ✅ 可用 | `dsh plugin --profile web add "github:HANPU5838/dsh-memory#main"` |
-| [DSH Plugin Hub](https://dsh-plugin-hub-zeta.vercel.app) | ✅ 已收录 | 按 `dsh-plugin` topic 每 6 小时自动同步 |
-| [GGigHub/dsh-plugin-index](https://github.com/GGigHub/dsh-plugin-index) | ✅ 覆盖 | 按 `topic:dsh-plugin` 实时检索 |
-| [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) | ⏳ 审核中 · [PR #18415](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/18415) | 合并后自动进入 awesome-dsh-plugin.com、`dshmarket` 与 AAAMECHANIC 镜像 |
-| [dshopen.org](https://dshopen.org/zh/) | ⏳ 审核中 · [issue #764](https://github.com/polang233/dsh-plugin-index/issues/764) | 通过后可在站内搜索，并作为索引源添加 |
-| npm registry | ❌ 未发布 | 当前只走 GitHub 安装，包名仍为上游 `@restregular/dsh-memory` |
-
-> 索引源都遵循 DSH 的 plugin market index format 1，添加后即可在「发现」里浏览与安装。
-
 <div align="center">
 
 <a href="#支持这个项目"><img src="https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/preview/sponsor-qr.png" width="168" alt="赞赏码 · 感谢支持"></a>
@@ -534,3 +519,18 @@ DSH 记忆系统是免费的、本地的、没有付费墙的。写它的人没�
 - 本机向量检索由 [llama.cpp](https://github.com/ggml-org/llama.cpp) + bge-m3 提供。
 
 MIT License © RestRegular（原始版权）与 HANPU5838（本仓库维护）
+
+## 分发渠道
+
+DSH 官方「插件 → 发现」本身不内置任何索引源，市场由社区索引组成；本项目的收录状态如下（2026-11-24）：
+
+| 渠道 | 状态 | 说明 |
+| --- | --- | --- |
+| GitHub（唯一维护源） | ✅ 可用 | `dsh plugin --profile web add "github:HANPU5838/dsh-memory#main"` |
+| [DSH Plugin Hub](https://dsh-plugin-hub-zeta.vercel.app) | ✅ 已收录 | 按 `dsh-plugin` topic 每 6 小时自动同步 |
+| [GGigHub/dsh-plugin-index](https://github.com/GGigHub/dsh-plugin-index) | ✅ 覆盖 | 按 `topic:dsh-plugin` 实时检索 |
+| [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) | ⏳ 审核中 · [PR #18415](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/18415) | 合并后自动进入 awesome-dsh-plugin.com、`dshmarket` 与 AAAMECHANIC 镜像 |
+| [dshopen.org](https://dshopen.org/zh/) | ⏳ 审核中 · [issue #764](https://github.com/polang233/dsh-plugin-index/issues/764) | 通过后可在站内搜索，并作为索引源添加 |
+| npm registry | ❌ 未发布 | 当前只走 GitHub 安装，包名仍为上游 `@restregular/dsh-memory` |
+
+> 索引源都遵循 DSH 的 plugin market index format 1，添加后即可在「发现」里浏览与安装。

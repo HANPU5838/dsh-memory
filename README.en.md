@@ -34,19 +34,6 @@ then the bge-m3 model is downloaded automatically).
 
 <img src="https://raw.githubusercontent.com/HANPU5838/dsh-memory/main/preview/memory-records.png" width="880" alt="DSH Memory panel · records">
 
-## Distribution
-
-DSH ships no built-in index source: the market is made of community indexes you add by URL. Current listing status (2026-11-24):
-
-| Channel | Status | Notes |
-| --- | --- | --- |
-| GitHub (source of truth) | ✅ Available | `dsh plugin --profile web add "github:HANPU5838/dsh-memory#main"` |
-| [DSH Plugin Hub](https://dsh-plugin-hub-zeta.vercel.app) | ✅ Listed | Auto-synced every 6 hours from the `dsh-plugin` topic |
-| [GGigHub/dsh-plugin-index](https://github.com/GGigHub/dsh-plugin-index) | ✅ Covered | Live GitHub search on `topic:dsh-plugin` |
-| [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) | ⏳ In review · [PR #18415](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/18415) | Once merged, flows into awesome-dsh-plugin.com, `dshmarket` and the AAAMECHANIC mirror |
-| [dshopen.org](https://dshopen.org/zh/) | ⏳ In review · [issue #764](https://github.com/polang233/dsh-plugin-index/issues/764) | Searchable on the site once accepted |
-| npm registry | ❌ Not published | GitHub install only; the package name remains the upstream `@restregular/dsh-memory` |
-
 ## What it is
 
 **A memory store for your agent that does not forget, keeps itself organized, and checks its own health —
@@ -176,3 +163,16 @@ reports use [SECURITY.md](SECURITY.md). Translation help for this English README
 - Local embeddings are served by [llama.cpp](https://github.com/ggml-org/llama.cpp) with bge-m3.
 
 MIT License © RestRegular (original copyright) and HANPU5838 (this repository)
+
+## Distribution
+
+DSH ships no built-in index source: the market is made of community indexes you add by URL. Current listing status (2026-11-24):
+
+| Channel | Status | Notes |
+| --- | --- | --- |
+| GitHub (source of truth) | ✅ Available | `dsh plugin --profile web add "github:HANPU5838/dsh-memory#main"` |
+| [DSH Plugin Hub](https://dsh-plugin-hub-zeta.vercel.app) | ✅ Listed | Auto-synced every 6 hours from the `dsh-plugin` topic |
+| [GGigHub/dsh-plugin-index](https://github.com/GGigHub/dsh-plugin-index) | ✅ Covered | Live GitHub search on `topic:dsh-plugin` |
+| [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) | ⏳ In review · [PR #18415](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/18415) | Once merged, flows into awesome-dsh-plugin.com, `dshmarket` and the AAAMECHANIC mirror |
+| [dshopen.org](https://dshopen.org/zh/) | ⏳ In review · [issue #764](https://github.com/polang233/dsh-plugin-index/issues/764) | Searchable on the site once accepted |
+| npm registry | ❌ Not published | GitHub install only; the package name remains the upstream `@restregular/dsh-memory` |
